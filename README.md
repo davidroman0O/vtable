@@ -1,6 +1,6 @@
-# VTable: Virtualized Table & List Components for Terminal UI
+# VTable: Virtualized Components for Bubble Tea
 
-VTable is a Go package that provides efficient virtualized scrolling components for terminal user interfaces. It's designed to handle large datasets with minimal memory usage by only loading and rendering the visible portion of the data.
+VTable is a Go package that provides efficient virtualized scrolling components for the [Bubble Tea](https://github.com/charmbracelet/bubbletea) TUI framework. It's designed to handle large datasets with minimal memory usage by only loading and rendering the visible portion of the data.
 
 ![VTable Demo](./demo.gif)
 
@@ -11,7 +11,7 @@ VTable is a Go package that provides efficient virtualized scrolling components 
 - **Customizable styling** - Comprehensive theming system with multiple predefined themes
 - **Platform-specific keybindings** - Optimized controls for different operating systems
 - **Flexible formatting** - Customize the appearance of list items and table rows
-- **Bubble Tea integration** - Ready to use with the Bubble Tea TUI framework
+- **Seamless Bubble Tea integration** - Ready to use with the Bubble Tea TUI framework
 - **Search capability** - Find and jump to specific items in large datasets
 - **Threshold-based scrolling** - Smart viewport management that keeps the cursor position stable
 
