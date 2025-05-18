@@ -299,17 +299,6 @@ Then use it with:
 found := list.JumpToItem("id", 42)
 ```
 
-### Debugging
-
-Enable debug mode to see information about the viewport state:
-
-```go
-config := vtable.ViewportConfig{
-    // ... other settings ...
-    Debug: true,
-}
-```
-
 ## Full Example
 
 See the `examples` directory for complete working examples of both list and table components.
