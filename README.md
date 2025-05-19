@@ -2,6 +2,8 @@
 
 VTable is a Go library providing high-performance virtualized table and list components for terminal user interfaces built with [Bubble Tea](https://github.com/charmbracelet/bubbletea).
 
+![VTable Demo](./demo.gif)
+
 ## Features
 
 - Efficient rendering of large datasets through virtualization
