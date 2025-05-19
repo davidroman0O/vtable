@@ -1,29 +1,19 @@
-# VTable: Virtualized Table & List Components for Bubble Tea
+# VTable - A Virtualized Table and List Component for Bubble Tea
 
-VTable is a Go package that provides efficient virtualized scrolling components for the [Bubble Tea](https://github.com/charmbracelet/bubbletea) TUI framework. It's designed to handle large datasets with minimal memory usage by only loading and rendering the visible portion of the data.
-
-![VTable Demo](./demo.gif)
+VTable is a Go library providing high-performance virtualized table and list components for terminal user interfaces built with [Bubble Tea](https://github.com/charmbracelet/bubbletea).
 
 ## Features
 
-- **Virtualized rendering** - Only loads and renders visible data, efficiently handling datasets of any size
-- **Memory efficient** - Uses chunked data loading to minimize memory footprint
-- **Customizable styling** - Comprehensive theming system with multiple predefined themes
-- **Platform-specific keybindings** - Optimized controls for different operating systems
-- **Flexible formatting** - Customize the appearance of list items and table rows
-- **Seamless Bubble Tea integration** - Ready to use with the Bubble Tea TUI framework
-- **Search capability** - Find and jump to specific items in large datasets
-- **Threshold-based scrolling** - Smart viewport management that keeps the cursor position stable
-
-
-## Components
-
-VTable includes two main components:
-
-1. **Virtualized List** - For displaying simple lists of items
-2. **Virtualized Table** - For displaying tabular data with columns
-
-Both components handle pagination, scrolling, and selection without loading the entire dataset into memory.
+- Efficient rendering of large datasets through virtualization
+- Support for tables with customizable columns, headers, and borders
+- Virtualized lists with flexible data binding
+- Rich customization API - change appearance and behavior at runtime
+- Event callback system for responding to user interactions
+- Keyboard navigation with customizable keymaps
+- Platform-specific key bindings
+- Search and jump functionality
+- Built-in pagination and scrolling
+- Cursor thresholds for efficient scrolling
 
 ## Installation
 
@@ -33,279 +23,356 @@ go get github.com/davidroman0O/vtable
 
 ## Basic Usage
 
-### Virtualized List
+### Creating a List
 
 ```go
-package main
+// Create a data provider
+provider := &MyDataProvider{}
 
-import (
-	"fmt"
-	"os"
-
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/yourusername/vtable"
-)
-
-// Simple string data provider
-type StringListProvider struct {
-	items []string
+// Configure the viewport
+config := vtable.ViewportConfig{
+    Height:               10,
+    TopThresholdIndex:    2,
+    BottomThresholdIndex: 7,
+    ChunkSize:            20,
+    InitialIndex:         0,
 }
 
-func NewStringListProvider(count int) *StringListProvider {
-	items := make([]string, count)
-	for i := 0; i < count; i++ {
-		items[i] = fmt.Sprintf("Item %d", i)
-	}
-	return &StringListProvider{items: items}
+// Define styling
+theme := vtable.DefaultTheme()
+styleConfig := vtable.ThemeToStyleConfig(theme)
+
+// Define how items are formatted
+formatter := func(item MyItem, index int, isCursor bool, isTopThreshold bool, isBottomThreshold bool) string {
+    // Format your item here
+    return fmt.Sprintf("%d: %s", index, item.Name)
 }
 
-func (p *StringListProvider) GetTotal() int {
-	return len(p.items)
+// Create the Bubble Tea component
+listModel, err := vtable.NewTeaList(config, provider, styleConfig, formatter)
+if err != nil {
+    // Handle error
 }
 
-func (p *StringListProvider) GetItems(start, count int) ([]string, error) {
-	if start >= len(p.items) {
-		return []string{}, nil
-	}
+// Set up event handlers
+listModel.OnSelect(func(item MyItem, index int) {
+    fmt.Printf("Selected item: %s at index %d\n", item.Name, index)
+})
 
-	end := start + count
-	if end > len(p.items) {
-		end = len(p.items)
-	}
+listModel.OnHighlight(func(item MyItem, index int) {
+    fmt.Printf("Highlighted item: %s at index %d\n", item.Name, index)
+})
 
-	return p.items[start:end], nil
-}
-
-func main() {
-	// Configure viewport
-	config := vtable.ViewportConfig{
-		Height:               15,
-		TopThresholdIndex:    3,
-		BottomThresholdIndex: 11,
-		ChunkSize:            30,
-		InitialIndex:         0,
-	}
-
-	// Create data provider with 10,000 items
-	provider := NewStringListProvider(10000)
-
-	// Create list formatter
-	formatter := func(item string, index int, isCursor bool, isTopThreshold bool, isBottomThreshold bool) string {
-		prefix := "  "
-		if isCursor {
-			prefix = "> "
-		}
-		return prefix + fmt.Sprintf("%d: %s", index, item)
-	}
-
-	// Create list with default theme
-	list, err := vtable.NewTeaList(config, provider, vtable.ThemeToStyleConfig(vtable.DefaultTheme()), formatter)
-	if err != nil {
-		fmt.Printf("Error: %v\n", err)
-		os.Exit(1)
-	}
-
-	// Run the Bubble Tea program
-	p := tea.NewProgram(list)
-	if _, err := p.Run(); err != nil {
-		fmt.Printf("Error running program: %v\n", err)
-		os.Exit(1)
-	}
+// Use in your Bubble Tea application
+program := tea.NewProgram(listModel)
+if _, err := program.Run(); err != nil {
+    // Handle error
 }
 ```
 
-### Virtualized Table
+### Creating a Table
 
 ```go
-package main
+// Create a data provider
+provider := &MyTableProvider{}
 
-import (
-	"fmt"
-	"os"
-
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/yourusername/vtable"
-)
-
-// Example table data provider
-type TableDataProvider struct {
-	rows []vtable.TableRow
+// Define columns
+tableConfig := vtable.TableConfig{
+    Columns: []vtable.TableColumn{
+        {Title: "ID", Width: 10, Alignment: vtable.AlignLeft},
+        {Title: "Name", Width: 20, Alignment: vtable.AlignLeft},
+        {Title: "Value", Width: 15, Alignment: vtable.AlignRight},
+    },
+    ShowHeader:     true,
+    ShowBorders:    true,
+    ViewportConfig: viewportConfig,
 }
 
-func NewTableDataProvider(count int) *TableDataProvider {
-	rows := make([]vtable.TableRow, count)
-	for i := 0; i < count; i++ {
-		rows[i] = vtable.TableRow{
-			Cells: []string{
-				fmt.Sprintf("Row %d", i),
-				fmt.Sprintf("Value %d", i*10),
-				fmt.Sprintf("Description for item %d", i),
-			},
-		}
-	}
-	return &TableDataProvider{rows: rows}
+// Use a theme
+theme := vtable.ColorfulTheme()
+
+// Create the Bubble Tea component
+tableModel, err := vtable.NewTeaTable(tableConfig, provider, theme)
+if err != nil {
+    // Handle error
 }
 
-func (p *TableDataProvider) GetTotal() int {
-	return len(p.rows)
-}
+// Set up event handlers
+tableModel.OnSelect(func(row vtable.TableRow, index int) {
+    fmt.Printf("Selected row at index %d\n", index)
+})
 
-func (p *TableDataProvider) GetItems(start, count int) ([]vtable.TableRow, error) {
-	if start >= len(p.rows) {
-		return []vtable.TableRow{}, nil
-	}
-
-	end := start + count
-	if end > len(p.rows) {
-		end = len(p.rows)
-	}
-
-	return p.rows[start:end], nil
-}
-
-func main() {
-	// Configure viewport
-	config := vtable.ViewportConfig{
-		Height:               15,
-		TopThresholdIndex:    3,
-		BottomThresholdIndex: 11,
-		ChunkSize:            30,
-		InitialIndex:         0,
-	}
-
-	// Create table config
-	tableConfig := vtable.TableConfig{
-		Columns: []vtable.TableColumn{
-			{Title: "ID", Width: 10, Alignment: vtable.AlignLeft},
-			{Title: "Value", Width: 15, Alignment: vtable.AlignRight},
-			{Title: "Description", Width: 30, Alignment: vtable.AlignLeft},
-		},
-		ShowHeader:     true,
-		ShowBorders:    true,
-		ViewportConfig: config,
-	}
-
-	// Create data provider with 10,000 rows
-	provider := NewTableDataProvider(10000)
-
-	// Create table with dark theme
-	table, err := vtable.NewTeaTable(tableConfig, provider, vtable.DarkTheme())
-	if err != nil {
-		fmt.Printf("Error: %v\n", err)
-		os.Exit(1)
-	}
-
-	// Run the Bubble Tea program
-	p := tea.NewProgram(table)
-	if _, err := p.Run(); err != nil {
-		fmt.Printf("Error running program: %v\n", err)
-		os.Exit(1)
-	}
+// Use in your Bubble Tea application
+program := tea.NewProgram(tableModel)
+if _, err := program.Run(); err != nil {
+    // Handle error
 }
 ```
 
-## Styling and Theming
+## Customization
 
-VTable comes with several predefined themes:
+### Runtime Customization
 
-- `DefaultTheme()` - A standard gray/white theme
-- `DarkTheme()` - Dark-colored theme
-- `LightTheme()` - Light-colored theme
-- `ColorfulTheme()` - Colorful theme with distinct colors
-
-You can also create custom themes:
+VTable allows for dynamic customization at runtime without recreating components:
 
 ```go
+// For both List and Table components:
+
+// Update a list's styling (theme)
+myList.SetStyle(newStyleConfig)
+
+// Update a table's theme
+myTable.SetTheme(newTheme)
+
+// Change the data provider
+myList.SetDataProvider(newProvider)
+myTable.SetDataProvider(newTableProvider)
+
+// Refresh data when the source has changed
+myList.RefreshData()
+myTable.RefreshData()
+
+// Update the formatter function
+myList.SetFormatter(newFormatter)
+
+// Table-specific customization
+myTable.SetColumns(newColumns)
+myTable.SetHeaderVisibility(false) // Hide header
+myTable.SetBorderVisibility(true)  // Show borders
+
+// Programmatically control the components
+myList.HandleKeypress("j") // Simulate pressing 'j' (down)
+myTable.JumpToIndex(42)    // Jump to a specific row
+```
+
+### Event Callbacks
+
+VTable provides a rich event system to respond to user interactions:
+
+```go
+// Respond to item selection (Enter key)
+myList.OnSelect(func(item MyItem, index int) {
+    // Handle selection
+})
+
+// Respond to cursor movement
+myList.OnHighlight(func(item MyItem, index int) {
+    // Update details panel, etc.
+})
+
+// Respond to scrolling
+myList.OnScroll(func(state vtable.ViewportState) {
+    // Update scrollbar or other UI elements
+})
+
+// Same callbacks available for tables
+myTable.OnSelect(func(row vtable.TableRow, index int) {
+    // Handle row selection
+})
+```
+
+### Themes
+
+VTable comes with several built-in themes:
+
+```go
+// Use a built-in theme
+theme := vtable.DefaultTheme()  // Default theme
+theme := vtable.DarkTheme()     // Dark theme
+theme := vtable.LightTheme()    // Light theme
+theme := vtable.ColorfulTheme() // Colorful theme
+
+// Customize border characters
+theme.BorderChars = vtable.RoundedBorderCharacters()
+theme.BorderChars = vtable.ThickBorderCharacters()
+theme.BorderChars = vtable.DoubleBorderCharacters()
+theme.BorderChars = vtable.AsciiBoxCharacters()
+
+// Create a custom theme
 myTheme := vtable.Theme{
     BorderStyle:          lipgloss.NewStyle().Foreground(lipgloss.Color("63")),
     HeaderBorderStyle:    lipgloss.NewStyle().Foreground(lipgloss.Color("63")),
-    HeaderStyle:          lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("15")).Background(lipgloss.Color("57")),
+    HeaderStyle:          lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("252")).Background(lipgloss.Color("57")),
     RowStyle:             lipgloss.NewStyle().Foreground(lipgloss.Color("252")),
     RowEvenStyle:         lipgloss.NewStyle().Foreground(lipgloss.Color("252")),
     RowOddStyle:          lipgloss.NewStyle().Foreground(lipgloss.Color("245")),
-    SelectedRowStyle:     lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("15")).Background(lipgloss.Color("63")),
+    SelectedRowStyle:     lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("252")).Background(lipgloss.Color("63")),
+    TopThresholdStyle:    lipgloss.NewStyle(), // Optional threshold styling
+    BottomThresholdStyle: lipgloss.NewStyle(), // Optional threshold styling
     BorderChars:          vtable.RoundedBorderCharacters(),
 }
+
+// Apply a theme to an existing table component
+myTable.SetTheme(theme)
 ```
 
-Border styles include:
-- `DefaultBorderCharacters()`
-- `RoundedBorderCharacters()`
-- `ThickBorderCharacters()`
-- `DoubleBorderCharacters()`
-- `AsciiBoxCharacters()`
+### Key Bindings
 
-## Keybindings
-
-VTable automatically configures platform-specific key bindings for different operating systems:
-
-### Default Keys (all platforms)
-- **Up/Down**: Navigate items
-- **g/G**: Go to start/end
-- **u/b**: Page up
-- **d/space**: Page down
-- **f/slash/**: Search
-- **Enter**: Select
-- **Esc/q**: Back/quit
-
-## Architecture
-
-### Data Provider Interface
-
-VTable uses a data provider interface to fetch data efficiently:
+VTable supports customizable key bindings:
 
 ```go
+// Get current keymap
+currentKeyMap := myTableModel.GetKeyMap()
+
+// Create a custom keymap
+customKeyMap := currentKeyMap
+
+// Modify specific bindings
+customKeyMap.PageUp = key.NewBinding(
+    key.WithKeys("u", "b", "space"),
+    key.WithHelp("space/u/b", "page up (customized)"),
+)
+
+// Apply the custom keymap
+myTableModel.SetKeyMap(customKeyMap)
+
+// Create a platform-specific keymap
+platformKeyMap := vtable.PlatformKeyMap()
+
+// Or create a keymap for a specific platform
+macKeyMap := vtable.MacOSKeyMap()
+linuxKeyMap := vtable.LinuxKeyMap()
+windowsKeyMap := vtable.WindowsKeyMap()
+```
+
+### Navigation Methods
+
+```go
+// Navigation
+model.MoveUp()
+model.MoveDown()
+model.PageUp()
+model.PageDown()
+model.JumpToStart()
+model.JumpToEnd()
+model.JumpToIndex(42)
+
+// Search
+found := model.JumpToItem("id", 42)
+
+// Get current state
+state := model.GetState()
+row, found := model.GetCurrentRow()
+
+// Focus handling
+model.Focus()
+model.Blur()
+isFocused := model.IsFocused()
+
+// Help text
+helpText := model.GetHelpView()
+```
+
+## Implementing Data Providers
+
+To use VTable, you need to implement the `DataProvider` interface:
+
+```go
+// Basic DataProvider interface
 type DataProvider[T any] interface {
-    // GetTotal returns the total number of items in the dataset
+    // GetTotal returns the total number of items
     GetTotal() int
     
     // GetItems returns a slice of items in the specified range
     GetItems(start, count int) ([]T, error)
 }
 
-// For searchable data sources
+// Example list provider
+type MyListProvider struct {
+    items []MyItem
+}
+
+func (p *MyListProvider) GetTotal() int {
+    return len(p.items)
+}
+
+func (p *MyListProvider) GetItems(start, count int) ([]MyItem, error) {
+    if start >= len(p.items) {
+        return []MyItem{}, nil
+    }
+
+    end := start + count
+    if end > len(p.items) {
+        end = len(p.items)
+    }
+
+    return p.items[start:end], nil
+}
+
+// Optional SearchableDataProvider for search capabilities
 type SearchableDataProvider[T any] interface {
     DataProvider[T]
     
     // FindItemIndex searches for an item based on the given criteria
     FindItemIndex(key string, value any) (int, bool)
 }
-```
 
-### Viewport Management
-
-VTable manages the viewport with a threshold-based approach:
-- The cursor stays fixed within thresholds (top and bottom threshold rows)
-- When the cursor reaches a threshold, the viewport scrolls to keep the cursor at the threshold
-
-## Advanced Usage
-
-### Search Functionality
-
-To enable search, implement the `SearchableDataProvider` interface:
-
-```go
-func (p *MyDataProvider) FindItemIndex(key string, value any) (int, bool) {
-    // Implement search logic here
-    // Return the index of the found item and true if found
-    // Return -1 and false if not found
+// Example implementation of search
+func (p *MyListProvider) FindItemIndex(key string, value any) (int, bool) {
+    if key == "id" {
+        id, ok := value.(int)
+        if !ok {
+            return -1, false
+        }
+        
+        for i, item := range p.items {
+            if item.ID == id {
+                return i, true
+            }
+        }
+    }
+    
+    return -1, false
 }
 ```
 
-Then use it with:
+## Common Patterns
+
+### Updating Live Data
 
 ```go
-// Jump to an item with a specific value
-found := list.JumpToItem("id", 42)
+// When your data source changes
+func UpdateData() {
+    // Update the data source
+    myDataSource.AddItem(newItem)
+    
+    // Tell the list to refresh
+    myList.RefreshData()
+    
+    // Or completely swap out the provider
+    myList.SetDataProvider(newProvider)
+}
 ```
 
-## Full Example
+### Creating a Master/Detail View
 
-See the `examples` directory for complete working examples of both list and table components.
+```go
+// Set up a detail view updater
+myList.OnHighlight(func(item MyItem, index int) {
+    // Update your detail view with the highlighted item
+    detailView.SetContent(RenderItemDetails(item))
+})
+```
 
-## Contributing
+### Toggling UI Features at Runtime
 
-Contributions are welcome! Please feel free to submit a Pull Request.
+```go
+// Toggle table borders with a key press
+if msg.String() == "b" {
+    // Toggle borders
+    myTable.SetBorderVisibility(!showingBorders)
+    showingBorders = !showingBorders
+}
+
+// Toggle header with a key press
+if msg.String() == "h" {
+    // Toggle header
+    myTable.SetHeaderVisibility(!showingHeader) 
+    showingHeader = !showingHeader
+}
+```
+
+See the examples directory for complete examples of implementing data providers and building applications with VTable.
 
 ## License
 

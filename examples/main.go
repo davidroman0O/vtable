@@ -166,6 +166,9 @@ type Model struct {
 
 	// Currently pressed key (for help text highlighting)
 	activeKey string
+
+	// Terminal dimensions
+	termWidth int
 }
 
 // Search result message
@@ -320,17 +323,35 @@ func initialModel() (Model, error) {
 		currentTheme: currentTheme,
 		themes:       themes,
 		activeKey:    "", // No key is initially active
+		termWidth:    0,  // Initialize termWidth
 	}, nil
 }
 
 func (m Model) Init() tea.Cmd {
-	return textinput.Blink
+	// Request the window size on initialization
+	cmds := []tea.Cmd{
+		textinput.Blink,
+	}
+
+	// Add a command to get window size
+	cmds = append(cmds, func() tea.Msg {
+		return tea.WindowSizeMsg{
+			Width:  0, // We don't know the size yet, the terminal will fill it in
+			Height: 0,
+		}
+	})
+
+	return tea.Batch(cmds...)
 }
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmds []tea.Cmd
 
 	switch msg := msg.(type) {
+	case tea.WindowSizeMsg:
+		// Store the terminal width for our help text
+		m.termWidth = msg.Width
+		return m, nil
 	case tea.KeyMsg:
 		// If we're searching, handle search input
 		if m.searching {
@@ -384,6 +405,54 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 		case "D":
 			m.debug = !m.debug
+		case "m":
+			// Example of customizing keymaps
+			if m.activeView == viewList {
+				// Get current keymap
+				currentKeyMap := m.listModel.GetKeyMap()
+
+				// Create custom keymap based on current one
+				customKeyMap := currentKeyMap
+
+				// Modify some bindings - for example, swap up and down keys
+				upKeys := customKeyMap.Up.Keys()
+				downKeys := customKeyMap.Down.Keys()
+
+				customKeyMap.Up = key.NewBinding(
+					key.WithKeys(downKeys...),
+					key.WithHelp("↑", "up (customized)"),
+				)
+
+				customKeyMap.Down = key.NewBinding(
+					key.WithKeys(upKeys...),
+					key.WithHelp("↓", "down (customized)"),
+				)
+
+				// Apply the custom keymap
+				m.listModel.SetKeyMap(customKeyMap)
+				m.searchResult = "Custom keymap applied to list - up/down keys are swapped!"
+			} else {
+				// Do the same for table
+				currentKeyMap := m.tableModel.GetKeyMap()
+
+				// Create custom keymap based on current one
+				customKeyMap := currentKeyMap
+
+				// Modify some bindings
+				customKeyMap.PageUp = key.NewBinding(
+					key.WithKeys("u", "b", "space"), // Add space as PageUp
+					key.WithHelp("space/u/b", "page up (customized)"),
+				)
+
+				customKeyMap.PageDown = key.NewBinding(
+					key.WithKeys("d", "enter"), // Change to use enter for PageDown
+					key.WithHelp("enter/d", "page down (customized)"),
+				)
+
+				// Apply the custom keymap
+				m.tableModel.SetKeyMap(customKeyMap)
+				m.searchResult = "Custom keymap applied to table - PageUp/PageDown modified!"
+			}
 		case "tab":
 			// Simply toggle between views - each maintains its own state
 			if m.activeView == viewList {
@@ -403,30 +472,27 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			nextIndex := (currentIndex + 1) % len(themeKeys)
 			m.currentTheme = themeKeys[nextIndex]
-
-			// Apply new theme to table
 			newTheme := m.themes[m.currentTheme]
 
-			// Create a new table with the new theme
-			tableConfig := m.tableModel.Table.Config
-			tableProvider := m.tableModel.Table.List.DataProvider
-			newTableModel, err := vtable.NewTeaTable(tableConfig, tableProvider, newTheme)
-			if err == nil {
-				// Copy over state
-				newTableModel.JumpToIndex(m.tableModel.GetState().CursorIndex)
-				m.tableModel = newTableModel
+			// Update theme for Table and List WITHOUT recreating them
+			// This preserves cursor position exactly
+			if m.activeView == viewTable {
+				// For table, update the theme directly
+				m.tableModel.SetTheme(newTheme)
+				m.searchResult = fmt.Sprintf("Theme changed to %s (Table view)", m.currentTheme)
+			} else {
+				// For list, convert theme to style and update
+				styleConfig := vtable.ThemeToStyleConfig(newTheme)
+				m.listModel.SetStyle(styleConfig)
+				m.searchResult = fmt.Sprintf("Theme changed to %s (List view)", m.currentTheme)
 			}
-
-			// Update list styling
-			styleConfig := vtable.ThemeToStyleConfig(newTheme)
-			m.listModel.List.StyleConfig = styleConfig
 		default:
 			// Check if this is a search key based on current model's key bindings
 			var isSearchKey bool
 			if m.activeView == viewList {
-				isSearchKey = key.Matches(msg, m.listModel.KeyMap.Search)
+				isSearchKey = key.Matches(msg, m.listModel.GetKeyMap().Search)
 			} else {
-				isSearchKey = key.Matches(msg, m.tableModel.KeyMap.Search)
+				isSearchKey = key.Matches(msg, m.tableModel.GetKeyMap().Search)
 			}
 
 			if isSearchKey {
@@ -611,19 +677,58 @@ func (m Model) renderHelpText() string {
 		return highlightedKeyStyle.Render(key)
 	}
 
-	// Create help text with dynamic highlighting
-	helpText := fmt.Sprintf("%s/%s: navigate • %s/%s: page up/down • %s/%s: top/bottom • %s: search • %s: switch view • %s: cycle themes • %s: quit",
-		styleKey("j"),
-		styleKey("k"),
-		styleKey("u"),
-		styleKey("d"),
-		styleKey("g"),
-		styleKey("G"),
-		styleKey("f"),
-		styleKey("tab"),
-		styleKey("t"),
-		styleKey("q"),
-	)
+	// All help text items
+	helpItems := []string{
+		fmt.Sprintf("%s/%s: navigate", styleKey("j"), styleKey("k")),
+		fmt.Sprintf("%s: search", styleKey("f")),
+		fmt.Sprintf("%s: quit", styleKey("q")),
+		fmt.Sprintf("%s/%s: page up/down", styleKey("u"), styleKey("d")),
+		fmt.Sprintf("%s/%s: top/bottom", styleKey("g"), styleKey("G")),
+		fmt.Sprintf("%s: switch view", styleKey("tab")),
+		fmt.Sprintf("%s: cycle themes", styleKey("t")),
+		fmt.Sprintf("%s: keymap customize", styleKey("m")),
+		fmt.Sprintf("%s: toggle debug", styleKey("D")),
+	}
+
+	// Get current terminal width (or use default)
+	width := m.termWidth
+	if width <= 0 {
+		width = 80 // reasonable default
+	}
+
+	// Format help text with explicit line breaks for cleaner display
+	var lines []string
+	currentLine := ""
+	separator := " • "
+
+	for _, item := range helpItems {
+		// Check if adding this item would exceed the line width
+		testLine := currentLine
+		if len(currentLine) > 0 {
+			testLine += separator
+		}
+		testLine += item
+
+		// If we would exceed width, start a new line
+		if lipgloss.Width(testLine) > width && len(currentLine) > 0 {
+			lines = append(lines, currentLine)
+			currentLine = item
+		} else {
+			// Otherwise add to current line with separator if needed
+			if len(currentLine) > 0 {
+				currentLine += separator
+			}
+			currentLine += item
+		}
+	}
+
+	// Add the last line if not empty
+	if len(currentLine) > 0 {
+		lines = append(lines, currentLine)
+	}
+
+	// Join lines with carriage returns
+	helpText := strings.Join(lines, "\n")
 
 	return regularKeyStyle.Render(helpText)
 }
