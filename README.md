@@ -17,12 +17,9 @@ A high-performance, virtualized table and list component for [Bubble Tea](https:
 
 - **Virtualized rendering** - Efficiently displays thousands of rows with minimal memory footprint
 - **Flexible data binding** - Bring your own data provider with built-in sorting and filtering
-- **Multi-column sorting** - Sort by multiple columns with visual indicators (↑/↓)
+- **Multi-column sorting** - Sort by multiple columns 
 - **Advanced filtering** - Apply multiple filters simultaneously
-- **Responsive navigation** - Intuitive keyboard controls with platform-specific bindings
-- **Beautiful theming** - Multiple built-in themes with full customization support
-- **Live customization** - Change appearance and behavior at runtime
-- **Rich event system** - Detailed callbacks for selection, highlighting, scrolling, and more
+- **Rich event system** - Detailed callbacks for selection, scrolling, and more
 
 ## 📦 Installation
 
