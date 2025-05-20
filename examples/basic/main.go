@@ -28,10 +28,14 @@ func NewStringListProvider(count int) *StringListProvider {
 }
 
 func (p *StringListProvider) GetTotal() int {
+	// In a real implementation, this would adjust based on filters
 	return len(p.items)
 }
 
-func (p *StringListProvider) GetItems(start, count int) ([]string, error) {
+func (p *StringListProvider) GetItems(request vtable.DataRequest) ([]string, error) {
+	start := request.Start
+	count := request.Count
+
 	if start >= len(p.items) {
 		return []string{}, nil
 	}
@@ -91,10 +95,14 @@ func NewTableDataProvider(count int) *TableDataProvider {
 }
 
 func (p *TableDataProvider) GetTotal() int {
+	// In a real implementation, this would adjust based on filters
 	return len(p.rows)
 }
 
-func (p *TableDataProvider) GetItems(start, count int) ([]vtable.TableRow, error) {
+func (p *TableDataProvider) GetItems(request vtable.DataRequest) ([]vtable.TableRow, error) {
+	start := request.Start
+	count := request.Count
+
 	if start >= len(p.rows) {
 		return []vtable.TableRow{}, nil
 	}

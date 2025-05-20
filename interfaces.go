@@ -2,16 +2,66 @@
 // It efficiently handles large datasets by only loading and rendering the visible portion.
 package vtable
 
+// DataRequest represents a request for data with optional filtering and sorting.
+type DataRequest struct {
+	// Start is the index of the first item to return
+	Start int
+
+	// Count is the number of items to return
+	Count int
+
+	// SortFields specifies the fields to sort by in order of priority
+	SortFields []string
+
+	// SortDirections specifies the sort directions ("asc" or "desc") corresponding to SortFields
+	SortDirections []string
+
+	// Filters is a map of field names to filter values
+	Filters map[string]any
+}
+
+// AddSortField adds a sort field with direction to a DataRequest
+func (r *DataRequest) AddSortField(field string, direction string) {
+	// Normalize direction
+	if direction != "asc" && direction != "desc" {
+		direction = "asc" // Default to ascending
+	}
+
+	// Add the sort field and direction
+	r.SortFields = append(r.SortFields, field)
+	r.SortDirections = append(r.SortDirections, direction)
+}
+
+// ClearSort clears all sort fields and directions
+func (r *DataRequest) ClearSort() {
+	r.SortFields = nil
+	r.SortDirections = nil
+}
+
+// HasSort returns true if the request has any sort fields
+func (r *DataRequest) HasSort() bool {
+	return len(r.SortFields) > 0
+}
+
+// IsFieldSortedAscending checks if a field is sorted ascending
+// Returns: sorted ascending (true), sorted descending (false), not sorted (false, false)
+func (r *DataRequest) IsFieldSortedAscending(field string) (bool, bool) {
+	for i, f := range r.SortFields {
+		if f == field {
+			return r.SortDirections[i] == "asc", true
+		}
+	}
+	return false, false
+}
+
 // DataProvider is an interface for providing data to virtualized components.
 // It abstracts the data source and allows for different implementations.
 type DataProvider[T any] interface {
 	// GetTotal returns the total number of items in the dataset.
 	GetTotal() int
 
-	// GetItems returns a slice of items in the specified range.
-	// start is the index of the first item to return.
-	// count is the number of items to return.
-	GetItems(start, count int) ([]T, error)
+	// GetItems returns a slice of items based on the provided request.
+	GetItems(request DataRequest) ([]T, error)
 }
 
 // SearchableDataProvider extends DataProvider with search capabilities.
@@ -38,6 +88,9 @@ type TableColumn struct {
 
 	// Alignment defines how text is aligned in the column (left, right, center)
 	Alignment int
+
+	// Field is the identifier used for sorting/filtering operations
+	Field string
 }
 
 // ViewportState represents the current state of the viewport.

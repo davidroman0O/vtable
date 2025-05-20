@@ -2,6 +2,11 @@ package vtable
 
 // MoveUp moves the cursor up one position.
 func (l *List[T]) MoveUp() {
+	// Check if there's any data
+	if l.totalItems <= 0 {
+		return
+	}
+
 	// Can't move up if already at the beginning
 	if l.State.CursorIndex <= 0 {
 		return
@@ -49,6 +54,11 @@ func (l *List[T]) MoveUp() {
 
 // MoveDown moves the cursor down one position.
 func (l *List[T]) MoveDown() {
+	// Check if there's any data
+	if l.totalItems <= 0 {
+		return
+	}
+
 	// Can't move down if already at the end
 	if l.State.CursorIndex >= l.totalItems-1 {
 		return
@@ -58,6 +68,15 @@ func (l *List[T]) MoveDown() {
 
 	// Update cursor index
 	l.State.CursorIndex++
+
+	// Ensure we don't exceed actual data count
+	if l.State.CursorIndex >= l.totalItems {
+		l.State.CursorIndex = l.totalItems - 1
+		// If we're already at the last item, no need to continue
+		if l.State.CursorIndex == previousState.CursorIndex {
+			return
+		}
+	}
 
 	// Handle bottom threshold logic
 	if previousState.IsAtBottomThreshold && !l.State.AtDatasetEnd {
@@ -81,6 +100,27 @@ func (l *List[T]) MoveDown() {
 			// Cursor stays at the bottom row in the viewport
 			l.State.CursorViewportIndex = l.Config.Height - 1
 		}
+	}
+
+	// Make sure cursor viewport index is in bounds and doesn't go beyond actual data
+	maxViewportIndex := l.Config.Height - 1
+
+	// If we're near the end, adjust to not exceed actual data
+	remainingItems := l.totalItems - l.State.ViewportStartIndex
+	if remainingItems < l.Config.Height {
+		maxViewportIndex = remainingItems - 1
+	}
+
+	if l.State.CursorViewportIndex > maxViewportIndex {
+		l.State.CursorViewportIndex = maxViewportIndex
+		// Also update the cursor absolute position
+		l.State.CursorIndex = l.State.ViewportStartIndex + l.State.CursorViewportIndex
+	}
+
+	// Final boundary check - ensure we're not beyond data
+	if l.State.CursorIndex >= l.totalItems {
+		l.State.CursorIndex = l.totalItems - 1
+		l.State.CursorViewportIndex = l.State.CursorIndex - l.State.ViewportStartIndex
 	}
 
 	// Update dataset boundary flags
@@ -224,88 +264,44 @@ func (l *List[T]) PageDown() {
 	}
 }
 
-// JumpToIndex jumps to the specified index in the dataset.
-func (l *List[T]) JumpToIndex(index int) {
-	// Ensure the index is within bounds
-	if index < 0 {
-		index = 0
-	} else if index >= l.totalItems {
-		index = l.totalItems - 1
-	}
-
-	previousState := l.State
-
-	// Update cursor index
-	l.State.CursorIndex = index
-
-	// Calculate new viewport start
-	// Try to position the cursor at the middle of the viewport
-	middleViewportIndex := l.Config.Height / 2
-	newViewportStart := index - middleViewportIndex
-
-	// Don't let viewport start before beginning of data
-	if newViewportStart < 0 {
-		newViewportStart = 0
-	}
-
-	// Don't let viewport show beyond end of data
-	maxViewportStart := l.totalItems - l.Config.Height
-	if maxViewportStart < 0 {
-		maxViewportStart = 0
-	}
-
-	if newViewportStart > maxViewportStart {
-		newViewportStart = maxViewportStart
-	}
-
-	l.State.ViewportStartIndex = newViewportStart
-	l.State.CursorViewportIndex = l.State.CursorIndex - l.State.ViewportStartIndex
-
-	// Check if we're at a threshold
-	l.State.IsAtTopThreshold = l.State.CursorViewportIndex == l.Config.TopThresholdIndex
-	l.State.IsAtBottomThreshold = l.State.CursorViewportIndex == l.Config.BottomThresholdIndex
-
-	// Update dataset boundary flags
-	l.State.AtDatasetStart = l.State.ViewportStartIndex == 0
-	l.State.AtDatasetEnd = l.State.ViewportStartIndex+l.Config.Height >= l.totalItems
-
-	// Update visible items if viewport changed
-	if l.State.ViewportStartIndex != previousState.ViewportStartIndex {
-		// Make sure chunks are loaded
-		chunkStartIndex := (l.State.ViewportStartIndex / l.Config.ChunkSize) * l.Config.ChunkSize
-		l.loadChunk(chunkStartIndex)
-		l.updateVisibleItems()
-		l.unloadChunks()
-	}
-}
-
 // JumpToStart jumps to the start of the dataset.
 func (l *List[T]) JumpToStart() {
+	// If there's no data, do nothing
+	if l.totalItems == 0 {
+		return
+	}
+
+	// Jump to the first item (index 0)
 	l.JumpToIndex(0)
 }
 
 // JumpToEnd jumps to the end of the dataset.
 func (l *List[T]) JumpToEnd() {
+	// If there's no data, do nothing
+	if l.totalItems == 0 {
+		return
+	}
+
+	// Jump to the last item (totalItems - 1)
 	l.JumpToIndex(l.totalItems - 1)
 }
 
 // JumpToItem jumps to an item with the specified key-value pair.
-// This method requires a SearchableDataProvider.
 // Returns true if the item was found and jumped to, false otherwise.
 func (l *List[T]) JumpToItem(key string, value any) bool {
-	// Check if the data provider supports searching
+	// Check if the data provider implements the SearchableDataProvider interface
 	searchable, ok := l.DataProvider.(SearchableDataProvider[T])
 	if !ok {
 		return false
 	}
 
-	// Find the item index
+	// Try to find the item
 	index, found := searchable.FindItemIndex(key, value)
 	if !found {
 		return false
 	}
 
-	// Jump to the found index
+	// Jump to the found item
 	l.JumpToIndex(index)
 	return true
 }

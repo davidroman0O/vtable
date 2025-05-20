@@ -45,6 +45,10 @@ type List[T any] struct {
 
 	// visibleItems is the slice of items currently visible in the viewport.
 	visibleItems []T
+
+	// dataRequest holds the current data request configuration
+	// including filtering and sorting options
+	dataRequest DataRequest
 }
 
 // NewList creates a new virtualized list component.
@@ -93,6 +97,15 @@ func NewList[T any](
 		cursorViewportIndex = config.TopThresholdIndex
 	}
 
+	// Initialize with default data request
+	dataRequest := DataRequest{
+		Start:          0,
+		Count:          config.ChunkSize,
+		Filters:        make(map[string]any),
+		SortFields:     []string{},
+		SortDirections: []string{},
+	}
+
 	list := &List[T]{
 		Config:       config,
 		DataProvider: provider,
@@ -110,6 +123,7 @@ func NewList[T any](
 		chunks:       make(map[int]*chunk[T]),
 		totalItems:   totalItems,
 		visibleItems: make([]T, 0, config.Height),
+		dataRequest:  dataRequest,
 	}
 
 	// Load initial chunk
@@ -138,10 +152,28 @@ func (l *List[T]) loadChunk(startIndex int) error {
 		count = l.totalItems - startIndex
 	}
 
+	// Make sure we don't request invalid ranges
+	if startIndex < 0 || count <= 0 || startIndex >= l.totalItems {
+		return fmt.Errorf("invalid chunk range: %d-%d (total: %d)",
+			startIndex, startIndex+count, l.totalItems)
+	}
+
+	// Create a data request with the current filters and sorting
+	request := l.dataRequest
+	request.Start = startIndex
+	request.Count = count
+
 	// Load the items from the data provider
-	items, err := l.DataProvider.GetItems(startIndex, count)
+	items, err := l.DataProvider.GetItems(request)
 	if err != nil {
 		return err
+	}
+
+	// Validate return data - ensure we got the expected number of items
+	// or at most what we asked for
+	if len(items) > count {
+		// Truncate if provider returned too many items
+		items = items[:count]
 	}
 
 	// Create and store the chunk
@@ -174,39 +206,87 @@ func (l *List[T]) unloadChunks() {
 
 // updateVisibleItems updates the slice of items currently visible in the viewport.
 func (l *List[T]) updateVisibleItems() {
-	l.visibleItems = make([]T, 0, l.Config.Height)
-
-	// Calculate the end index of the viewport
-	viewportEndIndex := l.State.ViewportStartIndex + l.Config.Height
-	if viewportEndIndex > l.totalItems {
-		viewportEndIndex = l.totalItems
+	// If there's no data, return an empty slice
+	if l.totalItems == 0 {
+		l.visibleItems = []T{}
+		return
 	}
 
-	// Collect visible items from chunks
-	for i := l.State.ViewportStartIndex; i < viewportEndIndex; i++ {
+	// Calculate how many actual items we can show
+	maxVisibleItems := l.Config.Height
+	if l.totalItems < maxVisibleItems {
+		maxVisibleItems = l.totalItems
+	}
+
+	// Ensure viewport doesn't extend beyond dataset
+	maxStart := l.totalItems - maxVisibleItems
+	if l.State.ViewportStartIndex > maxStart {
+		l.State.ViewportStartIndex = maxStart
+	}
+	if l.State.ViewportStartIndex < 0 {
+		l.State.ViewportStartIndex = 0
+	}
+
+	// Calculate endpoint of visible area (exclusive)
+	viewportEnd := l.State.ViewportStartIndex + maxVisibleItems
+	if viewportEnd > l.totalItems {
+		viewportEnd = l.totalItems
+	}
+
+	// Create a new slice to hold visible items
+	l.visibleItems = make([]T, 0, viewportEnd-l.State.ViewportStartIndex)
+
+	// Fill the visible items slice with actual data
+	for i := l.State.ViewportStartIndex; i < viewportEnd; i++ {
+		// Get the chunk that contains this item
 		chunkStartIndex := (i / l.Config.ChunkSize) * l.Config.ChunkSize
 		chunk, ok := l.chunks[chunkStartIndex]
+
+		// If chunk isn't loaded, load it
 		if !ok {
-			// Load the chunk if it's not loaded yet
+			// Try to load the chunk
 			err := l.loadChunk(chunkStartIndex)
 			if err != nil {
-				// If we can't load the chunk, add a zero value as a placeholder
-				var zero T
-				l.visibleItems = append(l.visibleItems, zero)
+				// Skip this item if we can't load its chunk
 				continue
 			}
 			chunk = l.chunks[chunkStartIndex]
 		}
 
-		// Add the item to the visible items
+		// Skip if chunk is nil (should never happen, but safety first)
+		if chunk == nil {
+			continue
+		}
+
+		// Calculate item index within the chunk
 		itemIndex := i - chunk.StartIndex
+
+		// Only add the item if it's within the chunk's bounds
 		if itemIndex >= 0 && itemIndex < len(chunk.Items) {
 			l.visibleItems = append(l.visibleItems, chunk.Items[itemIndex])
 		} else {
-			// This should not happen, but add a zero value as a placeholder just in case
-			var zero T
-			l.visibleItems = append(l.visibleItems, zero)
+			// Try reloading this chunk - it may have changed due to filtering
+			delete(l.chunks, chunkStartIndex)
+			err := l.loadChunk(chunkStartIndex)
+			if err == nil && l.chunks[chunkStartIndex] != nil {
+				// Try again with fresh chunk
+				chunk = l.chunks[chunkStartIndex]
+				if itemIndex >= 0 && itemIndex < len(chunk.Items) {
+					l.visibleItems = append(l.visibleItems, chunk.Items[itemIndex])
+				}
+			}
 		}
+	}
+
+	// Ensure cursor stays within bounds of visible data
+	if l.State.CursorViewportIndex >= len(l.visibleItems) {
+		if len(l.visibleItems) > 0 {
+			l.State.CursorViewportIndex = len(l.visibleItems) - 1
+		} else {
+			l.State.CursorViewportIndex = 0
+		}
+		// Adjust absolute cursor position
+		l.State.CursorIndex = l.State.ViewportStartIndex + l.State.CursorViewportIndex
 	}
 }
 
@@ -265,15 +345,27 @@ func (l *List[T]) GetLoadedChunks() []ChunkInfo {
 func (l *List[T]) Render() string {
 	var builder strings.Builder
 
+	// Special case for empty dataset
+	if l.totalItems == 0 {
+		// Return an empty string for empty dataset
+		return ""
+	}
+
 	// Set up styles
 	rowStyle := lipgloss.NewStyle().
 		Foreground(lipgloss.Color(l.StyleConfig.RowStyle))
 	selectedStyle := lipgloss.NewStyle().
 		Foreground(lipgloss.Color(l.StyleConfig.SelectedRowStyle))
 
-	// Render items in the viewport
+	// Only render rows that actually have data
 	for i, item := range l.visibleItems {
 		absoluteIndex := l.State.ViewportStartIndex + i
+
+		// Skip if we've rendered all real data
+		if absoluteIndex >= l.totalItems {
+			break
+		}
+
 		isCursor := i == l.State.CursorViewportIndex
 		isTopThreshold := i == l.Config.TopThresholdIndex
 		isBottomThreshold := i == l.Config.BottomThresholdIndex
@@ -296,8 +388,8 @@ func (l *List[T]) Render() string {
 
 		builder.WriteString(renderedItem)
 
-		// Add a newline unless it's the last item
-		if i < len(l.visibleItems)-1 {
+		// Add a newline unless it's the last actual item
+		if i < len(l.visibleItems)-1 && absoluteIndex < l.totalItems-1 {
 			builder.WriteString("\n")
 		}
 	}
@@ -325,5 +417,411 @@ func (l *List[T]) RenderDebugInfo() string {
 		builder.WriteString(fmt.Sprintf("  Chunk %d-%d (%d items)\n", chunk.StartIndex, chunk.EndIndex, len(chunk.Items)))
 	}
 
+	// Show sorting and filtering info
+	if len(l.dataRequest.SortFields) > 0 {
+		builder.WriteString("Sort:\n")
+		for i, field := range l.dataRequest.SortFields {
+			builder.WriteString(fmt.Sprintf("  %s (%s)\n", field, l.dataRequest.SortDirections[i]))
+		}
+	}
+
+	if len(l.dataRequest.Filters) > 0 {
+		builder.WriteString("Filters:\n")
+		for key, value := range l.dataRequest.Filters {
+			builder.WriteString(fmt.Sprintf("  %s: %v\n", key, value))
+		}
+	}
+
 	return builder.String()
+}
+
+// SetFilter sets a filter for a specific field.
+// Applying a filter will reload all data.
+func (l *List[T]) SetFilter(field string, value any) {
+	// Initialize filters map if it doesn't exist
+	if l.dataRequest.Filters == nil {
+		l.dataRequest.Filters = make(map[string]any)
+	}
+
+	// Set the filter
+	l.dataRequest.Filters[field] = value
+
+	// Reload all data
+	l.refreshData()
+}
+
+// ClearFilters removes all filters.
+// This will reload all data.
+func (l *List[T]) ClearFilters() {
+	// Only reload if we had filters before
+	if len(l.dataRequest.Filters) > 0 {
+		l.dataRequest.Filters = make(map[string]any)
+		l.refreshData()
+	}
+}
+
+// RemoveFilter removes a specific filter.
+// This will reload all data.
+func (l *List[T]) RemoveFilter(field string) {
+	// Only reload if the filter existed
+	if _, exists := l.dataRequest.Filters[field]; exists {
+		delete(l.dataRequest.Filters, field)
+		l.refreshData()
+	}
+}
+
+// SetSort sets a sort field and direction.
+// Direction should be "asc" or "desc".
+// Applying a sort will reload all data.
+func (l *List[T]) SetSort(field string, direction string) {
+	// Validate direction
+	if direction != "asc" && direction != "desc" {
+		direction = "asc" // Default to ascending if invalid
+	}
+
+	// Check if we're already sorting by this field
+	for i, existingField := range l.dataRequest.SortFields {
+		if existingField == field {
+			// Update the direction
+			l.dataRequest.SortDirections[i] = direction
+
+			// Move to front if not already at front
+			if i > 0 {
+				// Copy out this field/direction
+				tempField := l.dataRequest.SortFields[i]
+				tempDir := l.dataRequest.SortDirections[i]
+
+				// Remove from current position
+				l.dataRequest.SortFields = append(l.dataRequest.SortFields[:i], l.dataRequest.SortFields[i+1:]...)
+				l.dataRequest.SortDirections = append(l.dataRequest.SortDirections[:i], l.dataRequest.SortDirections[i+1:]...)
+
+				// Add to front as primary sort
+				l.dataRequest.SortFields = append([]string{tempField}, l.dataRequest.SortFields...)
+				l.dataRequest.SortDirections = append([]string{tempDir}, l.dataRequest.SortDirections...)
+			}
+
+			// Reload data with updated sorts
+			l.refreshData()
+			return
+		}
+	}
+
+	// Clear existing sorts and add the new one - THIS IS A COMPLETELY NEW SORT
+	l.dataRequest.SortFields = []string{field}
+	l.dataRequest.SortDirections = []string{direction}
+
+	// Reload all data
+	l.refreshData()
+}
+
+// AddSort adds a sort field and direction without clearing existing sorts.
+// This allows for multi-column sorting.
+// Direction should be "asc" or "desc".
+// Applying a sort will reload all data.
+func (l *List[T]) AddSort(field string, direction string) {
+	// Check if we're already sorting by this field
+	for i, existingField := range l.dataRequest.SortFields {
+		if existingField == field {
+			// Update the direction and move it to the front
+			l.dataRequest.SortDirections[i] = direction
+
+			// Move this field to the front (most important)
+			if i > 0 {
+				// Make a copy of the field and direction
+				tempField := l.dataRequest.SortFields[i]
+				tempDir := l.dataRequest.SortDirections[i]
+
+				// Shift all fields before it
+				for j := i; j > 0; j-- {
+					l.dataRequest.SortFields[j] = l.dataRequest.SortFields[j-1]
+					l.dataRequest.SortDirections[j] = l.dataRequest.SortDirections[j-1]
+				}
+
+				// Place the field at the front
+				l.dataRequest.SortFields[0] = tempField
+				l.dataRequest.SortDirections[0] = tempDir
+			}
+
+			// Reload all data
+			l.refreshData()
+			return
+		}
+	}
+
+	// Validate direction
+	if direction != "asc" && direction != "desc" {
+		direction = "asc" // Default to ascending if invalid
+	}
+
+	// Add new sort field at the beginning (most important)
+	l.dataRequest.SortFields = append([]string{field}, l.dataRequest.SortFields...)
+	l.dataRequest.SortDirections = append([]string{direction}, l.dataRequest.SortDirections...)
+
+	// Reload all data
+	l.refreshData()
+}
+
+// RemoveSort removes a sort field.
+// This will reload all data if the field was being sorted on.
+func (l *List[T]) RemoveSort(field string) {
+	// Check if we're sorting by this field
+	for i, existingField := range l.dataRequest.SortFields {
+		if existingField == field {
+			// Remove this field from sorting
+			newSortFields := make([]string, 0, len(l.dataRequest.SortFields)-1)
+			newSortDirections := make([]string, 0, len(l.dataRequest.SortDirections)-1)
+
+			for j, f := range l.dataRequest.SortFields {
+				if j != i {
+					newSortFields = append(newSortFields, f)
+					newSortDirections = append(newSortDirections, l.dataRequest.SortDirections[j])
+				}
+			}
+
+			l.dataRequest.SortFields = newSortFields
+			l.dataRequest.SortDirections = newSortDirections
+
+			// Reload all data
+			l.refreshData()
+			return
+		}
+	}
+}
+
+// ClearSort removes any sorting criteria.
+// This will reload all data.
+func (l *List[T]) ClearSort() {
+	// Only reload if we had a sort before
+	if len(l.dataRequest.SortFields) > 0 {
+		l.dataRequest.SortFields = []string{}
+		l.dataRequest.SortDirections = []string{}
+		l.refreshData()
+	}
+}
+
+// GetDataRequest returns the current data request configuration.
+func (l *List[T]) GetDataRequest() DataRequest {
+	return l.dataRequest
+}
+
+// refreshData reloads the data with current filter and sort settings.
+func (l *List[T]) refreshData() {
+	// Store current position - we'll try to keep this position in view
+	currentPos := l.State.CursorIndex
+
+	// Clear all chunks first since filtering completely changes the dataset
+	l.chunks = make(map[int]*chunk[T])
+
+	// Get the new total items count after filters/sorting applied
+	newTotalItems := l.DataProvider.GetTotal()
+	// Update total items count
+	l.totalItems = newTotalItems
+
+	// Handle the case where the dataset is now empty after filtering
+	if l.totalItems == 0 {
+		// Reset everything to default state for empty dataset
+		l.State.ViewportStartIndex = 0
+		l.State.CursorIndex = 0
+		l.State.CursorViewportIndex = 0
+		l.State.IsAtTopThreshold = false
+		l.State.IsAtBottomThreshold = false
+		l.State.AtDatasetStart = true
+		l.State.AtDatasetEnd = true
+		l.visibleItems = []T{}
+		return
+	}
+
+	// If we have filtered data, reset cursor to beginning if current position is invalid
+	if currentPos >= newTotalItems {
+		currentPos = newTotalItems - 1
+	}
+	if currentPos < 0 {
+		currentPos = 0
+	}
+
+	// Calculate optimal viewport start - try to keep cursor in the middle
+	var viewportStartIndex int
+	if l.totalItems <= l.Config.Height {
+		// For small datasets, always start at first record
+		viewportStartIndex = 0
+	} else {
+		// For large datasets, try to position cursor in the middle
+		viewportStartIndex = currentPos - (l.Config.Height / 2)
+
+		// Don't go below 0
+		if viewportStartIndex < 0 {
+			viewportStartIndex = 0
+		}
+
+		// Don't show beyond dataset end
+		maxStart := l.totalItems - l.Config.Height
+		if viewportStartIndex > maxStart {
+			viewportStartIndex = maxStart
+		}
+	}
+
+	// Update cursor positions
+	l.State.ViewportStartIndex = viewportStartIndex
+	l.State.CursorIndex = currentPos
+	l.State.CursorViewportIndex = currentPos - viewportStartIndex
+
+	// Fix cursor viewport index if it's out of bounds
+	if l.State.CursorViewportIndex < 0 {
+		l.State.CursorViewportIndex = 0
+		l.State.CursorIndex = viewportStartIndex // Adjust absolute cursor position
+	}
+	if l.State.CursorViewportIndex >= l.Config.Height {
+		l.State.CursorViewportIndex = l.Config.Height - 1
+		l.State.CursorIndex = viewportStartIndex + l.State.CursorViewportIndex
+	}
+
+	// Make sure cursor doesn't go beyond dataset
+	if l.State.CursorIndex >= l.totalItems {
+		l.State.CursorIndex = l.totalItems - 1
+		l.State.CursorViewportIndex = l.State.CursorIndex - viewportStartIndex
+	}
+
+	// Update threshold and boundary flags
+	l.State.IsAtTopThreshold = l.State.CursorViewportIndex == l.Config.TopThresholdIndex
+	l.State.IsAtBottomThreshold = l.State.CursorViewportIndex == l.Config.BottomThresholdIndex
+	l.State.AtDatasetStart = viewportStartIndex == 0
+	l.State.AtDatasetEnd = viewportStartIndex+l.Config.Height >= l.totalItems
+
+	// Force load new chunks
+	if l.totalItems > 0 {
+		// Calculate chunk indices that contain our visible viewport
+		chunkStartIndex := (viewportStartIndex / l.Config.ChunkSize) * l.Config.ChunkSize
+		_ = l.loadChunk(chunkStartIndex)
+
+		// Load additional chunk if viewport spans two chunks
+		nextChunkStart := chunkStartIndex + l.Config.ChunkSize
+		if nextChunkStart < l.totalItems && viewportStartIndex+l.Config.Height > nextChunkStart {
+			_ = l.loadChunk(nextChunkStart)
+		}
+	}
+
+	// Update the visible items
+	l.updateVisibleItems()
+}
+
+// moveToIndex is a helper method for positioning the viewport and cursor at a specific index
+func (l *List[T]) moveToIndex(index int) {
+	// Handle empty dataset case
+	if l.totalItems <= 0 {
+		// Reset everything to zero position
+		l.State.ViewportStartIndex = 0
+		l.State.CursorIndex = 0
+		l.State.CursorViewportIndex = 0
+		l.State.IsAtTopThreshold = false
+		l.State.IsAtBottomThreshold = false
+		l.State.AtDatasetStart = true
+		l.State.AtDatasetEnd = true
+
+		// No data to display
+		l.visibleItems = nil
+		return
+	}
+
+	// Ensure index is within bounds
+	if index < 0 {
+		index = 0
+	}
+	if index >= l.totalItems {
+		index = l.totalItems - 1
+	}
+
+	// Store current position
+	newCursorIndex := index
+
+	// Calculate new viewport start position
+	var newViewportStartIndex int
+	if l.totalItems <= l.Config.Height {
+		// For small datasets, always show everything from the beginning
+		newViewportStartIndex = 0
+	} else if newCursorIndex < l.Config.TopThresholdIndex {
+		// Near the beginning of the dataset
+		newViewportStartIndex = 0
+	} else if newCursorIndex >= l.totalItems-l.Config.BottomThresholdIndex {
+		// Near the end of the dataset
+		newViewportStartIndex = l.totalItems - l.Config.Height
+		if newViewportStartIndex < 0 {
+			newViewportStartIndex = 0
+		}
+	} else {
+		// Middle of the dataset - position the cursor at the top threshold index
+		newViewportStartIndex = newCursorIndex - l.Config.TopThresholdIndex
+	}
+
+	// Double-check that viewport start index is in bounds
+	if newViewportStartIndex < 0 {
+		newViewportStartIndex = 0
+	}
+
+	// Make sure viewportStartIndex doesn't go beyond the possible range
+	maxStart := l.totalItems - 1
+	if l.totalItems > l.Config.Height {
+		maxStart = l.totalItems - l.Config.Height
+	}
+	if newViewportStartIndex > maxStart {
+		newViewportStartIndex = maxStart
+	}
+
+	// Calculate cursor viewport index (relative position in visible area)
+	newCursorViewportIndex := newCursorIndex - newViewportStartIndex
+
+	// Make sure cursorViewportIndex doesn't exceed the viewport height
+	if newCursorViewportIndex >= l.Config.Height {
+		newCursorViewportIndex = l.Config.Height - 1
+		// Also adjust absolute cursor position to match
+		newCursorIndex = newViewportStartIndex + newCursorViewportIndex
+	}
+
+	// Additional check: make sure we don't exceed total number of items
+	if newCursorIndex >= l.totalItems {
+		newCursorIndex = l.totalItems - 1
+		newCursorViewportIndex = newCursorIndex - newViewportStartIndex
+	}
+
+	// Make sure cursorViewportIndex doesn't go negative
+	if newCursorViewportIndex < 0 {
+		newCursorViewportIndex = 0
+		// Also adjust absolute cursor position to match
+		newCursorIndex = newViewportStartIndex
+	}
+
+	// Update state
+	l.State.ViewportStartIndex = newViewportStartIndex
+	l.State.CursorIndex = newCursorIndex
+	l.State.CursorViewportIndex = newCursorViewportIndex
+
+	// Update threshold flags
+	l.State.IsAtTopThreshold = newCursorViewportIndex == l.Config.TopThresholdIndex
+	l.State.IsAtBottomThreshold = newCursorViewportIndex == l.Config.BottomThresholdIndex
+
+	// Update dataset boundary flags - critical for proper navigation
+	l.State.AtDatasetStart = newViewportStartIndex == 0
+	l.State.AtDatasetEnd = newViewportStartIndex+l.Config.Height >= l.totalItems
+
+	// Load chunks if they're not loaded
+	if l.totalItems > 0 {
+		chunkStartIndex := (newViewportStartIndex / l.Config.ChunkSize) * l.Config.ChunkSize
+		_ = l.loadChunk(chunkStartIndex)
+
+		// Load an additional chunk if needed
+		nextChunkIndex := chunkStartIndex + l.Config.ChunkSize
+		if nextChunkIndex < l.totalItems && newViewportStartIndex+l.Config.Height > nextChunkIndex {
+			_ = l.loadChunk(nextChunkIndex)
+		}
+	}
+
+	// Update visible items
+	l.updateVisibleItems()
+
+	// Clean up unused chunks
+	l.unloadChunks()
+}
+
+// JumpToIndex jumps to the specified index in the dataset.
+func (l *List[T]) JumpToIndex(index int) {
+	l.moveToIndex(index)
 }

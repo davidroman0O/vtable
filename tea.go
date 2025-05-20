@@ -1,9 +1,28 @@
 package vtable
 
 import (
+	"strings"
+
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 )
+
+// FilterMsg is a message type to apply or update filters.
+type FilterMsg struct {
+	Field  string
+	Value  any
+	Clear  bool
+	Remove bool
+}
+
+// SortMsg is a message type to apply or update sorting.
+type SortMsg struct {
+	Field     string
+	Direction string
+	Clear     bool
+	Remove    bool
+	Add       bool
+}
 
 // TeaList is a Bubble Tea model wrapping a List.
 type TeaList[T any] struct {
@@ -17,9 +36,11 @@ type TeaList[T any] struct {
 	focused bool
 
 	// Event callbacks
-	onSelectItem func(item T, index int)
-	onHighlight  func(item T, index int)
-	onScroll     func(state ViewportState)
+	onSelectItem     func(item T, index int)
+	onHighlight      func(item T, index int)
+	onScroll         func(state ViewportState)
+	onFiltersChanged func(filters map[string]any)
+	onSortChanged    func(field, direction string)
 }
 
 // NewTeaList creates a new Bubble Tea model for a virtualized list.
@@ -77,6 +98,94 @@ func (m *TeaList[T]) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if item, ok := m.GetCurrentItem(); ok {
 					m.onSelectItem(item, m.GetState().CursorIndex)
 				}
+			}
+		}
+	case FilterMsg:
+		previousFilters := make(map[string]any)
+		for k, v := range m.list.dataRequest.Filters {
+			previousFilters[k] = v
+		}
+
+		// Handle the filter message
+		if msg.Clear {
+			m.list.ClearFilters()
+		} else if msg.Remove {
+			m.list.RemoveFilter(msg.Field)
+		} else {
+			m.list.SetFilter(msg.Field, msg.Value)
+		}
+
+		// After filter changes, ensure the visual state is properly updated
+		// If the number of items changes dramatically, we may need to adjust cursor position
+		if m.list.totalItems == 0 {
+			// No matching items after filter
+			cmds = append(cmds, func() tea.Msg {
+				return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("home")}
+			})
+		} else if m.list.totalItems <= m.list.Config.Height {
+			// Small enough dataset to show everything, jump to start
+			cmds = append(cmds, func() tea.Msg {
+				return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("home")}
+			})
+		}
+
+		// Call the filter changed callback if filters changed
+		if m.onFiltersChanged != nil {
+			hasChanged := len(previousFilters) != len(m.list.dataRequest.Filters)
+			if !hasChanged {
+				// Check if any values changed
+				for k, v := range previousFilters {
+					if newV, ok := m.list.dataRequest.Filters[k]; !ok || newV != v {
+						hasChanged = true
+						break
+					}
+				}
+			}
+
+			if hasChanged {
+				m.onFiltersChanged(m.list.dataRequest.Filters)
+			}
+		}
+	case SortMsg:
+		// Store previous sorts for callback comparison
+		previousSortFields := make([]string, len(m.list.dataRequest.SortFields))
+		previousSortDirections := make([]string, len(m.list.dataRequest.SortDirections))
+		copy(previousSortFields, m.list.dataRequest.SortFields)
+		copy(previousSortDirections, m.list.dataRequest.SortDirections)
+
+		// Handle the sort message
+		if msg.Clear {
+			m.list.ClearSort()
+		} else if msg.Remove {
+			m.list.RemoveSort(msg.Field)
+		} else if msg.Add {
+			m.list.AddSort(msg.Field, msg.Direction)
+		} else {
+			m.list.SetSort(msg.Field, msg.Direction)
+		}
+
+		// Call the sort changed callback if sort changed
+		if m.onSortChanged != nil {
+			// Check if sorting has changed
+			changed := len(previousSortFields) != len(m.list.dataRequest.SortFields)
+			if !changed {
+				for i, field := range previousSortFields {
+					if i >= len(m.list.dataRequest.SortFields) ||
+						field != m.list.dataRequest.SortFields[i] ||
+						previousSortDirections[i] != m.list.dataRequest.SortDirections[i] {
+						changed = true
+						break
+					}
+				}
+			}
+
+			if changed && len(m.list.dataRequest.SortFields) > 0 {
+				m.onSortChanged(
+					strings.Join(m.list.dataRequest.SortFields, ","),
+					strings.Join(m.list.dataRequest.SortDirections, ","),
+				)
+			} else if changed {
+				m.onSortChanged("", "")
 			}
 		}
 	}
@@ -263,9 +372,129 @@ func (m *TeaList[T]) OnScroll(callback func(state ViewportState)) {
 	m.onScroll = callback
 }
 
+// OnFiltersChanged sets a callback function that will be called when filters change.
+func (m *TeaList[T]) OnFiltersChanged(callback func(filters map[string]any)) {
+	m.onFiltersChanged = callback
+}
+
+// OnSortChanged sets a callback function that will be called when sorting changes.
+func (m *TeaList[T]) OnSortChanged(callback func(field, direction string)) {
+	m.onSortChanged = callback
+}
+
 // HandleKeypress programmatically simulates pressing a key.
 func (m *TeaList[T]) HandleKeypress(keyStr string) {
 	// Create a key message and update
 	keyMsg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(keyStr)}
 	m.Update(keyMsg)
+}
+
+// SetFilter sets a filter for a specific field.
+func (m *TeaList[T]) SetFilter(field string, value any) {
+	m.list.SetFilter(field, value)
+}
+
+// RemoveFilter removes a filter for a specific field.
+func (m *TeaList[T]) RemoveFilter(field string) {
+	m.list.RemoveFilter(field)
+}
+
+// ClearFilters removes all filters.
+func (m *TeaList[T]) ClearFilters() {
+	m.list.ClearFilters()
+}
+
+// SetSort sets the sort field and direction, clearing any existing sorts.
+func (m *TeaList[T]) SetSort(field, direction string) {
+	m.list.SetSort(field, direction)
+}
+
+// AddSort adds a sort field and direction without clearing existing sorts.
+// This allows for multi-column sorting.
+func (m *TeaList[T]) AddSort(field, direction string) {
+	m.list.AddSort(field, direction)
+}
+
+// RemoveSort removes a specific sort field.
+func (m *TeaList[T]) RemoveSort(field string) {
+	m.list.RemoveSort(field)
+}
+
+// ClearSort removes sorting.
+func (m *TeaList[T]) ClearSort() {
+	m.list.ClearSort()
+}
+
+// GetDataRequest returns the current data request configuration.
+func (m *TeaList[T]) GetDataRequest() DataRequest {
+	return m.list.GetDataRequest()
+}
+
+// FilterCommand returns a command that will trigger filter application.
+func FilterCommand(field string, value any) tea.Cmd {
+	return func() tea.Msg {
+		return FilterMsg{
+			Field: field,
+			Value: value,
+		}
+	}
+}
+
+// RemoveFilterCommand returns a command to remove a filter.
+func RemoveFilterCommand(field string) tea.Cmd {
+	return func() tea.Msg {
+		return FilterMsg{
+			Field:  field,
+			Remove: true,
+		}
+	}
+}
+
+// ClearFiltersCommand returns a command to clear all filters.
+func ClearFiltersCommand() tea.Cmd {
+	return func() tea.Msg {
+		return FilterMsg{
+			Clear: true,
+		}
+	}
+}
+
+// SortCommand returns a command that will trigger sorting and replace any existing sorts.
+func SortCommand(field, direction string) tea.Cmd {
+	return func() tea.Msg {
+		return SortMsg{
+			Field:     field,
+			Direction: direction,
+		}
+	}
+}
+
+// AddSortCommand returns a command that will add a sort field without clearing existing sorts.
+func AddSortCommand(field, direction string) tea.Cmd {
+	return func() tea.Msg {
+		return SortMsg{
+			Field:     field,
+			Direction: direction,
+			Add:       true,
+		}
+	}
+}
+
+// RemoveSortCommand returns a command to remove a specific sort field.
+func RemoveSortCommand(field string) tea.Cmd {
+	return func() tea.Msg {
+		return SortMsg{
+			Field:  field,
+			Remove: true,
+		}
+	}
+}
+
+// ClearSortCommand returns a command to clear sorting.
+func ClearSortCommand() tea.Cmd {
+	return func() tea.Msg {
+		return SortMsg{
+			Clear: true,
+		}
+	}
 }
