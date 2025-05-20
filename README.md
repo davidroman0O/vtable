@@ -23,7 +23,6 @@ A high-performance, virtualized table and list component for [Bubble Tea](https:
 - **Beautiful theming** - Multiple built-in themes with full customization support
 - **Live customization** - Change appearance and behavior at runtime
 - **Rich event system** - Detailed callbacks for selection, highlighting, scrolling, and more
-- **Debug visualization** - Inspect internal state for easier development and debugging
 
 ## 📦 Installation
 
