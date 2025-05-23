@@ -118,11 +118,6 @@ func NewTable(
 			}
 		}
 
-		// Handle the last column properly for horizontal borders
-		topBuilder.WriteString(theme.BorderChars.TopRight)
-		middleBuilder.WriteString(theme.BorderChars.RightT)
-		bottomBuilder.WriteString(theme.BorderChars.BottomRight)
-
 		// Create proper styles for borders
 		borderStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.BorderColor))
 		horizontalBorderTop = borderStyle.Render(topBuilder.String())
@@ -994,11 +989,6 @@ func (t *Table) recalculateBorders() {
 			bottomBuilder.WriteString(t.theme.BorderChars.BottomT)
 		}
 	}
-
-	// Handle the last column properly for horizontal borders
-	topBuilder.WriteString(t.theme.BorderChars.TopRight)
-	middleBuilder.WriteString(t.theme.BorderChars.RightT)
-	bottomBuilder.WriteString(t.theme.BorderChars.BottomRight)
 
 	// Create proper styles for borders
 	borderStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(t.theme.BorderColor))
