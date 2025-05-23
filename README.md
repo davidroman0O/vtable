@@ -521,8 +521,7 @@ The `examples/` directory contains 14+ comprehensive examples:
 - **`animated/`** - Real-time animations and delta-time rendering
 
 ### 🌍 Real-world
-- **`11-real-world-navigate-file-system/`** - Complete file browser application
-
+- **`11-real-world-navigate-file-system/`** - Complete file browser applications
 
 ## 📄 License
 
@@ -531,6 +530,5 @@ The `examples/` directory contains 14+ comprehensive examples:
 ---
 
 <p align="center">
-  <strong>Built for high-performance terminal applications</strong><br>
   <a href="https://github.com/charmbracelet/bubbletea">Powered by Bubble Tea</a>
 </p>
