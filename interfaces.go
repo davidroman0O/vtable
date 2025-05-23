@@ -192,6 +192,7 @@ type RenderContext struct {
 	// Global state
 	CurrentTime time.Time
 	FocusState  FocusState
+	DeltaTime   time.Duration // Time since last render for smooth animations
 
 	// Utility functions
 	Truncate func(string, int) string
@@ -462,6 +463,7 @@ type AnimationConfig struct {
 	ReducedMotion bool
 	MaxAnimations int
 	BatchUpdates  bool
+	TickInterval  time.Duration // Time between animation ticks
 }
 
 // DefaultAnimationConfig returns sensible animation defaults
@@ -471,5 +473,6 @@ func DefaultAnimationConfig() AnimationConfig {
 		ReducedMotion: false,
 		MaxAnimations: 50,
 		BatchUpdates:  true,
+		TickInterval:  100 * time.Millisecond, // Default tick interval
 	}
 }

@@ -7,143 +7,344 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
-// AnimationManager manages active animations and refresh triggers
-type AnimationManager struct {
-	mu           sync.RWMutex
-	animations   map[string]*Animation
-	config       AnimationConfig
-	timers       map[string]*time.Timer
-	callbacks    map[string]func()
-	batchUpdates []string
-	batchTimer   *time.Timer
-	onRefresh    func([]string) tea.Cmd
+// Global animation ticker message - sent continuously
+type GlobalAnimationTickMsg struct {
+	Timestamp time.Time
 }
 
-// NewAnimationManager creates a new animation manager
-func NewAnimationManager(config AnimationConfig) *AnimationManager {
-	return &AnimationManager{
-		animations: make(map[string]*Animation),
-		config:     config,
-		timers:     make(map[string]*time.Timer),
-		callbacks:  make(map[string]func()),
-		onRefresh:  func([]string) tea.Cmd { return nil },
-	}
+// Animation update message - sent when animations actually change
+type AnimationUpdateMsg struct {
+	UpdatedAnimations []string
 }
 
-// SetRefreshCallback sets the callback function for when refreshes are needed
-func (am *AnimationManager) SetRefreshCallback(callback func([]string) tea.Cmd) {
-	am.mu.Lock()
-	defer am.mu.Unlock()
-	am.onRefresh = callback
+// AnimationState holds the current state of an animation
+type AnimationState struct {
+	ID         string
+	State      map[string]any
+	Triggers   []RefreshTrigger
+	LastUpdate time.Time
+	NextUpdate time.Time
+	IsActive   bool
+	IsVisible  bool
+	IsDirty    bool // Whether the animation has changed since last render
 }
 
-// RegisterAnimation registers a new animation with its triggers
-func (am *AnimationManager) RegisterAnimation(id string, triggers []RefreshTrigger, state map[string]any) {
-	if !am.config.Enabled {
-		return
+// AnimationEngine manages animations using a single global timer
+type AnimationEngine struct {
+	mu               sync.RWMutex
+	animations       map[string]*AnimationState
+	config           AnimationConfig
+	needsUpdate      bool
+	lastGlobalUpdate time.Time
+}
+
+// NewAnimationEngine creates a new animation engine
+func NewAnimationEngine(config AnimationConfig) *AnimationEngine {
+	engine := &AnimationEngine{
+		animations:       make(map[string]*AnimationState),
+		config:           config,
+		lastGlobalUpdate: time.Now(),
 	}
 
-	am.mu.Lock()
-	defer am.mu.Unlock()
+	return engine
+}
 
-	// Limit the number of active animations
-	if len(am.animations) >= am.config.MaxAnimations {
-		// Remove oldest animation
-		am.removeOldestAnimation()
+// startGlobalTicker creates the global animation ticker
+func (ae *AnimationEngine) startGlobalTicker() tea.Cmd {
+	// Use configurable tick interval from config
+	tickInterval := ae.config.TickInterval
+	if tickInterval <= 0 {
+		tickInterval = 100 * time.Millisecond // Fallback to reasonable default
 	}
 
-	// Create new animation
-	animation := &Animation{
-		State:      state,
+	if ae.config.ReducedMotion {
+		tickInterval = tickInterval * 2 // Double the interval for reduced motion
+	}
+
+	return tea.Tick(tickInterval, func(t time.Time) tea.Msg {
+		return GlobalAnimationTickMsg{Timestamp: t}
+	})
+}
+
+// ProcessGlobalTick processes the global animation tick
+func (ae *AnimationEngine) ProcessGlobalTick(msg GlobalAnimationTickMsg) tea.Cmd {
+	if !ae.config.Enabled {
+		return nil
+	}
+
+	ae.mu.Lock()
+	defer ae.mu.Unlock()
+
+	now := msg.Timestamp
+	updatedAnimations := []string{}
+	hasUpdates := false
+
+	// Check each animation to see if it needs updating
+	for id, animation := range ae.animations {
+		if !animation.IsActive || !animation.IsVisible {
+			continue
+		}
+
+		// Check if any timer triggers are due
+		shouldUpdate := false
+		for _, trigger := range animation.Triggers {
+			if trigger.Type == TriggerTimer && now.After(animation.NextUpdate) {
+				shouldUpdate = true
+				// Schedule next update
+				animation.NextUpdate = now.Add(trigger.Interval)
+				break
+			}
+		}
+
+		if shouldUpdate {
+			animation.LastUpdate = now
+			animation.IsDirty = true
+			updatedAnimations = append(updatedAnimations, id)
+			hasUpdates = true
+		}
+	}
+
+	// Create batch commands
+	var cmds []tea.Cmd
+
+	// Always schedule the next global tick to maintain the animation loop
+	cmds = append(cmds, ae.startGlobalTicker())
+
+	// If we have updates, send an update message
+	if hasUpdates {
+		ae.needsUpdate = true
+		ae.lastGlobalUpdate = now
+		cmds = append(cmds, func() tea.Msg {
+			return AnimationUpdateMsg{UpdatedAnimations: updatedAnimations}
+		})
+	}
+
+	return tea.Batch(cmds...)
+}
+
+// RegisterAnimation registers a new animation
+func (ae *AnimationEngine) RegisterAnimation(id string, triggers []RefreshTrigger, initialState map[string]any) tea.Cmd {
+	if !ae.config.Enabled {
+		return nil
+	}
+
+	ae.mu.Lock()
+	defer ae.mu.Unlock()
+
+	// Limit active animations
+	if len(ae.animations) >= ae.config.MaxAnimations {
+		ae.removeOldestAnimationUnsafe()
+	}
+
+	now := time.Now()
+
+	// Create animation state
+	animation := &AnimationState{
+		ID:         id,
+		State:      make(map[string]any),
 		Triggers:   triggers,
-		LastRender: time.Now(),
+		LastUpdate: now,
+		NextUpdate: now, // Will be updated based on triggers
+		IsActive:   true,
 		IsVisible:  true,
+		IsDirty:    true, // New animations are dirty by default
 	}
 
-	am.animations[id] = animation
-	am.setupTriggers(id, triggers)
+	// Copy initial state
+	for k, v := range initialState {
+		animation.State[k] = v
+	}
+
+	// Set next update time based on timer triggers
+	for _, trigger := range triggers {
+		if trigger.Type == TriggerTimer && trigger.Interval > 0 {
+			animation.NextUpdate = now.Add(trigger.Interval)
+			break
+		}
+	}
+
+	ae.animations[id] = animation
+
+	// Start global ticker if this is the first animation
+	if len(ae.animations) == 1 {
+		return ae.startGlobalTicker()
+	}
+
+	return nil
 }
 
-// UnregisterAnimation removes an animation and cleans up its triggers
-func (am *AnimationManager) UnregisterAnimation(id string) {
-	am.mu.Lock()
-	defer am.mu.Unlock()
+// UnregisterAnimation removes an animation
+func (ae *AnimationEngine) UnregisterAnimation(id string) tea.Cmd {
+	ae.mu.Lock()
+	defer ae.mu.Unlock()
 
-	// Clean up timers
-	if timer, exists := am.timers[id]; exists {
-		timer.Stop()
-		delete(am.timers, id)
+	if animation, exists := ae.animations[id]; exists {
+		animation.IsActive = false
+		delete(ae.animations, id)
 	}
 
-	// Remove callback
-	delete(am.callbacks, id)
-
-	// Remove animation
-	delete(am.animations, id)
+	return nil
 }
 
 // GetAnimationState returns the current state for an animation
-func (am *AnimationManager) GetAnimationState(id string) map[string]any {
-	am.mu.RLock()
-	defer am.mu.RUnlock()
+func (ae *AnimationEngine) GetAnimationState(id string) map[string]any {
+	ae.mu.RLock()
+	defer ae.mu.RUnlock()
 
-	if animation, exists := am.animations[id]; exists {
-		return animation.State
+	if animation, exists := ae.animations[id]; exists && animation.IsActive {
+		// Return a copy to prevent race conditions
+		stateCopy := make(map[string]any)
+		for k, v := range animation.State {
+			stateCopy[k] = v
+		}
+		return stateCopy
 	}
+
 	return make(map[string]any)
 }
 
 // UpdateAnimationState updates the state for an animation
-func (am *AnimationManager) UpdateAnimationState(id string, state map[string]any) {
-	am.mu.Lock()
-	defer am.mu.Unlock()
+func (ae *AnimationEngine) UpdateAnimationState(id string, newState map[string]any) {
+	ae.mu.Lock()
+	defer ae.mu.Unlock()
 
-	if animation, exists := am.animations[id]; exists {
-		animation.State = state
-		animation.LastRender = time.Now()
+	if animation, exists := ae.animations[id]; exists && animation.IsActive {
+		// Update state
+		hasChanges := false
+		for k, v := range newState {
+			if animation.State[k] != v {
+				animation.State[k] = v
+				hasChanges = true
+			}
+		}
+
+		if hasChanges {
+			animation.LastUpdate = time.Now()
+			animation.IsDirty = true
+		}
 	}
 }
 
 // SetVisible marks an animation as visible or hidden
-func (am *AnimationManager) SetVisible(id string, visible bool) {
-	am.mu.Lock()
-	defer am.mu.Unlock()
+func (ae *AnimationEngine) SetVisible(id string, visible bool) {
+	ae.mu.Lock()
+	defer ae.mu.Unlock()
 
-	if animation, exists := am.animations[id]; exists {
-		animation.IsVisible = visible
-	}
-}
-
-// TriggerRefresh manually triggers a refresh for specific animations
-func (am *AnimationManager) TriggerRefresh(ids []string) tea.Cmd {
-	if am.config.BatchUpdates {
-		am.mu.Lock()
-		am.batchUpdates = append(am.batchUpdates, ids...)
-
-		// Set up batch timer if not already set
-		if am.batchTimer == nil {
-			am.batchTimer = time.AfterFunc(16*time.Millisecond, func() {
-				am.processBatchUpdates()
-			})
+	if animation, exists := ae.animations[id]; exists {
+		if animation.IsVisible != visible {
+			animation.IsVisible = visible
+			animation.IsDirty = true
 		}
-		am.mu.Unlock()
-		return nil
 	}
-
-	return am.onRefresh(ids)
 }
 
-// ProcessEvent processes an event that might trigger animations
-func (am *AnimationManager) ProcessEvent(event string) tea.Cmd {
-	if !am.config.Enabled {
-		return nil
+// IsVisible returns whether an animation is visible
+func (ae *AnimationEngine) IsVisible(id string) bool {
+	ae.mu.RLock()
+	defer ae.mu.RUnlock()
+
+	if animation, exists := ae.animations[id]; exists {
+		return animation.IsVisible && animation.IsActive
+	}
+	return false
+}
+
+// HasUpdates checks if any animations have been updated since last check
+func (ae *AnimationEngine) HasUpdates() bool {
+	ae.mu.RLock()
+	defer ae.mu.RUnlock()
+
+	for _, animation := range ae.animations {
+		if animation.IsActive && animation.IsVisible && animation.IsDirty {
+			return true
+		}
 	}
 
-	am.mu.RLock()
-	var triggeredIDs []string
+	return false
+}
 
-	for id, animation := range am.animations {
-		if !animation.IsVisible {
+// ClearDirtyFlags clears the dirty flags for all animations
+func (ae *AnimationEngine) ClearDirtyFlags() {
+	ae.mu.Lock()
+	defer ae.mu.Unlock()
+
+	for _, animation := range ae.animations {
+		animation.IsDirty = false
+	}
+}
+
+// GetActiveAnimations returns the IDs of all active visible animations
+func (ae *AnimationEngine) GetActiveAnimations() []string {
+	ae.mu.RLock()
+	defer ae.mu.RUnlock()
+
+	var ids []string
+	for id, animation := range ae.animations {
+		if animation.IsActive && animation.IsVisible {
+			ids = append(ids, id)
+		}
+	}
+	return ids
+}
+
+// GetDirtyAnimations returns the IDs of animations that need re-rendering
+func (ae *AnimationEngine) GetDirtyAnimations() []string {
+	ae.mu.RLock()
+	defer ae.mu.RUnlock()
+
+	var ids []string
+	for id, animation := range ae.animations {
+		if animation.IsActive && animation.IsVisible && animation.IsDirty {
+			ids = append(ids, id)
+		}
+	}
+	return ids
+}
+
+// Cleanup removes all animations
+func (ae *AnimationEngine) Cleanup() {
+	ae.mu.Lock()
+	defer ae.mu.Unlock()
+
+	// Mark all animations as inactive
+	for _, animation := range ae.animations {
+		animation.IsActive = false
+	}
+
+	// Clear all maps
+	ae.animations = make(map[string]*AnimationState)
+	ae.needsUpdate = false
+}
+
+// GetConfig returns the current configuration
+func (ae *AnimationEngine) GetConfig() AnimationConfig {
+	ae.mu.RLock()
+	defer ae.mu.RUnlock()
+	return ae.config
+}
+
+// UpdateConfig updates the configuration
+func (ae *AnimationEngine) UpdateConfig(config AnimationConfig) {
+	ae.mu.Lock()
+	defer ae.mu.Unlock()
+	ae.config = config
+
+	if !config.Enabled {
+		// Disable all animations
+		for _, animation := range ae.animations {
+			animation.IsActive = false
+		}
+	}
+}
+
+// ProcessEvent processes external events that might trigger animations
+func (ae *AnimationEngine) ProcessEvent(event string) []string {
+	ae.mu.RLock()
+	defer ae.mu.RUnlock()
+
+	var triggeredIDs []string
+	for id, animation := range ae.animations {
+		if !animation.IsActive || !animation.IsVisible {
 			continue
 		}
 
@@ -154,26 +355,18 @@ func (am *AnimationManager) ProcessEvent(event string) tea.Cmd {
 			}
 		}
 	}
-	am.mu.RUnlock()
 
-	if len(triggeredIDs) > 0 {
-		return am.TriggerRefresh(triggeredIDs)
-	}
-
-	return nil
+	return triggeredIDs
 }
 
-// CheckConditionalTriggers checks all conditional triggers
-func (am *AnimationManager) CheckConditionalTriggers() tea.Cmd {
-	if !am.config.Enabled {
-		return nil
-	}
+// CheckConditionalTriggers checks all conditional triggers and returns triggered IDs
+func (ae *AnimationEngine) CheckConditionalTriggers() []string {
+	ae.mu.RLock()
+	defer ae.mu.RUnlock()
 
-	am.mu.RLock()
 	var triggeredIDs []string
-
-	for id, animation := range am.animations {
-		if !animation.IsVisible {
+	for id, animation := range ae.animations {
+		if !animation.IsActive || !animation.IsVisible {
 			continue
 		}
 
@@ -184,170 +377,70 @@ func (am *AnimationManager) CheckConditionalTriggers() tea.Cmd {
 			}
 		}
 	}
-	am.mu.RUnlock()
 
-	if len(triggeredIDs) > 0 {
-		return am.TriggerRefresh(triggeredIDs)
-	}
-
-	return nil
+	return triggeredIDs
 }
 
-// Cleanup removes all animations and stops all timers
-func (am *AnimationManager) Cleanup() {
-	am.mu.Lock()
-	defer am.mu.Unlock()
-
-	// Stop all timers
-	for _, timer := range am.timers {
-		timer.Stop()
-	}
-	am.timers = make(map[string]*time.Timer)
-
-	// Clear callbacks
-	am.callbacks = make(map[string]func())
-
-	// Clear animations
-	am.animations = make(map[string]*Animation)
-
-	// Stop batch timer
-	if am.batchTimer != nil {
-		am.batchTimer.Stop()
-		am.batchTimer = nil
-	}
-}
-
-// setupTriggers sets up timers and callbacks for animation triggers
-func (am *AnimationManager) setupTriggers(id string, triggers []RefreshTrigger) {
-	for _, trigger := range triggers {
-		switch trigger.Type {
-		case TriggerTimer:
-			if trigger.Interval > 0 {
-				am.setupTimerTrigger(id, trigger.Interval)
-			}
-		case TriggerOnce:
-			// Trigger once after initial render
-			go func(animID string) {
-				time.Sleep(time.Millisecond) // Allow initial render to complete
-				am.TriggerRefresh([]string{animID})
-			}(id)
-		}
-	}
-}
-
-// setupTimerTrigger creates a repeating timer for an animation
-func (am *AnimationManager) setupTimerTrigger(id string, interval time.Duration) {
-	// Stop existing timer if any
-	if timer, exists := am.timers[id]; exists {
-		timer.Stop()
-	}
-
-	// Respect reduced motion preference
-	actualInterval := interval
-	if am.config.ReducedMotion {
-		actualInterval = interval * 2 // Slow down animations
-	}
-
-	// Create new timer
-	timer := time.AfterFunc(actualInterval, func() {
-		am.mu.RLock()
-		animation, exists := am.animations[id]
-		am.mu.RUnlock()
-
-		if exists && animation.IsVisible {
-			am.TriggerRefresh([]string{id})
-			// Reschedule
-			am.setupTimerTrigger(id, interval)
-		}
-	})
-
-	am.timers[id] = timer
-}
-
-// removeOldestAnimation removes the animation that was last rendered longest ago
-func (am *AnimationManager) removeOldestAnimation() {
+// removeOldestAnimationUnsafe removes the oldest animation (must be called with lock held)
+func (ae *AnimationEngine) removeOldestAnimationUnsafe() {
 	var oldestID string
 	var oldestTime time.Time
 
-	for id, animation := range am.animations {
-		if oldestID == "" || animation.LastRender.Before(oldestTime) {
+	for id, animation := range ae.animations {
+		if oldestID == "" || animation.LastUpdate.Before(oldestTime) {
 			oldestID = id
-			oldestTime = animation.LastRender
+			oldestTime = animation.LastUpdate
 		}
 	}
 
 	if oldestID != "" {
-		// Clean up the oldest animation
-		if timer, exists := am.timers[oldestID]; exists {
-			timer.Stop()
-			delete(am.timers, oldestID)
-		}
-		delete(am.callbacks, oldestID)
-		delete(am.animations, oldestID)
+		delete(ae.animations, oldestID)
 	}
 }
 
-// processBatchUpdates processes accumulated batch updates
-func (am *AnimationManager) processBatchUpdates() {
-	am.mu.Lock()
-	updates := make([]string, len(am.batchUpdates))
-	copy(updates, am.batchUpdates)
-	am.batchUpdates = am.batchUpdates[:0]
-	am.batchTimer = nil
-	am.mu.Unlock()
+// Global animation engine instance
+var globalAnimationEngine *AnimationEngine
 
-	if len(updates) > 0 {
-		// Remove duplicates
-		uniqueUpdates := make(map[string]bool)
-		var finalUpdates []string
-		for _, update := range updates {
-			if !uniqueUpdates[update] {
-				uniqueUpdates[update] = true
-				finalUpdates = append(finalUpdates, update)
-			}
-		}
-
-		if cmd := am.onRefresh(finalUpdates); cmd != nil {
-			// In a real implementation, this would be sent through the tea.Program
-			// For now, we'll just ignore the command
-			_ = cmd
-		}
-	}
+// InitializeAnimationEngine initializes the global animation engine
+func InitializeAnimationEngine(config AnimationConfig) {
+	globalAnimationEngine = NewAnimationEngine(config)
 }
 
-// GetActiveAnimations returns the IDs of all active animations
-func (am *AnimationManager) GetActiveAnimations() []string {
-	am.mu.RLock()
-	defer am.mu.RUnlock()
-
-	var ids []string
-	for id, animation := range am.animations {
-		if animation.IsVisible {
-			ids = append(ids, id)
-		}
+// GetAnimationEngine returns the global animation engine
+func GetAnimationEngine() *AnimationEngine {
+	if globalAnimationEngine == nil {
+		globalAnimationEngine = NewAnimationEngine(DefaultAnimationConfig())
 	}
-	return ids
+	return globalAnimationEngine
 }
 
-// GetConfig returns the current animation configuration
-func (am *AnimationManager) GetConfig() AnimationConfig {
-	am.mu.RLock()
-	defer am.mu.RUnlock()
-	return am.config
+// StartGlobalAnimationLoop starts the global animation loop
+func StartGlobalAnimationLoop() tea.Cmd {
+	engine := GetAnimationEngine()
+	if engine.config.Enabled {
+		return engine.startGlobalTicker()
+	}
+	return nil
 }
 
-// UpdateConfig updates the animation configuration
-func (am *AnimationManager) UpdateConfig(config AnimationConfig) {
-	am.mu.Lock()
-	defer am.mu.Unlock()
-	am.config = config
+// Deprecated: AnimationManager - use AnimationEngine instead
+type AnimationManager = AnimationEngine
 
-	// If animations are disabled, clean up
-	if !config.Enabled {
-		// We can't call Cleanup() here as it would deadlock
-		// Instead, mark all animations as invisible
-		for _, animation := range am.animations {
-			animation.IsVisible = false
-		}
-	}
+// Deprecated: NewAnimationManager - use NewAnimationEngine instead
+func NewAnimationManager(config AnimationConfig) *AnimationManager {
+	return NewAnimationEngine(config)
+}
+
+// Deprecated: AnimationTickMsg, AnimationStartMsg, AnimationStopMsg - use GlobalAnimationTickMsg and AnimationUpdateMsg instead
+type AnimationTickMsg struct {
+	AnimationID string
+	Timestamp   time.Time
+}
+
+type AnimationStartMsg struct {
+	AnimationID string
+}
+
+type AnimationStopMsg struct {
+	AnimationID string
 }

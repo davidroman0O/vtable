@@ -343,6 +343,11 @@ func (l *List[T]) GetLoadedChunks() []ChunkInfo {
 
 // Render renders the list to a string using the provided formatter.
 func (l *List[T]) Render() string {
+	return l.RenderWithAnimatedContent(nil)
+}
+
+// RenderWithAnimatedContent renders the list with optional animated content
+func (l *List[T]) RenderWithAnimatedContent(animatedContent map[string]string) string {
 	var builder strings.Builder
 
 	// Special case for empty dataset
@@ -370,10 +375,14 @@ func (l *List[T]) Render() string {
 		isTopThreshold := i == l.Config.TopThresholdIndex
 		isBottomThreshold := i == l.Config.BottomThresholdIndex
 
-		// Format the item using the formatter
 		var renderedItem string
-		if l.Formatter != nil {
-			// Create a basic RenderContext for list rendering
+
+		// Check if we have animated content for this item
+		animKey := fmt.Sprintf("item-%d", absoluteIndex)
+		if animatedContent != nil && animatedContent[animKey] != "" {
+			renderedItem = animatedContent[animKey]
+		} else if l.Formatter != nil {
+			// Use regular formatter if no animated content
 			ctx := RenderContext{
 				MaxWidth:     80,  // Reasonable default for lists
 				MaxHeight:    1,   // Single line for list items
