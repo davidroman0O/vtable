@@ -16,7 +16,8 @@ import (
 
 // Example data providers
 type StringListProvider struct {
-	items []string
+	items     []string
+	selection map[int]bool // Track selection by index
 }
 
 func NewStringListProvider(count int) *StringListProvider {
@@ -24,7 +25,10 @@ func NewStringListProvider(count int) *StringListProvider {
 	for i := 0; i < count; i++ {
 		items[i] = fmt.Sprintf("Item %d", i)
 	}
-	return &StringListProvider{items: items}
+	return &StringListProvider{
+		items:     items,
+		selection: make(map[int]bool),
+	}
 }
 
 func (p *StringListProvider) GetTotal() int {
@@ -32,12 +36,12 @@ func (p *StringListProvider) GetTotal() int {
 	return len(p.items)
 }
 
-func (p *StringListProvider) GetItems(request vtable.DataRequest) ([]string, error) {
+func (p *StringListProvider) GetItems(request vtable.DataRequest) ([]vtable.Data[string], error) {
 	start := request.Start
 	count := request.Count
 
 	if start >= len(p.items) {
-		return []string{}, nil
+		return []vtable.Data[string]{}, nil
 	}
 
 	end := start + count
@@ -45,7 +49,64 @@ func (p *StringListProvider) GetItems(request vtable.DataRequest) ([]string, err
 		end = len(p.items)
 	}
 
-	return p.items[start:end], nil
+	// Convert items to Data objects
+	result := make([]vtable.Data[string], end-start)
+	for i := start; i < end; i++ {
+		result[i-start] = vtable.Data[string]{
+			Item:     p.items[i],
+			Selected: p.selection[i],
+			Metadata: nil,
+			Disabled: false,
+			Hidden:   false,
+		}
+	}
+
+	return result, nil
+}
+
+func (p *StringListProvider) GetSelectionMode() vtable.SelectionMode {
+	return vtable.SelectionMultiple
+}
+
+func (p *StringListProvider) SetSelected(index int, selected bool) bool {
+	if index < 0 || index >= len(p.items) {
+		return false
+	}
+	if selected {
+		p.selection[index] = true
+	} else {
+		delete(p.selection, index)
+	}
+	return true
+}
+
+func (p *StringListProvider) SelectAll() bool {
+	for i := 0; i < len(p.items); i++ {
+		p.selection[i] = true
+	}
+	return true
+}
+
+func (p *StringListProvider) ClearSelection() {
+	p.selection = make(map[int]bool)
+}
+
+func (p *StringListProvider) GetSelectedIndices() []int {
+	indices := make([]int, 0, len(p.selection))
+	for idx := range p.selection {
+		indices = append(indices, idx)
+	}
+	return indices
+}
+
+func (p *StringListProvider) GetItemID(item *string) string {
+	// For this simple provider, we'll use the index as ID
+	for i, itm := range p.items {
+		if itm == *item {
+			return strconv.Itoa(i)
+		}
+	}
+	return ""
 }
 
 func (p *StringListProvider) FindItemIndex(key string, value any) (int, bool) {
@@ -77,7 +138,8 @@ func (p *StringListProvider) FindItemIndex(key string, value any) (int, bool) {
 
 // Table data provider
 type TableDataProvider struct {
-	rows []vtable.TableRow
+	rows      []vtable.TableRow
+	selection map[int]bool // Track selection by index
 }
 
 func NewTableDataProvider(count int) *TableDataProvider {
@@ -91,7 +153,10 @@ func NewTableDataProvider(count int) *TableDataProvider {
 			},
 		}
 	}
-	return &TableDataProvider{rows: rows}
+	return &TableDataProvider{
+		rows:      rows,
+		selection: make(map[int]bool),
+	}
 }
 
 func (p *TableDataProvider) GetTotal() int {
@@ -99,12 +164,12 @@ func (p *TableDataProvider) GetTotal() int {
 	return len(p.rows)
 }
 
-func (p *TableDataProvider) GetItems(request vtable.DataRequest) ([]vtable.TableRow, error) {
+func (p *TableDataProvider) GetItems(request vtable.DataRequest) ([]vtable.Data[vtable.TableRow], error) {
 	start := request.Start
 	count := request.Count
 
 	if start >= len(p.rows) {
-		return []vtable.TableRow{}, nil
+		return []vtable.Data[vtable.TableRow]{}, nil
 	}
 
 	end := start + count
@@ -112,7 +177,64 @@ func (p *TableDataProvider) GetItems(request vtable.DataRequest) ([]vtable.Table
 		end = len(p.rows)
 	}
 
-	return p.rows[start:end], nil
+	// Convert items to Data objects
+	result := make([]vtable.Data[vtable.TableRow], end-start)
+	for i := start; i < end; i++ {
+		result[i-start] = vtable.Data[vtable.TableRow]{
+			Item:     p.rows[i],
+			Selected: p.selection[i],
+			Metadata: nil,
+			Disabled: false,
+			Hidden:   false,
+		}
+	}
+
+	return result, nil
+}
+
+func (p *TableDataProvider) GetSelectionMode() vtable.SelectionMode {
+	return vtable.SelectionMultiple
+}
+
+func (p *TableDataProvider) SetSelected(index int, selected bool) bool {
+	if index < 0 || index >= len(p.rows) {
+		return false
+	}
+	if selected {
+		p.selection[index] = true
+	} else {
+		delete(p.selection, index)
+	}
+	return true
+}
+
+func (p *TableDataProvider) SelectAll() bool {
+	for i := 0; i < len(p.rows); i++ {
+		p.selection[i] = true
+	}
+	return true
+}
+
+func (p *TableDataProvider) ClearSelection() {
+	p.selection = make(map[int]bool)
+}
+
+func (p *TableDataProvider) GetSelectedIndices() []int {
+	indices := make([]int, 0, len(p.selection))
+	for idx := range p.selection {
+		indices = append(indices, idx)
+	}
+	return indices
+}
+
+func (p *TableDataProvider) GetItemID(item *vtable.TableRow) string {
+	// For this simple provider, we'll use the index as ID
+	for i, row := range p.rows {
+		if len(row.Cells) > 0 && len(item.Cells) > 0 && row.Cells[0] == item.Cells[0] {
+			return strconv.Itoa(i)
+		}
+	}
+	return ""
 }
 
 func (p *TableDataProvider) FindItemIndex(key string, value any) (int, bool) {
@@ -177,6 +299,9 @@ type Model struct {
 
 	// Terminal dimensions
 	termWidth int
+
+	// Create a map to match the displayed key with what keypress actually generates
+	keyMap map[string][]string
 }
 
 // Search result message
@@ -257,11 +382,23 @@ func initialModel() (Model, error) {
 	listProvider := NewStringListProvider(1000)
 
 	// Create list formatter
-	listFormatter := func(item string, index int, isCursor bool, isTopThreshold bool, isBottomThreshold bool) string {
+	listFormatter := func(data vtable.Data[string], index int, ctx vtable.RenderContext, isCursor bool, isTopThreshold bool, isBottomThreshold bool) string {
+		item := data.Item // Extract the actual string from the Data wrapper
+
 		var style lipgloss.Style
 		if isCursor {
-			style = lipgloss.NewStyle().Foreground(lipgloss.Color("252")).Background(lipgloss.Color("63"))
+			if data.Selected {
+				// Cursor + Selected: Yellow background with bold text
+				style = lipgloss.NewStyle().Foreground(lipgloss.Color("0")).Background(lipgloss.Color("226")).Bold(true)
+			} else {
+				// Just cursor: Blue background
+				style = lipgloss.NewStyle().Foreground(lipgloss.Color("252")).Background(lipgloss.Color("63"))
+			}
+		} else if data.Selected {
+			// Just selected: Green background
+			style = lipgloss.NewStyle().Foreground(lipgloss.Color("0")).Background(lipgloss.Color("46"))
 		} else {
+			// Default: Normal text
 			style = lipgloss.NewStyle().Foreground(lipgloss.Color("252"))
 		}
 
@@ -274,11 +411,19 @@ func initialModel() (Model, error) {
 			result = fmt.Sprintf("%s (B)", result)
 		}
 
-		if isCursor {
-			result = fmt.Sprintf("> %s", result)
+		// Add selection indicator
+		var prefix string
+		if isCursor && data.Selected {
+			prefix = "✓>" // Both cursor and selected
+		} else if isCursor {
+			prefix = "> " // Just cursor
+		} else if data.Selected {
+			prefix = "✓ " // Just selected
 		} else {
-			result = fmt.Sprintf("  %s", result)
+			prefix = "  " // Neither
 		}
+
+		result = fmt.Sprintf("%s %s", prefix, result)
 
 		return style.Render(result)
 	}
@@ -332,6 +477,29 @@ func initialModel() (Model, error) {
 		themes:       themes,
 		activeKey:    "", // No key is initially active
 		termWidth:    0,  // Initialize termWidth
+		keyMap: map[string][]string{
+			"↑/↓":    {"up", "down"},
+			"j/k":    {"j", "k"},
+			"u/d":    {"u", "d", "pgup", "pgdown"},
+			"g/G":    {"g", "G", "home", "end"},
+			"1-5":    {"1", "2", "3", "4", "5"},
+			"S":      {"S"},
+			"f":      {"f"},
+			"l":      {"l"},
+			"a":      {"a"},
+			"c":      {"c"},
+			"F":      {"F"},
+			"r":      {"r"},
+			"D":      {"D"},
+			"q":      {"q"},
+			"space":  {"space"},
+			"ctrl+a": {"ctrl+a"},
+			"esc":    {"escape", "esc"},
+			"s":      {"s"},
+			"tab":    {"tab"},
+			"t":      {"t"},
+			"m":      {"m"},
+		},
 	}, nil
 }
 
@@ -361,7 +529,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.termWidth = msg.Width
 		return m, nil
 	case tea.KeyMsg:
-		// If we're searching, handle search input
+		// If we're searching, handle search input first
 		if m.searching {
 			// Set the active key for highlighting purposes (except for text entry)
 			keyStr := msg.String()
@@ -413,6 +581,138 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 		case "D":
 			m.debug = !m.debug
+		case " ", "space":
+			// Handle selection BEFORE component update to prevent PageDown behavior
+			if m.activeView == viewList {
+				if m.listModel.ToggleCurrentSelection() {
+					selectionCount := m.listModel.GetSelectionCount()
+					m.searchResult = fmt.Sprintf("Toggled selection (total selected: %d)", selectionCount)
+				} else {
+					m.searchResult = "Toggle failed"
+				}
+			} else {
+				if m.tableModel.ToggleCurrentSelection() {
+					selectionCount := m.tableModel.GetSelectionCount()
+					m.searchResult = fmt.Sprintf("Toggled selection (total selected: %d)", selectionCount)
+				} else {
+					m.searchResult = "Toggle failed"
+				}
+			}
+			// Return early to prevent component from processing space as PageDown
+			return m, tea.Batch(cmds...)
+		case "ctrl+a":
+			// Handle select all BEFORE component update
+			if m.activeView == viewList {
+				if m.listModel.SelectAll() {
+					selectionCount := m.listModel.GetSelectionCount()
+					m.searchResult = fmt.Sprintf("Selected all items (total: %d)", selectionCount)
+				} else {
+					m.searchResult = "Select all failed"
+				}
+			} else {
+				if m.tableModel.SelectAll() {
+					selectionCount := m.tableModel.GetSelectionCount()
+					m.searchResult = fmt.Sprintf("Selected all rows (total: %d)", selectionCount)
+				} else {
+					m.searchResult = "Select all failed"
+				}
+			}
+			// Return early to prevent component processing
+			return m, tea.Batch(cmds...)
+		case "escape":
+			// Handle clear selection BEFORE component update
+			if m.activeView == viewList {
+				m.listModel.ClearSelection()
+				selectionCount := m.listModel.GetSelectionCount()
+				m.searchResult = fmt.Sprintf("Cleared all selections (count: %d)", selectionCount)
+			} else {
+				m.tableModel.ClearSelection()
+				selectionCount := m.tableModel.GetSelectionCount()
+				m.searchResult = fmt.Sprintf("Cleared all selections (count: %d)", selectionCount)
+			}
+			// Return early to prevent component processing
+			return m, tea.Batch(cmds...)
+		case "s":
+			// Show selection count
+			if m.activeView == viewList {
+				selectionCount := m.listModel.GetSelectionCount()
+				m.searchResult = fmt.Sprintf("Selected items: %d", selectionCount)
+			} else {
+				selectionCount := m.tableModel.GetSelectionCount()
+				m.searchResult = fmt.Sprintf("Selected rows: %d", selectionCount)
+			}
+			// Return early to prevent component processing
+			return m, tea.Batch(cmds...)
+		default:
+			// Check if this is a search key based on current model's key bindings
+			var isSearchKey bool
+			if m.activeView == viewList {
+				isSearchKey = key.Matches(msg, m.listModel.GetKeyMap().Search)
+			} else {
+				isSearchKey = key.Matches(msg, m.tableModel.GetKeyMap().Search)
+			}
+
+			if isSearchKey {
+				// For 'f' key specifically, ensure it gets highlighted
+				// before entering search mode
+				if msg.String() == "f" || msg.String() == "/" || msg.String() == "slash" {
+					// Start the search mode after a brief delay to allow the key highlight to be visible
+					cmds = append(cmds, tea.Tick(100*time.Millisecond, func(_ time.Time) tea.Msg {
+						// This custom message will trigger search mode
+						return StartSearchMsg{}
+					}))
+					return m, tea.Batch(cmds...)
+				}
+			}
+		}
+	case StartSearchMsg:
+		// Start search mode
+		m.searching = true
+		m.searchInput.SetValue("")
+		m.searchInput.Focus()
+		// Clear the highlight after entering search mode
+		m.activeKey = ""
+		return m, textinput.Blink
+	case KeyReleasedMsg:
+		// Reset the active key
+		m.activeKey = ""
+		return m, nil
+	case searchResultMsg:
+		if msg.found {
+			m.searchResult = fmt.Sprintf("Found at index %d", msg.index)
+		} else {
+			m.searchResult = "Not found"
+		}
+		return m, nil
+	}
+
+	// If we're searching, we don't want to update the components
+	if m.searching {
+		return m, nil
+	}
+
+	// Update only the active component
+	if m.activeView == viewList {
+		// We're in list view - update only the list model
+		var cmd tea.Cmd
+		listModel, cmd := m.listModel.Update(msg)
+		if listM, ok := listModel.(*vtable.TeaList[string]); ok {
+			m.listModel = listM
+		}
+		cmds = append(cmds, cmd)
+	} else {
+		// We're in table view - update only the table model
+		var cmd tea.Cmd
+		tableModel, cmd := m.tableModel.Update(msg)
+		if tableM, ok := tableModel.(*vtable.TeaTable); ok {
+			m.tableModel = tableM
+		}
+		cmds = append(cmds, cmd)
+	}
+
+	// Handle remaining keys AFTER component update
+	if keyMsg, ok := msg.(tea.KeyMsg); ok {
+		switch keyMsg.String() {
 		case "m":
 			// Example of customizing keymaps
 			if m.activeView == viewList {
@@ -494,71 +794,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.listModel.SetStyle(styleConfig)
 				m.searchResult = fmt.Sprintf("Theme changed to %s (List view)", m.currentTheme)
 			}
-		default:
-			// Check if this is a search key based on current model's key bindings
-			var isSearchKey bool
-			if m.activeView == viewList {
-				isSearchKey = key.Matches(msg, m.listModel.GetKeyMap().Search)
-			} else {
-				isSearchKey = key.Matches(msg, m.tableModel.GetKeyMap().Search)
-			}
-
-			if isSearchKey {
-				// For 'f' key specifically, ensure it gets highlighted
-				// before entering search mode
-				if msg.String() == "f" || msg.String() == "/" || msg.String() == "slash" {
-					// Start the search mode after a brief delay to allow the key highlight to be visible
-					cmds = append(cmds, tea.Tick(100*time.Millisecond, func(_ time.Time) tea.Msg {
-						// This custom message will trigger search mode
-						return StartSearchMsg{}
-					}))
-					return m, tea.Batch(cmds...)
-				}
-			}
 		}
-	case StartSearchMsg:
-		// Start search mode
-		m.searching = true
-		m.searchInput.SetValue("")
-		m.searchInput.Focus()
-		// Clear the highlight after entering search mode
-		m.activeKey = ""
-		return m, textinput.Blink
-	case KeyReleasedMsg:
-		// Reset the active key
-		m.activeKey = ""
-		return m, nil
-	case searchResultMsg:
-		if msg.found {
-			m.searchResult = fmt.Sprintf("Found at index %d", msg.index)
-		} else {
-			m.searchResult = "Not found"
-		}
-		return m, nil
-	}
-
-	// If we're searching, we don't want to update the components
-	if m.searching {
-		return m, nil
-	}
-
-	// Update only the active component
-	if m.activeView == viewList {
-		// We're in list view - update only the list model
-		var cmd tea.Cmd
-		listModel, cmd := m.listModel.Update(msg)
-		if listM, ok := listModel.(*vtable.TeaList[string]); ok {
-			m.listModel = listM
-		}
-		cmds = append(cmds, cmd)
-	} else {
-		// We're in table view - update only the table model
-		var cmd tea.Cmd
-		tableModel, cmd := m.tableModel.Update(msg)
-		if tableM, ok := tableModel.(*vtable.TeaTable); ok {
-			m.tableModel = tableM
-		}
-		cmds = append(cmds, cmd)
 	}
 
 	return m, tea.Batch(cmds...)
@@ -677,12 +913,17 @@ func (m Model) renderHelpText() string {
 		Background(lipgloss.Color("#FFFF00")).
 		Bold(true)
 
-	// Helper function to style a key
-	styleKey := func(key string) string {
-		if key == m.activeKey {
-			return activeKeyStyle.Render(key)
+	// Style a key based on whether it matches the active key
+	styleKey := func(displayKey string) string {
+		// Check if this display key matches the currently pressed key
+		if possibleKeys, exists := m.keyMap[displayKey]; exists {
+			for _, possibleKey := range possibleKeys {
+				if possibleKey == m.activeKey {
+					return activeKeyStyle.Render(displayKey)
+				}
+			}
 		}
-		return highlightedKeyStyle.Render(key)
+		return highlightedKeyStyle.Render(displayKey)
 	}
 
 	// All help text items
@@ -696,6 +937,10 @@ func (m Model) renderHelpText() string {
 		fmt.Sprintf("%s: cycle themes", styleKey("t")),
 		fmt.Sprintf("%s: keymap customize", styleKey("m")),
 		fmt.Sprintf("%s: toggle debug", styleKey("D")),
+		fmt.Sprintf("%s: toggle selection", styleKey("space")),
+		fmt.Sprintf("%s: select all", styleKey("ctrl+a")),
+		fmt.Sprintf("%s: clear selection", styleKey("esc")),
+		fmt.Sprintf("%s: show selection count", styleKey("s")),
 	}
 
 	// Get current terminal width (or use default)

@@ -112,8 +112,8 @@ func NewTable(
 	}
 
 	// Create a formatter for the table rows
-	formatter := func(row TableRow, index int, isCursor bool, isTopThreshold bool, isBottomThreshold bool) string {
-		return formatTableRow(row, index, isCursor, isTopThreshold, isBottomThreshold, adjustedConfig, theme)
+	formatter := func(data Data[TableRow], index int, ctx RenderContext, isCursor bool, isTopThreshold bool, isBottomThreshold bool) string {
+		return formatTableRow(data, index, isCursor, isTopThreshold, isBottomThreshold, adjustedConfig, theme)
 	}
 
 	// Convert theme to styleConfig for backward compatibility with List
@@ -138,7 +138,7 @@ func NewTable(
 
 // formatTableRow formats a single table row.
 func formatTableRow(
-	row TableRow,
+	data Data[TableRow],
 	index int,
 	isCursor bool,
 	isTopThreshold bool,
@@ -147,6 +147,9 @@ func formatTableRow(
 	theme Theme,
 ) string {
 	var sb strings.Builder
+
+	row := data.Item
+	isSelected := data.Selected
 
 	// Ensure we don't iterate beyond the row's cell count
 	cellCount := len(row.Cells)
@@ -157,8 +160,8 @@ func formatTableRow(
 		// Add starting border if needed
 		if config.ShowBorders && i == 0 {
 			borderStyle := theme.BorderStyle
-			if isCursor {
-				// Highlight border for cursor row
+			if isCursor || isSelected {
+				// Highlight border for cursor or selected row
 				borderStyle = borderStyle.Copy().Bold(true)
 			}
 			sb.WriteString(borderStyle.Render(theme.BorderChars.Vertical))
@@ -166,9 +169,17 @@ func formatTableRow(
 
 		// Determine the style to use
 		var style lipgloss.Style
-		if isCursor {
-			// Use selected style for cursor row
+		if isCursor && isSelected {
+			// Both cursor and selected: Use a special combined style (bold selected style)
+			style = theme.SelectedRowStyle.Copy().Width(config.Columns[i].Width).Bold(true)
+		} else if isCursor {
+			// Just cursor: Use selected style for cursor row
 			style = theme.SelectedRowStyle.Copy().Width(config.Columns[i].Width)
+		} else if isSelected {
+			// Just selected: Use a modified style to show selection
+			style = theme.RowEvenStyle.Copy().Width(config.Columns[i].Width).
+				Background(lipgloss.Color("22")). // Dark green background for selected
+				Foreground(lipgloss.Color("15"))  // White text
 		} else if isTopThreshold {
 			// Apply threshold styling if needed
 			style = theme.RowStyle.Copy().Width(config.Columns[i].Width)
@@ -199,9 +210,19 @@ func formatTableRow(
 			value = row.Cells[i]
 		}
 
-		// Truncate if needed
-		if len(value) > config.Columns[i].Width {
-			value = value[:config.Columns[i].Width-3] + "..."
+		// Add selection indicator to the first column
+		if i == 0 && isSelected {
+			if isCursor {
+				value = "✓>" + value // Both selected and cursor
+			} else {
+				value = "✓ " + value // Just selected
+			}
+		}
+
+		// Truncate if needed (accounting for selection indicator)
+		maxWidth := config.Columns[i].Width
+		if len(value) > maxWidth {
+			value = value[:maxWidth-3] + "..."
 		}
 
 		// Render the cell
@@ -210,8 +231,8 @@ func formatTableRow(
 		// Add border if needed
 		if config.ShowBorders {
 			borderStyle := theme.BorderStyle
-			if isCursor {
-				// Highlight border for cursor row
+			if isCursor || isSelected {
+				// Highlight border for cursor or selected row
 				borderStyle = borderStyle.Copy().Bold(true)
 			}
 			sb.WriteString(borderStyle.Render(theme.BorderChars.Vertical))
@@ -341,7 +362,11 @@ func (t *Table) GetState() ViewportState {
 
 // GetCurrentRow returns the currently selected row.
 func (t *Table) GetCurrentRow() (TableRow, bool) {
-	return t.list.GetCurrentItem()
+	data, ok := t.list.GetCurrentItem()
+	if !ok {
+		return TableRow{}, false
+	}
+	return data.Item, true
 }
 
 // GetConfig returns the current table configuration.
@@ -978,4 +1003,77 @@ func (t *TeaTable) RefreshData() {
 	}
 
 	t.JumpToIndex(currentPos)
+}
+
+// Selection methods - delegate to the underlying DataProvider
+
+// ToggleSelection toggles the selection state of the row at the given index.
+func (m *TeaTable) ToggleSelection(index int) bool {
+	// Get current selection state
+	if data, ok := m.table.list.GetCurrentItem(); ok && m.table.list.State.CursorIndex == index {
+		newSelected := !data.Selected
+		if m.table.list.DataProvider.SetSelected(index, newSelected) {
+			// Refresh the data to show selection changes
+			m.RefreshData()
+			return true
+		}
+	} else {
+		// If not the current item, we need to determine current state differently
+		// For now, just set as selected
+		if m.table.list.DataProvider.SetSelected(index, true) {
+			// Refresh the data to show selection changes
+			m.RefreshData()
+			return true
+		}
+	}
+	return false
+}
+
+// ToggleCurrentSelection toggles the selection state of the currently highlighted row.
+func (m *TeaTable) ToggleCurrentSelection() bool {
+	currentIndex := m.table.list.State.CursorIndex
+	if data, ok := m.table.list.GetCurrentItem(); ok {
+		newSelected := !data.Selected
+		if m.table.list.DataProvider.SetSelected(currentIndex, newSelected) {
+			// Just invalidate cache - let normal render cycle fetch fresh data
+			m.refreshCachedData()
+			return true
+		}
+	}
+	return false
+}
+
+// SelectAll selects all rows.
+func (m *TeaTable) SelectAll() bool {
+	if m.table.list.DataProvider.SelectAll() {
+		// Just invalidate cache - let normal render cycle fetch fresh data
+		m.refreshCachedData()
+		return true
+	}
+	return false
+}
+
+// ClearSelection clears all selections.
+func (m *TeaTable) ClearSelection() {
+	m.table.list.DataProvider.ClearSelection()
+	// Just invalidate cache - let normal render cycle fetch fresh data
+	m.refreshCachedData()
+}
+
+// refreshCachedData invalidates cached chunks to force refresh of visible data
+func (m *TeaTable) refreshCachedData() {
+	// Clear chunks to force reload with updated selection state
+	m.table.list.chunks = make(map[int]*chunk[TableRow])
+	// Force update of visible items to reload fresh chunks
+	m.table.list.updateVisibleItems()
+}
+
+// GetSelectedIndices returns the indices of all selected rows.
+func (m *TeaTable) GetSelectedIndices() []int {
+	return m.table.list.DataProvider.GetSelectedIndices()
+}
+
+// GetSelectionCount returns the number of selected rows.
+func (m *TeaTable) GetSelectionCount() int {
+	return len(m.table.list.DataProvider.GetSelectedIndices())
 }

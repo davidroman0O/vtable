@@ -15,8 +15,8 @@ type chunk[T any] struct {
 	// EndIndex is the absolute index of the last item in the chunk.
 	EndIndex int
 
-	// Items is the slice of items in the chunk.
-	Items []T
+	// Items is the slice of Data items in the chunk.
+	Items []Data[T]
 }
 
 // List is a virtualized list component that efficiently handles large datasets.
@@ -43,8 +43,8 @@ type List[T any] struct {
 	// totalItems is the total number of items in the dataset.
 	totalItems int
 
-	// visibleItems is the slice of items currently visible in the viewport.
-	visibleItems []T
+	// visibleItems is the slice of Data items currently visible in the viewport.
+	visibleItems []Data[T]
 
 	// dataRequest holds the current data request configuration
 	// including filtering and sorting options
@@ -122,7 +122,7 @@ func NewList[T any](
 		},
 		chunks:       make(map[int]*chunk[T]),
 		totalItems:   totalItems,
-		visibleItems: make([]T, 0, config.Height),
+		visibleItems: make([]Data[T], 0, config.Height),
 		dataRequest:  dataRequest,
 	}
 
@@ -208,7 +208,7 @@ func (l *List[T]) unloadChunks() {
 func (l *List[T]) updateVisibleItems() {
 	// If there's no data, return an empty slice
 	if l.totalItems == 0 {
-		l.visibleItems = []T{}
+		l.visibleItems = []Data[T]{}
 		return
 	}
 
@@ -234,7 +234,7 @@ func (l *List[T]) updateVisibleItems() {
 	}
 
 	// Create a new slice to hold visible items
-	l.visibleItems = make([]T, 0, viewportEnd-l.State.ViewportStartIndex)
+	l.visibleItems = make([]Data[T], 0, viewportEnd-l.State.ViewportStartIndex)
 
 	// Fill the visible items slice with actual data
 	for i := l.State.ViewportStartIndex; i < viewportEnd; i++ {
@@ -291,7 +291,7 @@ func (l *List[T]) updateVisibleItems() {
 }
 
 // GetVisibleItems returns the slice of items currently visible in the viewport.
-func (l *List[T]) GetVisibleItems() []T {
+func (l *List[T]) GetVisibleItems() []Data[T] {
 	return l.visibleItems
 }
 
@@ -301,22 +301,22 @@ func (l *List[T]) GetTotalItems() int {
 }
 
 // GetCurrentItem returns the currently selected item.
-func (l *List[T]) GetCurrentItem() (T, bool) {
+func (l *List[T]) GetCurrentItem() (Data[T], bool) {
 	if l.State.CursorIndex < 0 || l.State.CursorIndex >= l.totalItems {
-		var zero T
+		var zero Data[T]
 		return zero, false
 	}
 
 	chunkStartIndex := (l.State.CursorIndex / l.Config.ChunkSize) * l.Config.ChunkSize
 	chunk, ok := l.chunks[chunkStartIndex]
 	if !ok {
-		var zero T
+		var zero Data[T]
 		return zero, false
 	}
 
 	itemIndex := l.State.CursorIndex - chunk.StartIndex
 	if itemIndex < 0 || itemIndex >= len(chunk.Items) {
-		var zero T
+		var zero Data[T]
 		return zero, false
 	}
 
@@ -373,7 +373,14 @@ func (l *List[T]) Render() string {
 		// Format the item using the formatter
 		var renderedItem string
 		if l.Formatter != nil {
-			renderedItem = l.Formatter(item, absoluteIndex, isCursor, isTopThreshold, isBottomThreshold)
+			// Create a basic RenderContext for list rendering
+			ctx := RenderContext{
+				MaxWidth:     80,  // Reasonable default for lists
+				MaxHeight:    1,   // Single line for list items
+				ColumnIndex:  0,   // Lists don't have columns
+				ColumnConfig: nil, // Lists don't have column config
+			}
+			renderedItem = l.Formatter(item, absoluteIndex, ctx, isCursor, isTopThreshold, isBottomThreshold)
 		} else {
 			// Default formatting if no formatter is provided
 			itemStr := fmt.Sprintf("%v", item)
@@ -627,7 +634,7 @@ func (l *List[T]) refreshData() {
 		l.State.IsAtBottomThreshold = false
 		l.State.AtDatasetStart = true
 		l.State.AtDatasetEnd = true
-		l.visibleItems = []T{}
+		l.visibleItems = []Data[T]{}
 		return
 	}
 

@@ -28,6 +28,7 @@ type PersonDataProvider struct {
 	sortDirections []string
 	filters        map[string]any
 	dirty          bool
+	selection      map[int]bool // Track selection by index
 }
 
 // NewPersonDataProvider creates a new data provider with sample data
@@ -140,6 +141,7 @@ func NewPersonDataProvider() *PersonDataProvider {
 		sortFields:     []string{},
 		sortDirections: []string{},
 		dirty:          true,
+		selection:      make(map[int]bool),
 	}
 }
 
@@ -240,7 +242,7 @@ func (p *PersonDataProvider) GetTotal() int {
 }
 
 // GetItems returns a slice of items based on the provided request
-func (p *PersonDataProvider) GetItems(request vtable.DataRequest) ([]vtable.TableRow, error) {
+func (p *PersonDataProvider) GetItems(request vtable.DataRequest) ([]vtable.Data[vtable.TableRow], error) {
 	// Update provider's filter and sort state from the request
 	changed := false
 
@@ -296,7 +298,7 @@ func (p *PersonDataProvider) GetItems(request vtable.DataRequest) ([]vtable.Tabl
 
 	// Make sure we don't go beyond the available data
 	if start >= len(p.filteredData) {
-		return []vtable.TableRow{}, nil
+		return []vtable.Data[vtable.TableRow]{}, nil
 	}
 
 	// Calculate end index, ensuring we don't go beyond available data
@@ -305,11 +307,11 @@ func (p *PersonDataProvider) GetItems(request vtable.DataRequest) ([]vtable.Tabl
 		end = len(p.filteredData)
 	}
 
-	// Convert to table rows - exactly what was requested, no more, no less
-	rows := make([]vtable.TableRow, end-start)
+	// Convert to Data[TableRow] objects - exactly what was requested, no more, no less
+	rows := make([]vtable.Data[vtable.TableRow], end-start)
 	for i := 0; i < end-start; i++ {
 		person := p.filteredData[start+i]
-		rows[i] = vtable.TableRow{
+		tableRow := vtable.TableRow{
 			Cells: []string{
 				fmt.Sprintf("%d", person.ID),
 				person.FirstName,
@@ -317,6 +319,15 @@ func (p *PersonDataProvider) GetItems(request vtable.DataRequest) ([]vtable.Tabl
 				fmt.Sprintf("%d", person.Age),
 				person.City,
 			},
+		}
+
+		// Wrap in Data object with selection state
+		rows[i] = vtable.Data[vtable.TableRow]{
+			Item:     tableRow,
+			Selected: p.selection[start+i], // Use the actual index in filtered data
+			Metadata: nil,
+			Disabled: false,
+			Hidden:   false,
 		}
 	}
 
@@ -447,7 +458,7 @@ type FilteredTableDemo struct {
 func NewFilteredTableDemo() (*FilteredTableDemo, error) {
 	// Create columns
 	columns := []vtable.TableColumn{
-		{Title: "ID", Width: 5, Alignment: vtable.AlignRight, Field: "id"},
+		{Title: "ID", Width: 8, Alignment: vtable.AlignRight, Field: "id"},
 		{Title: "First Name", Width: 12, Alignment: vtable.AlignLeft, Field: "firstName"},
 		{Title: "Last Name", Width: 12, Alignment: vtable.AlignLeft, Field: "lastName"},
 		{Title: "Age", Width: 5, Alignment: vtable.AlignRight, Field: "age"},
@@ -794,6 +805,34 @@ func (m *FilteredTableDemo) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "q", "ctrl+c", "esc":
 			return m, tea.Quit
 
+		// Selection keys - handle BEFORE component update to prevent conflicts
+		case " ", "space":
+			// Toggle selection on current row
+			state := m.table.GetState()
+			currentIndex := state.CursorIndex
+
+			if m.table.ToggleCurrentSelection() {
+				selectionCount := m.table.GetSelectionCount()
+				m.status = fmt.Sprintf("Toggled selection for row %d (total selected: %d)", currentIndex, selectionCount)
+			}
+			// Return early to prevent component from processing space as PageDown
+			return m, tea.Batch(cmds...)
+
+		case "ctrl+a":
+			// Select all rows
+			m.table.SelectAll()
+			selectionCount := m.table.GetSelectionCount()
+			m.status = fmt.Sprintf("Selected all rows (total: %d)", selectionCount)
+			// Return early to prevent component processing
+			return m, tea.Batch(cmds...)
+
+		case "ctrl+escape", "ctrl+d":
+			// Clear all selections (using ctrl+escape since escape quits)
+			m.table.ClearSelection()
+			m.status = "Cleared all selections"
+			// Return early to prevent component processing
+			return m, tea.Batch(cmds...)
+
 		// Numeric keys for sorting
 		case "1":
 			// Toggle sort for ID (column 0)
@@ -1115,20 +1154,23 @@ func (m *FilteredTableDemo) renderHelpText() string {
 
 	// Create a map to match the displayed key with what keypress actually generates
 	keyMap := map[string][]string{
-		"↑/↓": {"up", "down"},
-		"j/k": {"j", "k"},
-		"u/d": {"u", "d", "pgup", "pgdown"},
-		"g/G": {"g", "G", "home", "end"},
-		"1-5": {"1", "2", "3", "4", "5"},
-		"S":   {"S"},
-		"f":   {"f"},
-		"l":   {"l"},
-		"a":   {"a"},
-		"c":   {"c"},
-		"F":   {"F"},
-		"r":   {"r"},
-		"D":   {"D"},
-		"q":   {"q"},
+		"↑/↓":    {"up", "down"},
+		"j/k":    {"j", "k"},
+		"u/d":    {"u", "d", "pgup", "pgdown"},
+		"g/G":    {"g", "G", "home", "end"},
+		"1-5":    {"1", "2", "3", "4", "5"},
+		"S":      {"S"},
+		"f":      {"f"},
+		"l":      {"l"},
+		"a":      {"a"},
+		"c":      {"c"},
+		"F":      {"F"},
+		"r":      {"r"},
+		"D":      {"D"},
+		"q":      {"q"},
+		"space":  {"space"},
+		"ctrl+a": {"ctrl+a"},
+		"ctrl+d": {"ctrl+d", "ctrl+escape"},
 	}
 
 	// Style a key based on whether it matches the active key
@@ -1178,6 +1220,13 @@ func (m *FilteredTableDemo) renderHelpText() string {
 		fmt.Sprintf("%s quit", k("q")),
 	}
 
+	// Selection group
+	selection := []string{
+		fmt.Sprintf("%s toggle selection", k("space")),
+		fmt.Sprintf("%s select all", k("ctrl+a")),
+		fmt.Sprintf("%s clear selection", k("ctrl+d")),
+	}
+
 	// Format each group on its own line with bullet separators
 	var sb strings.Builder
 
@@ -1193,10 +1242,61 @@ func (m *FilteredTableDemo) renderHelpText() string {
 	sb.WriteString(strings.Join(filtering, " • "))
 	sb.WriteString("\n")
 
+	sb.WriteString(g("Selection") + " ")
+	sb.WriteString(strings.Join(selection, " • "))
+	sb.WriteString("\n")
+
 	sb.WriteString(g("Actions") + " ")
 	sb.WriteString(strings.Join(actions, " • "))
 
 	return regularStyle.Render(sb.String())
+}
+
+// Selection methods required by DataProvider interface
+
+func (p *PersonDataProvider) GetSelectionMode() vtable.SelectionMode {
+	return vtable.SelectionMultiple
+}
+
+func (p *PersonDataProvider) SetSelected(index int, selected bool) bool {
+	p.ensureFilteredData()
+	if index < 0 || index >= len(p.filteredData) {
+		return false
+	}
+	if selected {
+		p.selection[index] = true
+	} else {
+		delete(p.selection, index)
+	}
+	return true
+}
+
+func (p *PersonDataProvider) SelectAll() bool {
+	p.ensureFilteredData()
+	for i := 0; i < len(p.filteredData); i++ {
+		p.selection[i] = true
+	}
+	return true
+}
+
+func (p *PersonDataProvider) ClearSelection() {
+	p.selection = make(map[int]bool)
+}
+
+func (p *PersonDataProvider) GetSelectedIndices() []int {
+	indices := make([]int, 0, len(p.selection))
+	for idx := range p.selection {
+		indices = append(indices, idx)
+	}
+	return indices
+}
+
+func (p *PersonDataProvider) GetItemID(item *vtable.TableRow) string {
+	// Extract ID from the first cell of the TableRow
+	if len(item.Cells) > 0 {
+		return item.Cells[0] // ID is in the first cell
+	}
+	return ""
 }
 
 func main() {

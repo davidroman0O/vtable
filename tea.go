@@ -235,12 +235,22 @@ func (m *TeaList[T]) GetState() ViewportState {
 
 // GetVisibleItems returns the slice of items currently visible in the viewport.
 func (m *TeaList[T]) GetVisibleItems() []T {
-	return m.list.GetVisibleItems()
+	dataItems := m.list.GetVisibleItems()
+	items := make([]T, len(dataItems))
+	for i, data := range dataItems {
+		items[i] = data.Item
+	}
+	return items
 }
 
 // GetCurrentItem returns the currently selected item.
 func (m *TeaList[T]) GetCurrentItem() (T, bool) {
-	return m.list.GetCurrentItem()
+	data, ok := m.list.GetCurrentItem()
+	if !ok {
+		var zero T
+		return zero, false
+	}
+	return data.Item, true
 }
 
 // SetKeyMap sets the key mappings for the component.
@@ -497,4 +507,77 @@ func ClearSortCommand() tea.Cmd {
 			Clear: true,
 		}
 	}
+}
+
+// Selection methods - delegate to the underlying DataProvider
+
+// ToggleSelection toggles the selection state of the item at the given index.
+func (m *TeaList[T]) ToggleSelection(index int) bool {
+	// Get current selection state
+	if data, ok := m.list.GetCurrentItem(); ok && m.list.State.CursorIndex == index {
+		newSelected := !data.Selected
+		if m.list.DataProvider.SetSelected(index, newSelected) {
+			// Refresh the data to show selection changes
+			m.RefreshData()
+			return true
+		}
+	} else {
+		// If not the current item, we need to determine current state differently
+		// For now, just set as selected
+		if m.list.DataProvider.SetSelected(index, true) {
+			// Refresh the data to show selection changes
+			m.RefreshData()
+			return true
+		}
+	}
+	return false
+}
+
+// ToggleCurrentSelection toggles the selection state of the currently highlighted item.
+func (m *TeaList[T]) ToggleCurrentSelection() bool {
+	currentIndex := m.list.State.CursorIndex
+	if data, ok := m.list.GetCurrentItem(); ok {
+		newSelected := !data.Selected
+		if m.list.DataProvider.SetSelected(currentIndex, newSelected) {
+			// Just invalidate cache - let normal render cycle fetch fresh data
+			m.refreshCachedData()
+			return true
+		}
+	}
+	return false
+}
+
+// SelectAll selects all items.
+func (m *TeaList[T]) SelectAll() bool {
+	if m.list.DataProvider.SelectAll() {
+		// Just invalidate cache - let normal render cycle fetch fresh data
+		m.refreshCachedData()
+		return true
+	}
+	return false
+}
+
+// ClearSelection clears all selections.
+func (m *TeaList[T]) ClearSelection() {
+	m.list.DataProvider.ClearSelection()
+	// Just invalidate cache - let normal render cycle fetch fresh data
+	m.refreshCachedData()
+}
+
+// refreshCachedData invalidates cached chunks to force refresh of visible data
+func (m *TeaList[T]) refreshCachedData() {
+	// Clear chunks to force reload with updated selection state
+	m.list.chunks = make(map[int]*chunk[T])
+	// Force update of visible items to reload fresh chunks
+	m.list.updateVisibleItems()
+}
+
+// GetSelectedIndices returns the indices of all selected items.
+func (m *TeaList[T]) GetSelectedIndices() []int {
+	return m.list.DataProvider.GetSelectedIndices()
+}
+
+// GetSelectionCount returns the number of selected items.
+func (m *TeaList[T]) GetSelectionCount() int {
+	return len(m.list.DataProvider.GetSelectedIndices())
 }
