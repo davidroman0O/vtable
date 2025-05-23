@@ -45,8 +45,10 @@ type NavigationKeyMap struct {
 	Search key.Binding
 
 	// Additional actions
-	Select key.Binding
-	Back   key.Binding
+	Select         key.Binding
+	SelectAll      key.Binding
+	ClearSelection key.Binding
+	Back           key.Binding
 }
 
 // NavigationKeyMapWithHelp sets help text for all keys
@@ -108,6 +110,20 @@ func NavigationKeyMapWithHelp(km NavigationKeyMap) NavigationKeyMap {
 		)
 	}
 
+	if km.SelectAll.Help().Key == "" {
+		km.SelectAll = key.NewBinding(
+			key.WithKeys(km.SelectAll.Keys()...),
+			key.WithHelp("ctrl+a", "select all"),
+		)
+	}
+
+	if km.ClearSelection.Help().Key == "" {
+		km.ClearSelection = key.NewBinding(
+			key.WithKeys(km.ClearSelection.Keys()...),
+			key.WithHelp("ctrl+x", "clear selection"),
+		)
+	}
+
 	if km.Back.Help().Key == "" {
 		km.Back = key.NewBinding(
 			key.WithKeys(km.Back.Keys()...),
@@ -144,6 +160,12 @@ func MacOSKeyMap() NavigationKeyMap {
 		),
 		Select: key.NewBinding(
 			key.WithKeys("enter"),
+		),
+		SelectAll: key.NewBinding(
+			key.WithKeys("ctrl+a"),
+		),
+		ClearSelection: key.NewBinding(
+			key.WithKeys("ctrl+x"),
 		),
 		Back: key.NewBinding(
 			key.WithKeys("esc", "q"),
@@ -204,6 +226,12 @@ func LinuxKeyMap() NavigationKeyMap {
 		Select: key.NewBinding(
 			key.WithKeys("enter"),
 		),
+		SelectAll: key.NewBinding(
+			key.WithKeys("ctrl+a"),
+		),
+		ClearSelection: key.NewBinding(
+			key.WithKeys("ctrl+x"),
+		),
 		Back: key.NewBinding(
 			key.WithKeys("esc", "q"),
 		),
@@ -239,6 +267,12 @@ func WindowsKeyMap() NavigationKeyMap {
 		Select: key.NewBinding(
 			key.WithKeys("enter"),
 		),
+		SelectAll: key.NewBinding(
+			key.WithKeys("ctrl+a"),
+		),
+		ClearSelection: key.NewBinding(
+			key.WithKeys("ctrl+x"),
+		),
 		Back: key.NewBinding(
 			key.WithKeys("esc", "q"),
 		),
@@ -267,13 +301,15 @@ func PlatformKeyMap() NavigationKeyMap {
 // GetKeyMapDescription returns a user-friendly description of the key bindings
 func GetKeyMapDescription(km NavigationKeyMap) string {
 	return fmt.Sprintf(
-		"↑/↓: navigate • %s/%s: page up/down • %s/%s: top/bottom • %s: search • %s: select • %s: back",
+		"↑/↓: navigate • %s/%s: page up/down • %s/%s: top/bottom • %s: search • %s: select • %s: select all • %s: clear selection • %s: back",
 		km.PageUp.Help().Key,
 		km.PageDown.Help().Key,
 		km.Home.Help().Key,
 		km.End.Help().Key,
 		km.Search.Help().Key,
 		km.Select.Help().Key,
+		km.SelectAll.Help().Key,
+		km.ClearSelection.Help().Key,
 		km.Back.Help().Key,
 	)
 }

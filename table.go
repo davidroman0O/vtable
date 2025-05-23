@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
@@ -72,43 +73,61 @@ func NewTable(
 	}
 
 	// Create horizontal border strings with the theme's border characters
-	var horizontalBorderTop string
-	var horizontalBorderMiddle string
-	var horizontalBorderBottom string
-
+	var horizontalBorderTop, horizontalBorderMiddle, horizontalBorderBottom string
 	if adjustedConfig.ShowBorders {
-		// Build border strings with proper junction characters
-		var topBuilder strings.Builder
-		var middleBuilder strings.Builder
-		var bottomBuilder strings.Builder
-
-		// Start with corner characters
-		topBuilder.WriteString(theme.BorderChars.TopLeft)
-		middleBuilder.WriteString(theme.BorderChars.LeftT)
-		bottomBuilder.WriteString(theme.BorderChars.BottomLeft)
+		var topBuilder, middleBuilder, bottomBuilder strings.Builder
 
 		for i, col := range adjustedConfig.Columns {
-			// Add horizontal line for each column width
-			topBuilder.WriteString(strings.Repeat(theme.BorderChars.Horizontal, col.Width))
-			middleBuilder.WriteString(strings.Repeat(theme.BorderChars.Horizontal, col.Width))
-			bottomBuilder.WriteString(strings.Repeat(theme.BorderChars.Horizontal, col.Width))
-
-			// Add junction if not the last column
-			if i < len(adjustedConfig.Columns)-1 {
+			// Top border
+			if i == 0 {
+				topBuilder.WriteString(theme.BorderChars.TopLeft)
+			}
+			for j := 0; j < col.Width; j++ {
+				topBuilder.WriteString(theme.BorderChars.Horizontal)
+			}
+			if i == len(adjustedConfig.Columns)-1 {
+				topBuilder.WriteString(theme.BorderChars.TopRight)
+			} else {
 				topBuilder.WriteString(theme.BorderChars.TopT)
+			}
+
+			// Middle border (separator)
+			if i == 0 {
+				middleBuilder.WriteString(theme.BorderChars.LeftT)
+			}
+			for j := 0; j < col.Width; j++ {
+				middleBuilder.WriteString(theme.BorderChars.Horizontal)
+			}
+			if i == len(adjustedConfig.Columns)-1 {
+				middleBuilder.WriteString(theme.BorderChars.RightT)
+			} else {
 				middleBuilder.WriteString(theme.BorderChars.Cross)
+			}
+
+			// Bottom border
+			if i == 0 {
+				bottomBuilder.WriteString(theme.BorderChars.BottomLeft)
+			}
+			for j := 0; j < col.Width; j++ {
+				bottomBuilder.WriteString(theme.BorderChars.Horizontal)
+			}
+			if i == len(adjustedConfig.Columns)-1 {
+				bottomBuilder.WriteString(theme.BorderChars.BottomRight)
+			} else {
 				bottomBuilder.WriteString(theme.BorderChars.BottomT)
 			}
 		}
 
-		// Add right corner characters
+		// Handle the last column properly for horizontal borders
 		topBuilder.WriteString(theme.BorderChars.TopRight)
 		middleBuilder.WriteString(theme.BorderChars.RightT)
 		bottomBuilder.WriteString(theme.BorderChars.BottomRight)
 
-		horizontalBorderTop = theme.BorderStyle.Render(topBuilder.String())
-		horizontalBorderMiddle = theme.BorderStyle.Render(middleBuilder.String())
-		horizontalBorderBottom = theme.BorderStyle.Render(bottomBuilder.String())
+		// Create proper styles for borders
+		borderStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.BorderColor))
+		horizontalBorderTop = borderStyle.Render(topBuilder.String())
+		horizontalBorderMiddle = borderStyle.Render(middleBuilder.String())
+		horizontalBorderBottom = borderStyle.Render(bottomBuilder.String())
 	}
 
 	// Create a formatter for the table rows
@@ -117,7 +136,7 @@ func NewTable(
 	}
 
 	// Convert theme to styleConfig for backward compatibility with List
-	styleConfig := ThemeToStyleConfig(theme)
+	styleConfig := ThemeToStyleConfig(&theme)
 
 	// Create the underlying list
 	list, err := NewList(adjustedConfig.ViewportConfig, provider, styleConfig, formatter)
@@ -159,10 +178,10 @@ func formatTableRow(
 	for i := 0; i < columnCount; i++ {
 		// Add starting border if needed
 		if config.ShowBorders && i == 0 {
-			borderStyle := theme.BorderStyle
+			borderStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.BorderColor))
 			if isCursor || isSelected {
 				// Highlight border for cursor or selected row
-				borderStyle = borderStyle.Copy().Bold(true)
+				borderStyle = borderStyle.Bold(true)
 			}
 			sb.WriteString(borderStyle.Render(theme.BorderChars.Vertical))
 		}
@@ -230,10 +249,10 @@ func formatTableRow(
 
 		// Add border if needed
 		if config.ShowBorders {
-			borderStyle := theme.BorderStyle
+			borderStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.BorderColor))
 			if isCursor || isSelected {
 				// Highlight border for cursor or selected row
-				borderStyle = borderStyle.Copy().Bold(true)
+				borderStyle = borderStyle.Bold(true)
 			}
 			sb.WriteString(borderStyle.Render(theme.BorderChars.Vertical))
 		}
@@ -482,6 +501,12 @@ type TeaTable struct {
 	onHighlight      func(row TableRow, index int)
 	onFiltersChanged func(filters map[string]any)
 	onSortChanged    func(field, direction string)
+
+	// Animation support
+	animationEngine   *AnimationEngine
+	animatedFormatter ItemFormatterAnimated[TableRow]
+	animationConfig   AnimationConfig
+	lastAnimationTime time.Time
 }
 
 // NewTeaTable creates a new Bubble Tea model for a virtualized table.
@@ -496,16 +521,23 @@ func NewTeaTable(
 		return nil, err
 	}
 
+	// Initialize animation system
+	animConfig := DefaultAnimationConfig()
+	animEngine := NewAnimationEngine(animConfig)
+
 	return &TeaTable{
-		table:   table,
-		keyMap:  PlatformKeyMap(), // Use platform-specific key bindings
-		focused: true,
+		table:           table,
+		keyMap:          PlatformKeyMap(), // Use platform-specific key bindings
+		focused:         true,
+		animationEngine: animEngine,
+		animationConfig: animConfig,
 	}, nil
 }
 
 // Init initializes the Tea model.
 func (m *TeaTable) Init() tea.Cmd {
-	return nil
+	// Start the global animation loop
+	return StartGlobalAnimationLoop()
 }
 
 // Update updates the Tea model based on messages.
@@ -628,6 +660,14 @@ func (m *TeaTable) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.onSortChanged("", "")
 			}
 		}
+	case GlobalAnimationTickMsg:
+		// Handle global animation tick - this runs continuously
+		if cmd := m.animationEngine.ProcessGlobalTick(msg); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+	case AnimationUpdateMsg:
+		// Animations have been updated - trigger re-render by doing nothing
+		// The View() method will automatically pick up the changes
 	}
 
 	// Check if we need to trigger callbacks based on state changes
@@ -650,7 +690,78 @@ func (m *TeaTable) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 // View renders the Tea model.
 func (m *TeaTable) View() string {
+	// Handle animations if we have an animated formatter
+	if m.animatedFormatter != nil {
+		// Always process animations to register new ones and update content
+		m.processAnimations()
+		// Clear dirty flags after processing
+		m.animationEngine.ClearDirtyFlags()
+	}
+
 	return m.table.Render()
+}
+
+// processAnimations handles the animation lifecycle for visible items
+func (m *TeaTable) processAnimations() {
+	visibleItems := m.table.list.GetVisibleItems()
+	state := m.table.GetState()
+
+	// Track which animations should be active
+	activeAnimationKeys := make(map[string]bool)
+
+	// Calculate delta time
+	now := time.Now()
+	deltaTime := time.Duration(0)
+	if !m.lastAnimationTime.IsZero() {
+		deltaTime = now.Sub(m.lastAnimationTime)
+	}
+	m.lastAnimationTime = now
+
+	// Process each visible item
+	for i, dataItem := range visibleItems {
+		absoluteIndex := state.ViewportStartIndex + i
+		animationKey := fmt.Sprintf("row-%d", absoluteIndex)
+		activeAnimationKeys[animationKey] = true
+
+		// Create render context with table-specific information and delta time
+		ctx := DefaultRenderContext()
+		ctx.CurrentTime = now
+		ctx.DeltaTime = deltaTime
+		ctx.MaxWidth = m.table.totalWidth
+		ctx.Theme = &m.table.theme
+
+		// Get animation state
+		animState := m.animationEngine.GetAnimationState(animationKey)
+
+		// Determine cursor state
+		isCursor := i == state.CursorViewportIndex
+		isTopThreshold := i == m.table.list.Config.TopThresholdIndex
+		isBottomThreshold := i == m.table.list.Config.BottomThresholdIndex
+
+		// Call animated formatter
+		result := m.animatedFormatter(dataItem, absoluteIndex, ctx, animState, isCursor, isTopThreshold, isBottomThreshold)
+
+		// Handle animation triggers - register if not already registered
+		if len(result.RefreshTriggers) > 0 && !m.animationEngine.IsVisible(animationKey) {
+			m.animationEngine.RegisterAnimation(animationKey, result.RefreshTriggers, result.AnimationState)
+		}
+
+		// Update animation state
+		if len(result.AnimationState) > 0 {
+			m.animationEngine.UpdateAnimationState(animationKey, result.AnimationState)
+		}
+
+		// Make sure the animation is visible
+		m.animationEngine.SetVisible(animationKey, true)
+	}
+
+	// Clean up animations for items that are no longer visible
+	activeAnimations := m.animationEngine.GetActiveAnimations()
+	for _, animKey := range activeAnimations {
+		if !activeAnimationKeys[animKey] {
+			m.animationEngine.SetVisible(animKey, false)
+		}
+	}
 }
 
 // Focus sets the focus state of the component.
@@ -800,6 +911,39 @@ func (m *TeaTable) SetTheme(theme Theme) {
 	m.table.recalculateBorders()
 }
 
+// SetAnimatedFormatter sets an animated formatter that supports dynamic content.
+func (m *TeaTable) SetAnimatedFormatter(formatter ItemFormatterAnimated[TableRow]) {
+	m.animatedFormatter = formatter
+}
+
+// ClearAnimatedFormatter removes the animated formatter and stops all animations.
+func (m *TeaTable) ClearAnimatedFormatter() {
+	m.animatedFormatter = nil
+	m.animationEngine.Cleanup()
+}
+
+// SetAnimationConfig updates the animation configuration.
+func (m *TeaTable) SetAnimationConfig(config AnimationConfig) {
+	m.animationConfig = config
+	m.animationEngine.UpdateConfig(config)
+}
+
+// GetAnimationConfig returns the current animation configuration.
+func (m *TeaTable) GetAnimationConfig() AnimationConfig {
+	return m.animationConfig
+}
+
+// SetTickInterval sets the animation tick interval for smoother or more efficient animations.
+func (m *TeaTable) SetTickInterval(interval time.Duration) {
+	m.animationConfig.TickInterval = interval
+	m.animationEngine.UpdateConfig(m.animationConfig)
+}
+
+// GetTickInterval returns the current animation tick interval.
+func (m *TeaTable) GetTickInterval() time.Duration {
+	return m.animationConfig.TickInterval
+}
+
 // recalculateBorders recalculates the border strings using the current theme.
 func (t *Table) recalculateBorders() {
 	// Only create border strings if borders are enabled
@@ -808,37 +952,59 @@ func (t *Table) recalculateBorders() {
 	}
 
 	// Build border strings with proper junction characters
-	var topBuilder strings.Builder
-	var middleBuilder strings.Builder
-	var bottomBuilder strings.Builder
-
-	// Start with corner characters
-	topBuilder.WriteString(t.theme.BorderChars.TopLeft)
-	middleBuilder.WriteString(t.theme.BorderChars.LeftT)
-	bottomBuilder.WriteString(t.theme.BorderChars.BottomLeft)
+	var topBuilder, middleBuilder, bottomBuilder strings.Builder
 
 	for i, col := range t.config.Columns {
-		// Add horizontal line for each column width
-		topBuilder.WriteString(strings.Repeat(t.theme.BorderChars.Horizontal, col.Width))
-		middleBuilder.WriteString(strings.Repeat(t.theme.BorderChars.Horizontal, col.Width))
-		bottomBuilder.WriteString(strings.Repeat(t.theme.BorderChars.Horizontal, col.Width))
-
-		// Add junction if not the last column
-		if i < len(t.config.Columns)-1 {
+		// Top border
+		if i == 0 {
+			topBuilder.WriteString(t.theme.BorderChars.TopLeft)
+		}
+		for j := 0; j < col.Width; j++ {
+			topBuilder.WriteString(t.theme.BorderChars.Horizontal)
+		}
+		if i == len(t.config.Columns)-1 {
+			topBuilder.WriteString(t.theme.BorderChars.TopRight)
+		} else {
 			topBuilder.WriteString(t.theme.BorderChars.TopT)
+		}
+
+		// Middle border (separator)
+		if i == 0 {
+			middleBuilder.WriteString(t.theme.BorderChars.LeftT)
+		}
+		for j := 0; j < col.Width; j++ {
+			middleBuilder.WriteString(t.theme.BorderChars.Horizontal)
+		}
+		if i == len(t.config.Columns)-1 {
+			middleBuilder.WriteString(t.theme.BorderChars.RightT)
+		} else {
 			middleBuilder.WriteString(t.theme.BorderChars.Cross)
+		}
+
+		// Bottom border
+		if i == 0 {
+			bottomBuilder.WriteString(t.theme.BorderChars.BottomLeft)
+		}
+		for j := 0; j < col.Width; j++ {
+			bottomBuilder.WriteString(t.theme.BorderChars.Horizontal)
+		}
+		if i == len(t.config.Columns)-1 {
+			bottomBuilder.WriteString(t.theme.BorderChars.BottomRight)
+		} else {
 			bottomBuilder.WriteString(t.theme.BorderChars.BottomT)
 		}
 	}
 
-	// Add right corner characters
+	// Handle the last column properly for horizontal borders
 	topBuilder.WriteString(t.theme.BorderChars.TopRight)
 	middleBuilder.WriteString(t.theme.BorderChars.RightT)
 	bottomBuilder.WriteString(t.theme.BorderChars.BottomRight)
 
-	t.horizontalBorderTop = t.theme.BorderStyle.Render(topBuilder.String())
-	t.horizontalBorderMiddle = t.theme.BorderStyle.Render(middleBuilder.String())
-	t.horizontalBorderBottom = t.theme.BorderStyle.Render(bottomBuilder.String())
+	// Create proper styles for borders
+	borderStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(t.theme.BorderColor))
+	t.horizontalBorderTop = borderStyle.Render(topBuilder.String())
+	t.horizontalBorderMiddle = borderStyle.Render(middleBuilder.String())
+	t.horizontalBorderBottom = borderStyle.Render(bottomBuilder.String())
 }
 
 // SetDataProvider updates the data provider for the table.

@@ -325,7 +325,7 @@ func (p *PersonDataProvider) GetItems(request vtable.DataRequest) ([]vtable.Data
 		rows[i] = vtable.Data[vtable.TableRow]{
 			Item:     tableRow,
 			Selected: p.selection[start+i], // Use the actual index in filtered data
-			Metadata: nil,
+			Metadata: vtable.NewTypedMetadata(),
 			Disabled: false,
 			Hidden:   false,
 		}
@@ -474,7 +474,7 @@ func NewFilteredTableDemo() (*FilteredTableDemo, error) {
 	provider := NewPersonDataProvider()
 
 	// Create the table
-	table, err := vtable.NewTeaTable(config, provider, vtable.ColorfulTheme())
+	table, err := vtable.NewTeaTable(config, provider, *vtable.DefaultTheme())
 	if err != nil {
 		return nil, err
 	}
@@ -1299,6 +1299,19 @@ func (p *PersonDataProvider) GetItemID(item *vtable.TableRow) string {
 	return ""
 }
 
+// Add minimal missing methods
+func (p *PersonDataProvider) GetSelectedIDs() []string {
+	return []string{} // Minimal implementation
+}
+
+func (p *PersonDataProvider) SetSelectedByIDs(ids []string, selected bool) bool {
+	return true // Minimal implementation
+}
+
+func (p *PersonDataProvider) SelectRange(startID, endID string) bool {
+	return true // Minimal implementation
+}
+
 func main() {
 	// Create the model
 	model, err := NewFilteredTableDemo()
@@ -1313,4 +1326,8 @@ func main() {
 		fmt.Printf("Error running program: %v\n", err)
 		os.Exit(1)
 	}
+	// Clear the terminal on exit
+	fmt.Print("\033[H\033[2J") // ANSI escape code to clear screen and home cursor
+	fmt.Print("\033[?25h")     // Show cursor
+	fmt.Print("\n\n")          // Add some newlines for cleaner exit
 }

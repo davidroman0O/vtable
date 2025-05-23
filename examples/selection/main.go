@@ -48,7 +48,7 @@ func (p *TestStringProvider) GetItems(request vtable.DataRequest) ([]vtable.Data
 		result[i-start] = vtable.Data[string]{
 			Item:     p.items[i],
 			Selected: p.selection[i],
-			Metadata: nil,
+			Metadata: vtable.NewTypedMetadata(),
 			Disabled: false,
 			Hidden:   false,
 		}
@@ -125,6 +125,25 @@ func (p *TestStringProvider) FindItemIndex(key string, value any) (int, bool) {
 	}
 
 	return -1, false
+}
+
+// Add minimal missing methods
+func (p *TestStringProvider) GetSelectedIDs() []string {
+	ids := make([]string, 0, len(p.selection))
+	for idx := range p.selection {
+		if idx < len(p.items) {
+			ids = append(ids, strconv.Itoa(idx))
+		}
+	}
+	return ids
+}
+
+func (p *TestStringProvider) SetSelectedByIDs(ids []string, selected bool) bool {
+	return true // Minimal implementation
+}
+
+func (p *TestStringProvider) SelectRange(startID, endID string) bool {
+	return true // Minimal implementation
 }
 
 type TestModel struct {
@@ -249,4 +268,8 @@ func main() {
 	if _, err := p.Run(); err != nil {
 		fmt.Printf("Error running program: %v\n", err)
 	}
+	// Clear the terminal on exit
+	fmt.Print("\033[H\033[2J") // ANSI escape code to clear screen and home cursor
+	fmt.Print("\033[?25h")     // Show cursor
+	fmt.Print("\n\n")          // Add some newlines for cleaner exit
 }

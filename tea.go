@@ -1,7 +1,9 @@
 package vtable
 
 import (
+	"fmt"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
@@ -41,6 +43,12 @@ type TeaList[T any] struct {
 	onScroll         func(state ViewportState)
 	onFiltersChanged func(filters map[string]any)
 	onSortChanged    func(field, direction string)
+
+	// Animation support
+	animationEngine   *AnimationEngine
+	animatedFormatter ItemFormatterAnimated[T]
+	animationConfig   AnimationConfig
+	lastAnimationTime time.Time
 }
 
 // NewTeaList creates a new Bubble Tea model for a virtualized list.
@@ -56,16 +64,23 @@ func NewTeaList[T any](
 		return nil, err
 	}
 
+	// Initialize animation system
+	animConfig := DefaultAnimationConfig()
+	animEngine := NewAnimationEngine(animConfig)
+
 	return &TeaList[T]{
-		list:    list,
-		keyMap:  PlatformKeyMap(), // Use platform-specific key bindings
-		focused: true,
+		list:            list,
+		keyMap:          PlatformKeyMap(), // Use platform-specific key bindings
+		focused:         true,
+		animationEngine: animEngine,
+		animationConfig: animConfig,
 	}, nil
 }
 
 // Init initializes the Tea model.
 func (m *TeaList[T]) Init() tea.Cmd {
-	return nil
+	// Start the global animation loop
+	return StartGlobalAnimationLoop()
 }
 
 // Update updates the Tea model based on messages.
@@ -100,6 +115,14 @@ func (m *TeaList[T]) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 		}
+	case GlobalAnimationTickMsg:
+		// Handle global animation tick - this runs continuously
+		if cmd := m.animationEngine.ProcessGlobalTick(msg); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+	case AnimationUpdateMsg:
+		// Animations have been updated - trigger re-render by doing nothing
+		// The View() method will automatically pick up the changes
 	case FilterMsg:
 		previousFilters := make(map[string]any)
 		for k, v := range m.list.dataRequest.Filters {
@@ -210,7 +233,87 @@ func (m *TeaList[T]) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 // View renders the Tea model.
 func (m *TeaList[T]) View() string {
+	// Handle animations if we have an animated formatter
+	if m.animatedFormatter != nil {
+		// Ensure we have fresh data before processing animations
+		m.list.updateVisibleItems()
+		// Always process animations to register new ones and update content
+		animatedContent := m.processAnimations()
+		result := m.list.RenderWithAnimatedContent(animatedContent)
+		// Clear dirty flags after rendering
+		m.animationEngine.ClearDirtyFlags()
+		return result
+	}
+
 	return m.list.Render()
+}
+
+// processAnimations handles the animation lifecycle for visible items and returns rendered content
+func (m *TeaList[T]) processAnimations() map[string]string {
+	visibleItems := m.list.GetVisibleItems()
+	state := m.list.GetState()
+
+	// Track which animations should be active
+	activeAnimationKeys := make(map[string]bool)
+	animatedContent := make(map[string]string)
+
+	// Calculate delta time
+	now := time.Now()
+	deltaTime := time.Duration(0)
+	if !m.lastAnimationTime.IsZero() {
+		deltaTime = now.Sub(m.lastAnimationTime)
+	}
+	m.lastAnimationTime = now
+
+	// Process each visible item
+	for i, dataItem := range visibleItems {
+		absoluteIndex := state.ViewportStartIndex + i
+		animationKey := fmt.Sprintf("item-%d", absoluteIndex)
+		activeAnimationKeys[animationKey] = true
+
+		// Create render context with delta time
+		ctx := DefaultRenderContext()
+		ctx.CurrentTime = now
+		ctx.DeltaTime = deltaTime
+		ctx.MaxWidth = 80 // Default width - could be made configurable
+
+		// Get animation state
+		animState := m.animationEngine.GetAnimationState(animationKey)
+
+		// Determine cursor state
+		isCursor := i == state.CursorViewportIndex
+		isTopThreshold := i == m.list.Config.TopThresholdIndex
+		isBottomThreshold := i == m.list.Config.BottomThresholdIndex
+
+		// Call animated formatter
+		result := m.animatedFormatter(dataItem, absoluteIndex, ctx, animState, isCursor, isTopThreshold, isBottomThreshold)
+
+		// Store the rendered content
+		animatedContent[animationKey] = result.Content
+
+		// Handle animation triggers - register if not already registered
+		if len(result.RefreshTriggers) > 0 && !m.animationEngine.IsVisible(animationKey) {
+			m.animationEngine.RegisterAnimation(animationKey, result.RefreshTriggers, result.AnimationState)
+		}
+
+		// Update animation state
+		if len(result.AnimationState) > 0 {
+			m.animationEngine.UpdateAnimationState(animationKey, result.AnimationState)
+		}
+
+		// Make sure the animation is visible
+		m.animationEngine.SetVisible(animationKey, true)
+	}
+
+	// Clean up animations for items that are no longer visible
+	activeAnimations := m.animationEngine.GetActiveAnimations()
+	for _, animKey := range activeAnimations {
+		if !activeAnimationKeys[animKey] {
+			m.animationEngine.SetVisible(animKey, false)
+		}
+	}
+
+	return animatedContent
 }
 
 // Focus sets the focus state of the component.
@@ -318,6 +421,39 @@ func (m *TeaList[T]) SetStyle(styleConfig StyleConfig) {
 // SetFormatter updates the item formatter function.
 func (m *TeaList[T]) SetFormatter(formatter ItemFormatter[T]) {
 	m.list.Formatter = formatter
+}
+
+// SetAnimatedFormatter sets an animated formatter that supports dynamic content.
+func (m *TeaList[T]) SetAnimatedFormatter(formatter ItemFormatterAnimated[T]) {
+	m.animatedFormatter = formatter
+}
+
+// ClearAnimatedFormatter removes the animated formatter and stops all animations.
+func (m *TeaList[T]) ClearAnimatedFormatter() {
+	m.animatedFormatter = nil
+	m.animationEngine.Cleanup()
+}
+
+// SetAnimationConfig updates the animation configuration.
+func (m *TeaList[T]) SetAnimationConfig(config AnimationConfig) {
+	m.animationConfig = config
+	m.animationEngine.UpdateConfig(config)
+}
+
+// GetAnimationConfig returns the current animation configuration.
+func (m *TeaList[T]) GetAnimationConfig() AnimationConfig {
+	return m.animationConfig
+}
+
+// SetTickInterval sets the animation tick interval for smoother or more efficient animations.
+func (m *TeaList[T]) SetTickInterval(interval time.Duration) {
+	m.animationConfig.TickInterval = interval
+	m.animationEngine.UpdateConfig(m.animationConfig)
+}
+
+// GetTickInterval returns the current animation tick interval.
+func (m *TeaList[T]) GetTickInterval() time.Duration {
+	return m.animationConfig.TickInterval
 }
 
 // SetDataProvider updates the data provider.
@@ -539,7 +675,7 @@ func (m *TeaList[T]) ToggleCurrentSelection() bool {
 	if data, ok := m.list.GetCurrentItem(); ok {
 		newSelected := !data.Selected
 		if m.list.DataProvider.SetSelected(currentIndex, newSelected) {
-			// Just invalidate cache - let normal render cycle fetch fresh data
+			// Force refresh of cached data and update visible items
 			m.refreshCachedData()
 			return true
 		}
