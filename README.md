@@ -11,15 +11,51 @@
   <img src="https://img.shields.io/badge/go-%3E%3D1.18-blue" alt="Go Version">
 </p>
 
-A high-performance, virtualized table and list component for [Bubble Tea](https://github.com/charmbracelet/bubbletea) terminal UIs. Handle large datasets with ease while maintaining smooth performance and responsive interfaces.
+A high-performance virtualized table and list component for [Bubble Tea](https://github.com/charmbracelet/bubbletea) terminal applications. Handle millions of items efficiently through intelligent virtualization and chunked loading.
 
 ## ✨ Features
 
-- **Virtualized rendering** - Efficiently displays thousands of rows with minimal memory footprint
-- **Flexible data binding** - Bring your own data provider with built-in sorting and filtering
-- **Multi-column sorting** - Sort by multiple columns 
-- **Advanced filtering** - Apply multiple filters simultaneously
-- **Rich event system** - Detailed callbacks for selection, scrolling, and more
+### 🚀 Virtualization
+- **Memory efficient** - Only loads visible items, handles millions of records
+- **Chunk-based loading** - Loads data in configurable chunks (default 20-50 items)
+- **Smart caching** - Automatically manages 2-3 chunks in memory
+- **Threshold scrolling** - Configurable scroll trigger points for smooth navigation
+
+### 📊 Data Management
+- **Multi-column sorting** - Sort by multiple fields with priority (SortFields, SortDirections)
+- **Real-time filtering** - Apply filters with automatic data refresh
+- **Dynamic updates** - Handle changing datasets with RefreshData()
+- **Chunk optimization** - Configurable chunk sizes for different dataset sizes
+
+### 🎨 Theming & Styling
+- **Built-in themes** - DefaultTheme(), DarkTheme(), HighContrastTheme()
+- **Border styles** - Multiple character sets (default, rounded, thick, double, ASCII)
+- **Custom formatters** - Full control over item rendering with ItemFormatter
+- **Animated formatters** - Delta-time animations with ItemFormatterAnimated
+
+### 🎮 Selection & Interaction
+- **Selection modes** - SelectionSingle, SelectionMultiple, SelectionNone
+- **Bulk operations** - SelectAll(), ClearSelection(), GetSelectedIndices()
+- **Platform keybindings** - Auto-detection for macOS, Linux, Windows
+- **Custom keymaps** - NavigationKeyMap with full customization
+
+### 🔍 Navigation & Search
+- **Jump methods** - JumpToIndex(), JumpToStart(), JumpToEnd()
+- **Search support** - Optional SearchableDataProvider interface
+- **Navigation controls** - MoveUp(), MoveDown(), PageUp(), PageDown()
+- **Viewport state** - Complete state tracking with ViewportState
+
+### 🎬 Animation System
+- **Delta-time rendering** - Frame-rate independent animations
+- **Global animation loop** - Efficient centralized animation management
+- **Trigger-based updates** - TriggerTimer, TriggerEvent, TriggerConditional
+- **Configurable refresh rates** - SetTickInterval() for performance tuning
+
+### 🛠️ Extensibility
+- **Generic data providers** - Type-safe DataProvider[T] interface
+- **Metadata system** - Rich TypedMetadata with type safety
+- **Event callbacks** - OnSelect, OnHighlight, OnScroll, OnFiltersChanged, OnSortChanged
+- **Component composition** - TeaTable and TeaList[T] components
 
 ## 📦 Installation
 
@@ -29,370 +65,365 @@ go get github.com/davidroman0O/vtable
 
 ## 🚀 Quick Start
 
-### Table Component
+### Basic Table
 
 ```go
 package main
 
 import (
 	"fmt"
-
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/davidroman0O/vtable"
 )
 
+// 1. Define your data and implement DataProvider[vtable.TableRow]
+type MyProvider struct {
+	data []Person
+	selection map[int]bool
+}
+
+func (p *MyProvider) GetTotal() int { return len(p.data) }
+func (p *MyProvider) GetSelectionMode() vtable.SelectionMode { return vtable.SelectionNone }
+// ... implement other required DataProvider methods
+
+func (p *MyProvider) GetItems(request vtable.DataRequest) ([]vtable.Data[vtable.TableRow], error) {
+	// Return data as TableRow format
+	result := make([]vtable.Data[vtable.TableRow], len(p.data))
+	for i, person := range p.data {
+		result[i] = vtable.Data[vtable.TableRow]{
+			ID: fmt.Sprintf("person-%d", i),
+			Item: vtable.TableRow{
+				Cells: []string{person.Name, fmt.Sprintf("%d", person.Age)},
+			},
+			Metadata: vtable.NewTypedMetadata(),
+		}
+	}
+	return result, nil
+}
+
 func main() {
-	// 1. Define table columns
-	config := vtable.DefaultTableConfig()
-	config.Columns = []vtable.TableColumn{
-		{Title: "ID", Width: 5, Alignment: vtable.AlignRight, Field: "id"},
-		{Title: "Name", Width: 20, Alignment: vtable.AlignLeft, Field: "name"},
-		{Title: "Age", Width: 5, Alignment: vtable.AlignRight, Field: "age"},
+	// 2. Configure table columns
+	config := vtable.TableConfig{
+		Columns: []vtable.TableColumn{
+			{Title: "Name", Width: 20, Alignment: vtable.AlignLeft, Field: "name"},
+			{Title: "Age", Width: 5, Alignment: vtable.AlignRight, Field: "age"},
+		},
+		ShowHeader:  true,
+		ShowBorders: true,
+		ViewportConfig: vtable.ViewportConfig{
+			Height:               10,
+			TopThresholdIndex:    2,
+			BottomThresholdIndex: 7,
+			ChunkSize:            50,
+		},
 	}
 
-	// 2. Create data provider with your data
-	provider := NewPersonProvider() 
-
-	// 3. Create and run the table component
-	table, _ := vtable.NewTeaTable(config, provider, vtable.ColorfulTheme())
+	// 3. Create table with theme
+	provider := &MyProvider{data: loadPeople()}
+	table, _ := vtable.NewTeaTable(config, provider, *vtable.DefaultTheme())
+	
+	// 4. Run
 	p := tea.NewProgram(table)
 	p.Run()
 }
 ```
 
-### List Component
+### Basic List
 
 ```go
-// 1. Create a data provider with your items
-provider := NewItemProvider()
-
-// 2. Define configuration and formatter
-config := vtable.DefaultViewportConfig()
-formatter := func(item Item, index int, isCursor bool, topThreshold bool, bottomThreshold bool) string {
-	if isCursor {
-		return fmt.Sprintf("> %s", item.Name) // Highlight selected items
-	}
-	return item.Name
+// 1. Implement DataProvider[YourType]
+type StringProvider struct {
+	items []string
+	selection map[int]bool
 }
 
-// 3. Create and run the list component
-list, _ := vtable.NewTeaList(config, provider, vtable.ThemeToStyleConfig(vtable.DarkTheme()), formatter)
+func (p *StringProvider) GetItems(request vtable.DataRequest) ([]vtable.Data[string], error) {
+	result := make([]vtable.Data[string], len(p.items))
+	for i, item := range p.items {
+		result[i] = vtable.Data[string]{
+			ID: fmt.Sprintf("item-%d", i),
+			Item: item,
+			Metadata: vtable.NewTypedMetadata(),
+		}
+	}
+	return result, nil
+}
+// ... implement other DataProvider methods
+
+// 2. Create formatter
+formatter := func(data vtable.Data[string], index int, ctx vtable.RenderContext, 
+	isCursor bool, isTopThreshold bool, isBottomThreshold bool) string {
+	prefix := "  "
+	if isCursor {
+		prefix = "> "
+	}
+	return fmt.Sprintf("%s%s", prefix, data.Item)
+}
+
+// 3. Create list
+config := vtable.DefaultViewportConfig()
+provider := &StringProvider{items: []string{"Item 1", "Item 2", "Item 3"}}
+list, _ := vtable.NewTeaList(config, provider, vtable.DefaultStyleConfig(), formatter)
+
 p := tea.NewProgram(list)
 p.Run()
 ```
 
-## 🧩 Core Concepts
+## 🎮 Selection & Events
 
-### Virtualization
-
-vtable only renders the visible portion of your data. This allows you to display thousands or even millions of rows with minimal memory and CPU usage.
-
-```
-┌─────────────────┐
-│ Total Dataset   │   ← Only visible portion is loaded and rendered
-├─────────────────┤
-│                 │
-│  Visible Area   │   ← User interacts with this section
-│                 │
-├─────────────────┤
-│                 │
-└─────────────────┘
-```
-
-### Data Providers
-
-You supply data through a simple provider interface:
+### Multi-Selection
 
 ```go
-// Implement this interface to supply data to vtable
-type DataProvider[T any] interface {
-	// Return total number of items (after applying filters)
-	GetTotal() int
-	
-	// Return a slice of items for the requested range
-	GetItems(request DataRequest) ([]T, error)
-}
-```
-
-vtable fetches and displays only what's needed as the user scrolls, keeping memory usage constant regardless of dataset size.
-
-## 📋 Features In Depth
-
-### Multi-Column Sorting
-
-Sort your data by multiple columns in different directions:
-
-```go
-// Primary sort
-table.SetSort("lastName", "asc")
-
-// Secondary sort (without clearing primary)
-table.AddSort("age", "desc")
-
-// Reset all sorting
-table.ClearSort()
-```
-
-Users see sort direction with arrows in column headers: "Name ↑" or "Age ↓"
-
-### Advanced Filtering
-
-Apply multiple filters simultaneously:
-
-```go
-// Apply individual filters
-table.SetFilter("minAge", 30)
-table.SetFilter("city", "Chicago")
-
-// Toggle filter modes
-if msg.String() == "F" {
-    multiFilterEnabled = !multiFilterEnabled
-    // Enable UI indication of the mode
+// Enable in your DataProvider
+func (p *MyProvider) GetSelectionMode() vtable.SelectionMode {
+	return vtable.SelectionMultiple // or SelectionSingle, SelectionNone
 }
 
-// Clear all filters
-table.ClearFilters()
+// Handle in Update()
+switch msg.String() {
+case " ":
+	table.ToggleCurrentSelection()
+case "ctrl+a":
+	table.SelectAll()
+case "escape":
+	table.ClearSelection()
+}
+
+// Check selection
+selectedIndices := table.GetSelectedIndices()
+selectionCount := table.GetSelectionCount()
 ```
 
-### Dynamic Theming
-
-Choose from built-in themes or create your own:
-
-```go
-// Built-in themes
-table.SetTheme(vtable.DefaultTheme())
-table.SetTheme(vtable.DarkTheme())
-table.SetTheme(vtable.LightTheme())
-table.SetTheme(vtable.ColorfulTheme())
-
-// Border styles
-theme := vtable.DarkTheme()
-theme.BorderChars = vtable.RoundedBorderCharacters()
-// or: ThickBorderCharacters(), DoubleBorderCharacters(), AsciiBoxCharacters()
-```
-
-### Platform-Aware Keybindings
-
-vtable automatically detects the user's operating system and provides appropriate keybindings:
-
-```go
-// Get platform-specific keybindings
-keyMap := vtable.PlatformKeyMap()
-
-// Or specify a platform
-keyMap := vtable.MacOSKeyMap()    // macOS-specific keys
-keyMap := vtable.LinuxKeyMap()    // Linux-specific keys
-keyMap := vtable.WindowsKeyMap()  // Windows-specific keys
-
-// Customize any keymap
-keyMap.PageUp = key.NewBinding(
-    key.WithKeys("u", "b"),
-    key.WithHelp("u/b", "page up"),
-)
-table.SetKeyMap(keyMap)
-```
-
-### Interactive Key Highlighting
-
-Highlight pressed keys in your help text for better user feedback:
-
-```go
-// In your Update method:
-case tea.KeyMsg:
-    // Store the key for highlighting
-    activeKey = msg.String()
-    
-    // Set a timer to clear the highlight after 200ms
-    cmds = append(cmds, tea.Tick(200*time.Millisecond, func(_ time.Time) tea.Msg {
-        return KeyReleasedMsg{}
-    }))
-    
-    // In your View method, check if each key matches the active key
-    if key == activeKey {
-        return highlightStyle.Render(key) // Apply highlight style
-    }
-    return normalStyle.Render(key)
-```
-
-### Rich Event System
-
-Subscribe to events for interactive UIs:
+### Event Callbacks
 
 ```go
 // Selection events
 table.OnSelect(func(row vtable.TableRow, index int) {
-    fmt.Println("Selected row:", index)
-    // Update details panel or trigger action
+	fmt.Printf("Selected row %d\n", index)
 })
 
-// Cursor movement
+// Navigation events  
 table.OnHighlight(func(row vtable.TableRow, index int) {
-    // Update preview panel while navigating
+	// Update preview panel
 })
 
-// Navigation events
+// Scroll events
 table.OnScroll(func(state vtable.ViewportState) {
-    // Update scrollbar position
+	// Update scroll indicators
 })
 
-// Filter and sort changes
+// Data change events
 table.OnFiltersChanged(func(filters map[string]any) {
-    // Update filter indicators
+	// Update filter UI
 })
 
 table.OnSortChanged(func(field, direction string) {
-    // Update sort indicators
+	// Update sort indicators
 })
 ```
 
-## 🧠 Advanced Usage
+## 🎨 Theming
 
-### Implementing Efficient Data Providers
+### Built-in Themes
 
-For best performance, implement filtering and sorting directly in your data provider:
+```go
+// Available themes
+table.SetTheme(*vtable.DefaultTheme())      // Light theme
+table.SetTheme(*vtable.DarkTheme())         // Dark theme  
+table.SetTheme(*vtable.HighContrastTheme()) // High contrast for accessibility
+```
+
+### Border Characters
+
+```go
+// Available border styles
+theme.BorderChars = vtable.DefaultBorderCharacters()  // ┌─┐│└─┘
+theme.BorderChars = vtable.RoundedBorderCharacters()  // ╭─╮│╰─╯
+theme.BorderChars = vtable.ThickBorderCharacters()    // ┏━┓┃┗━┛
+theme.BorderChars = vtable.DoubleBorderCharacters()   // ╔═╗║╚═╝
+theme.BorderChars = vtable.AsciiBoxCharacters()       // +-+|+-+
+```
+
+## 🎬 Animations
+
+### Real-time Animations
+
+```go
+// Create animated formatter
+animatedFormatter := func(data vtable.Data[Task], index int, ctx vtable.RenderContext,
+	animationState map[string]any, isCursor bool, isTopThreshold bool, isBottomThreshold bool) vtable.RenderResult {
+	
+	// Use delta time for smooth animations
+	deltaMs := ctx.DeltaTime.Milliseconds()
+	
+	// Animated content
+	counter, _ := animationState["counter"].(int)
+	spinnerFrames := []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
+	spinner := spinnerFrames[counter%len(spinnerFrames)]
+	
+	return vtable.RenderResult{
+		Content: fmt.Sprintf("%s %s", spinner, data.Item.Title),
+		RefreshTriggers: []vtable.RefreshTrigger{{
+			Type: vtable.TriggerTimer,
+			Interval: 100 * time.Millisecond,
+		}},
+		AnimationState: map[string]any{
+			"counter": counter + 1,
+		},
+	}
+}
+
+// Enable animations
+list.SetAnimatedFormatter(animatedFormatter)
+list.SetTickInterval(100 * time.Millisecond) // 10fps
+```
+
+## 🔍 Filtering & Sorting
+
+### Multi-Column Sorting
+
+```go
+// Single sort (replaces existing)
+table.SetSort("lastName", "asc")
+
+// Multi-sort (adds to existing)
+table.AddSort("age", "desc") 
+
+// Manage sorts
+table.RemoveSort("age")
+table.ClearSort()
+
+// Check current sort
+request := table.GetDataRequest()
+fields := request.SortFields      // []string
+directions := request.SortDirections // []string
+```
+
+### Dynamic Filtering
+
+```go
+// Apply filters
+table.SetFilter("status", "active")
+table.SetFilter("minAge", 18)
+
+// Remove filters
+table.RemoveFilter("status")
+table.ClearFilters()
+
+// Check current filters
+request := table.GetDataRequest()
+filters := request.Filters // map[string]any
+```
+
+## 🗂️ Data Provider Implementation
+
+### Required Interface
+
+```go
+type DataProvider[T any] interface {
+	GetTotal() int
+	GetItems(request DataRequest) ([]Data[T], error)
+	GetSelectionMode() SelectionMode
+	SetSelected(index int, selected bool) bool
+	SetSelectedByIDs(ids []string, selected bool) bool
+	SelectRange(startID, endID string) bool
+	SelectAll() bool
+	ClearSelection()
+	GetSelectedIndices() []int
+	GetSelectedIDs() []string
+	GetItemID(item *T) string
+}
+
+// Optional: For search functionality
+type SearchableDataProvider[T any] interface {
+	DataProvider[T]
+	FindItemIndex(key string, value any) (int, bool)
+}
+```
+
+### Efficient Implementation
 
 ```go
 type PersonProvider struct {
-	data         []Person
+	rawData      []Person
 	filteredData []Person
+	filters      map[string]any
 	sortFields   []string
 	sortDirs     []string
-	filters      map[string]any
+	selection    map[int]bool
 	dirty        bool
 }
 
-func (p *PersonProvider) GetTotal() int {
-	p.ensureFilteredData() // Apply filters and sort
-	return len(p.filteredData)
-}
-
-func (p *PersonProvider) GetItems(request vtable.DataRequest) ([]vtable.TableRow, error) {
-	// Update provider state from request
-	changed := p.applyRequestState(request)
-	if changed {
+func (p *PersonProvider) GetItems(request vtable.DataRequest) ([]vtable.Data[vtable.TableRow], error) {
+	// Update internal state from request
+	if !reflect.DeepEqual(p.filters, request.Filters) {
+		p.filters = request.Filters
 		p.dirty = true
 	}
 	
-	// Ensure filtered data is up to date
-	p.ensureFilteredData()
+	// Rebuild filtered data if needed
+	if p.dirty {
+		p.rebuildFilteredData()
+		p.dirty = false
+	}
 	
-	// Return only the requested chunk
+	// Return requested chunk
 	start := request.Start
-	end := min(start+request.Count, len(p.filteredData))
+	count := min(request.Count, len(p.filteredData)-start)
 	
-	rows := make([]vtable.TableRow, end-start)
-	for i := 0; i < end-start; i++ {
+	result := make([]vtable.Data[vtable.TableRow], count)
+	for i := 0; i < count; i++ {
 		person := p.filteredData[start+i]
-		rows[i] = vtable.TableRow{
-			Cells: []string{
-				fmt.Sprintf("%d", person.ID),
-				person.Name,
-				fmt.Sprintf("%d", person.Age),
+		result[i] = vtable.Data[vtable.TableRow]{
+			ID: fmt.Sprintf("person-%d", person.ID),
+			Item: vtable.TableRow{
+				Cells: []string{person.Name, fmt.Sprintf("%d", person.Age)},
 			},
+			Selected: p.selection[person.ID],
 		}
 	}
-	
-	return rows, nil
+	return result, nil
 }
-
-func (p *PersonProvider) ensureFilteredData() {
-	if !p.dirty && p.filteredData != nil {
-		return // Use cached result if nothing changed
-	}
-	
-	// Filter data
-	filtered := make([]Person, 0)
-	for _, person := range p.data {
-		if p.matchesFilters(person) {
-			filtered = append(filtered, person)
-		}
-	}
-	
-	// Sort data if needed
-	if len(p.sortFields) > 0 {
-		p.sortData(filtered)
-	}
-	
-	p.filteredData = filtered
-	p.dirty = false
-}
-
-// Implement filter and sort logic...
 ```
 
-### Master-Detail Views
+## ⌨️ Keybindings
 
-Create interactive master-detail layouts:
+### Platform Detection
 
 ```go
-func (m *Model) Init() tea.Cmd {
-	// Set up the master-detail relationship
-	m.table.OnHighlight(func(row vtable.TableRow, index int) {
-		// Update the detail view with data from the selected row
-		id, _ := strconv.Atoi(row.Cells[0])
-		m.detailView.SetItem(m.dataProvider.GetItemByID(id))
-	})
-	
-	return nil
-}
+// Automatic platform detection
+keyMap := vtable.PlatformKeyMap() // Auto-detects macOS/Linux/Windows
 
-func (m *Model) View() string {
-	return lipgloss.JoinHorizontal(
-		lipgloss.Top,
-		m.table.View(), // Master view (table)
-		m.detailView.View(), // Detail view
-	)
-}
+// Or specify manually
+keyMap := vtable.MacOSKeyMap()    // macOS optimized
+keyMap := vtable.LinuxKeyMap()    // Linux optimized  
+keyMap := vtable.WindowsKeyMap()  // Windows optimized
+
+// Set custom keymap
+table.SetKeyMap(keyMap)
 ```
 
-### Dynamic Columns
+### Available Keys
 
-Add, remove, or resize columns at runtime:
+| Key | Action | macOS | Linux/Windows |
+|-----|--------|-------|---------------|
+| Navigation | Up/Down | ↑/↓, k/j | ↑/↓, k/j |
+| Page | Page Up/Down | u/b, d/space | u/b/pgup, d/space/pgdn |
+| Jump | Start/End | g/G | g/G, home/end |
+| Search | Search | f/slash | f/slash |
+| Selection | Select | enter | enter |
+| Bulk | Select All | ctrl+a | ctrl+a |
+| Clear | Clear Selection | ctrl+x | ctrl+x |
+| Exit | Back | esc/q | esc/q |
 
-```go
-// Add or remove columns dynamically
-newColumns := append(
-	table.GetConfig().Columns, 
-	vtable.TableColumn{Title: "New Col", Width: 10},
-)
-table.SetColumns(newColumns)
+## 📚 Complete API Reference
 
-// Toggle column visibility
-func toggleColumn(columnIndex int) {
-	columns := table.GetConfig().Columns
-	
-	if columnIndex < len(columns) {
-		// Save old columns
-		oldColumns := make([]vtable.TableColumn, len(columns))
-		copy(oldColumns, columns)
-		
-		// Create new columns without the toggled column
-		newColumns := append(
-			oldColumns[:columnIndex],
-			oldColumns[columnIndex+1:]...,
-		)
-		
-		table.SetColumns(newColumns)
-	}
-}
-```
-
-## 📚 API Reference
-
-### Components
+### Core Components
 
 | Component | Description |
 |-----------|-------------|
-| `TeaTable` | Virtualized table with columns, headers, and borders |
-| `TeaList<T>` | Generic virtualized list with custom data types |
-
-### Configuration
-
-| Config | Description |
-|--------|-------------|
-| `TableConfig` | Configure columns, headers, borders, and viewport settings |
-| `ViewportConfig` | Configure viewport height, thresholds, and chunk size |
-| `Theme` | Configure colors, styles, and border characters |
+| `TeaTable` | Full table with headers, borders, sorting |
+| `TeaList[T]` | Generic virtualized list component |
 
 ### Navigation Methods
 
@@ -400,36 +431,131 @@ func toggleColumn(columnIndex int) {
 |--------|-------------|
 | `MoveUp()`, `MoveDown()` | Move cursor one position |
 | `PageUp()`, `PageDown()` | Move cursor one page |
-| `JumpToStart()`, `JumpToEnd()` | Jump to first/last item |
+| `JumpToStart()`, `JumpToEnd()` | Jump to dataset boundaries |
 | `JumpToIndex(int)` | Jump to specific index |
-| `JumpToItem(key, value)` | Search and jump to item by property |
+| `JumpToItem(key, value)` | Search and jump (requires SearchableDataProvider) |
 
-### Sorting and Filtering
+### Selection Methods
 
 | Method | Description |
 |--------|-------------|
-| `SetSort(field, direction)` | Set primary sort criteria |
-| `AddSort(field, direction)` | Add secondary sort criteria |
-| `RemoveSort(field)` | Remove specific sort |
-| `ClearSort()` | Remove all sorting |
-| `SetFilter(field, value)` | Apply filter criteria |
-| `RemoveFilter(field)` | Remove specific filter |
-| `ClearFilters()` | Remove all filters |
+| `ToggleCurrentSelection()` | Toggle current item selection |
+| `ToggleSelection(index)` | Toggle specific item selection |
+| `SelectAll()` | Select all items |
+| `ClearSelection()` | Clear all selections |
+| `GetSelectedIndices()` | Get selected item indices |
+| `GetSelectionCount()` | Get selection count |
+
+### Data Methods
+
+| Method | Description |
+|--------|-------------|
+| `SetFilter(field, value)` | Apply filter |
+| `RemoveFilter(field)` | Remove filter |
+| `ClearFilters()` | Clear all filters |
+| `SetSort(field, direction)` | Set primary sort |
+| `AddSort(field, direction)` | Add secondary sort |
+| `RemoveSort(field)` | Remove sort field |
+| `ClearSort()` | Clear all sorting |
+| `RefreshData()` | Force data reload |
+
+### Animation Methods
+
+| Method | Description |
+|--------|-------------|
+| `SetAnimatedFormatter(formatter)` | Enable animations |
+| `ClearAnimatedFormatter()` | Disable animations |
+| `SetTickInterval(duration)` | Set refresh rate |
+| `SetAnimationConfig(config)` | Configure animation behavior |
 
 ### Event Callbacks
 
 | Method | Description |
 |--------|-------------|
-| `OnSelect(func(item, index))` | Called when an item is selected |
-| `OnHighlight(func(item, index))` | Called when cursor moves |
-| `OnScroll(func(state))` | Called when viewport scrolls |
-| `OnFiltersChanged(func(filters))` | Called when filters change |
-| `OnSortChanged(func(field, direction))` | Called when sorting changes |
+| `OnSelect(func(item, index))` | Item selection callback |
+| `OnHighlight(func(item, index))` | Cursor movement callback |
+| `OnScroll(func(state))` | Viewport scroll callback |
+| `OnFiltersChanged(func(filters))` | Filter change callback |
+| `OnSortChanged(func(field, dir))` | Sort change callback |
 
-## 🤝 Contributing
+### State & Info
 
-Contributions are welcome! Check out the [issues page](https://github.com/davidroman0O/vtable/issues) for ways to contribute.
+| Method | Description |
+|--------|-------------|
+| `GetState()` | Get current ViewportState |
+| `GetDataRequest()` | Get current DataRequest |
+| `GetVisibleItems()` | Get currently visible items |
+| `GetCurrentItem()` | Get item at cursor |
 
-## 📜 License
+## ⚙️ Configuration
 
-[MIT License](LICENSE) 
+### ViewportConfig
+
+```go
+config := vtable.ViewportConfig{
+	Height:               10,  // Visible rows
+	TopThresholdIndex:    2,   // Top scroll trigger (0-based)
+	BottomThresholdIndex: 7,   // Bottom scroll trigger
+	ChunkSize:            50,  // Items per chunk
+	InitialIndex:         0,   // Starting cursor position
+}
+```
+
+### Animation Settings
+
+| Use Case | Tick Interval | Performance |
+|----------|---------------|-------------|
+| Smooth UI | 16ms (60fps) | High CPU |
+| Balanced | 50-100ms (10-20fps) | Moderate |
+| Background | 250ms (4fps) | Low CPU |
+
+## 📁 Examples
+
+The `examples/` directory contains 14+ comprehensive examples:
+
+### 🌟 Getting Started
+- **`01-hello-world/`** - Basic table and list setup
+- **`basic/`** - Foundation examples with core functionality
+
+### 📊 Data Features  
+- **`02-large-datasets/`** - 1M+ item virtualization demo
+- **`04-filtering-sorting/`** - Multi-column sorting and filtering
+- **`enhanced/`** - Advanced filtering with complex criteria
+- **`10-dynamic-data/`** - Real-time data updates
+
+### 🎮 Interaction
+- **`03-selection/`** - Single and multi-selection modes
+- **`05-keybindings/`** - Platform-specific key handling
+- **`06-callbacks/`** - Event system demonstration
+- **`07-search-jump/`** - Search and navigation features
+
+### 🎨 Visual & Animation
+- **`09-custom-formatters/`** - Rich formatting techniques
+- **`animated/`** - Real-time animations and delta-time rendering
+
+### 🌍 Real-world
+- **`11-real-world-navigate-file-system/`** - Complete file browser application
+
+### Running Examples
+
+```bash
+# Run any example
+cd examples/[example-name]
+go run main.go
+
+# Popular examples:
+cd examples/02-large-datasets && go run main.go
+cd examples/animated && go run main.go
+cd examples/11-real-world-navigate-file-system && go run main.go
+```
+
+## 📄 License
+
+[MIT License](LICENSE)
+
+---
+
+<p align="center">
+  <strong>Built for high-performance terminal applications</strong><br>
+  <a href="https://github.com/charmbracelet/bubbletea">Powered by Bubble Tea</a>
+</p>
