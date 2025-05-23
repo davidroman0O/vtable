@@ -403,19 +403,6 @@ keyMap := vtable.WindowsKeyMap()  // Windows optimized
 table.SetKeyMap(keyMap)
 ```
 
-### Available Keys
-
-| Key | Action | macOS | Linux/Windows |
-|-----|--------|-------|---------------|
-| Navigation | Up/Down | ↑/↓, k/j | ↑/↓, k/j |
-| Page | Page Up/Down | u/b, d/space | u/b/pgup, d/space/pgdn |
-| Jump | Start/End | g/G | g/G, home/end |
-| Search | Search | f/slash | f/slash |
-| Selection | Select | enter | enter |
-| Bulk | Select All | ctrl+a | ctrl+a |
-| Clear | Clear Selection | ctrl+x | ctrl+x |
-| Exit | Back | esc/q | esc/q |
-
 ## 📚 Complete API Reference
 
 ### Core Components
