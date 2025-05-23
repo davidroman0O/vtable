@@ -523,18 +523,6 @@ The `examples/` directory contains 14+ comprehensive examples:
 ### 🌍 Real-world
 - **`11-real-world-navigate-file-system/`** - Complete file browser application
 
-### Running Examples
-
-```bash
-# Run any example
-cd examples/[example-name]
-go run main.go
-
-# Popular examples:
-cd examples/02-large-datasets && go run main.go
-cd examples/animated && go run main.go
-cd examples/11-real-world-navigate-file-system && go run main.go
-```
 
 ## 📄 License
 
