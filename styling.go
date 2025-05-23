@@ -4,29 +4,55 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-// Theme represents a complete visual theme for vtable components
+// Theme defines a complete color and style theme for the table
 type Theme struct {
-	// Border styling
-	BorderStyle       lipgloss.Style
+	Name string
+
+	// Basic colors
+	Primary    string
+	Secondary  string
+	Accent     string
+	Background string
+	Foreground string
+
+	// State colors
+	Selected string
+	Hover    string
+	Active   string
+	Disabled string
+	Error    string
+	Warning  string
+	Success  string
+	Info     string
+
+	// Border styles
+	BorderStyle       lipgloss.Border
+	BorderColor       string
+	HeaderBorder      lipgloss.Border
+	HeaderBorderColor string
+	BorderChars       BorderCharacters
+
+	// Text styles
+	HeaderStyle   lipgloss.Style
+	CellStyle     lipgloss.Style
+	SelectedStyle lipgloss.Style
+	CursorStyle   lipgloss.Style
+	DisabledStyle lipgloss.Style
+
+	// Table-specific styles
+	SelectedRowStyle  lipgloss.Style
+	RowStyle          lipgloss.Style
+	RowEvenStyle      lipgloss.Style
+	RowOddStyle       lipgloss.Style
 	HeaderBorderStyle lipgloss.Style
 
-	// Header styling
-	HeaderStyle lipgloss.Style
+	// Status indicator styles
+	LoadingStyle lipgloss.Style
+	ErrorStyle   lipgloss.Style
 
-	// Row styling
-	RowStyle     lipgloss.Style
-	RowEvenStyle lipgloss.Style // Optional, for alternating rows
-	RowOddStyle  lipgloss.Style // Optional, for alternating rows
-
-	// Cursor styling
-	SelectedRowStyle lipgloss.Style
-
-	// Special row indicators
-	TopThresholdStyle    lipgloss.Style // Optional, for highlighting top threshold
-	BottomThresholdStyle lipgloss.Style // Optional, for highlighting bottom threshold
-
-	// Border characters
-	BorderChars BorderCharacters
+	// Animation preferences
+	AnimationDuration string
+	ReducedMotion     bool
 }
 
 // BorderCharacters defines the characters used for table borders
@@ -129,85 +155,146 @@ func AsciiBoxCharacters() BorderCharacters {
 	}
 }
 
-// DefaultTheme returns a basic default theme for vtable components
-func DefaultTheme() Theme {
-	borderStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("245"))
-
-	return Theme{
-		BorderStyle:          borderStyle,
-		HeaderBorderStyle:    borderStyle.Copy(),
-		HeaderStyle:          lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("252")).Background(lipgloss.Color("238")),
-		RowStyle:             lipgloss.NewStyle().Foreground(lipgloss.Color("252")),
-		RowEvenStyle:         lipgloss.NewStyle().Foreground(lipgloss.Color("252")),
-		RowOddStyle:          lipgloss.NewStyle().Foreground(lipgloss.Color("249")),
-		SelectedRowStyle:     lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("252")).Background(lipgloss.Color("63")),
-		TopThresholdStyle:    lipgloss.NewStyle(), // Default: no special styling
-		BottomThresholdStyle: lipgloss.NewStyle(), // Default: no special styling
-		BorderChars:          DefaultBorderCharacters(),
+// DefaultTheme returns a sensible default theme
+func DefaultTheme() *Theme {
+	return &Theme{
+		Name:              "default",
+		Primary:           "#007ACC",
+		Secondary:         "#666666",
+		Accent:            "#FF6B35",
+		Background:        "#FFFFFF",
+		Foreground:        "#000000",
+		Selected:          "#E6F3FF",
+		Hover:             "#F0F8FF",
+		Active:            "#B8DFFF",
+		Disabled:          "#CCCCCC",
+		Error:             "#FF4444",
+		Warning:           "#FFA500",
+		Success:           "#00AA00",
+		Info:              "#0088CC",
+		BorderStyle:       lipgloss.NormalBorder(),
+		BorderColor:       "#CCCCCC",
+		HeaderBorder:      lipgloss.NormalBorder(),
+		HeaderBorderColor: "#999999",
+		BorderChars:       DefaultBorderCharacters(),
+		HeaderStyle:       lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#333333")),
+		CellStyle:         lipgloss.NewStyle().Foreground(lipgloss.Color("#000000")),
+		SelectedStyle:     lipgloss.NewStyle().Background(lipgloss.Color("#E6F3FF")),
+		CursorStyle:       lipgloss.NewStyle().Background(lipgloss.Color("#007ACC")).Foreground(lipgloss.Color("#FFFFFF")),
+		DisabledStyle:     lipgloss.NewStyle().Foreground(lipgloss.Color("#CCCCCC")),
+		SelectedRowStyle:  lipgloss.NewStyle().Background(lipgloss.Color("#E6F3FF")).Bold(true),
+		RowStyle:          lipgloss.NewStyle().Foreground(lipgloss.Color("#000000")),
+		RowEvenStyle:      lipgloss.NewStyle().Foreground(lipgloss.Color("#000000")),
+		RowOddStyle:       lipgloss.NewStyle().Foreground(lipgloss.Color("#333333")),
+		HeaderBorderStyle: lipgloss.NewStyle().Foreground(lipgloss.Color("#999999")),
+		LoadingStyle:      lipgloss.NewStyle().Foreground(lipgloss.Color("#666666")).Italic(true),
+		ErrorStyle:        lipgloss.NewStyle().Foreground(lipgloss.Color("#FF4444")),
+		AnimationDuration: "200ms",
+		ReducedMotion:     false,
 	}
 }
 
-// DarkTheme returns a dark-colored theme for vtable components
-func DarkTheme() Theme {
+// DarkTheme returns a dark theme variant
+func DarkTheme() *Theme {
 	theme := DefaultTheme()
-	theme.BorderStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
-	theme.HeaderBorderStyle = theme.BorderStyle.Copy()
-	theme.HeaderStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("252")).Background(lipgloss.Color("236"))
-	theme.RowStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("250"))
-	theme.RowEvenStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("250"))
-	theme.RowOddStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("245"))
-	theme.SelectedRowStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("252")).Background(lipgloss.Color("25"))
+	theme.Name = "dark"
+	theme.Background = "#1E1E1E"
+	theme.Foreground = "#FFFFFF"
+	theme.Primary = "#4A9EFF"
+	theme.Secondary = "#999999"
+	theme.Selected = "#2D3748"
+	theme.Hover = "#374151"
+	theme.Active = "#4A5568"
+	theme.BorderColor = "#4A5568"
+	theme.HeaderBorderColor = "#6B7280"
+	theme.HeaderStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#E5E5E5"))
+	theme.CellStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#FFFFFF"))
+	theme.SelectedStyle = lipgloss.NewStyle().Background(lipgloss.Color("#2D3748"))
+	theme.CursorStyle = lipgloss.NewStyle().Background(lipgloss.Color("#4A9EFF")).Foreground(lipgloss.Color("#000000"))
+	theme.DisabledStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#6B7280"))
 	return theme
 }
 
-// LightTheme returns a light-colored theme for vtable components
-func LightTheme() Theme {
+// HighContrastTheme returns a high contrast theme for accessibility
+func HighContrastTheme() *Theme {
 	theme := DefaultTheme()
-	theme.BorderStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
-	theme.HeaderBorderStyle = theme.BorderStyle.Copy()
-	theme.HeaderStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("234")).Background(lipgloss.Color("252"))
-	theme.RowStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("234"))
-	theme.RowEvenStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("234"))
-	theme.RowOddStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("238"))
-	theme.SelectedRowStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("252")).Background(lipgloss.Color("25"))
+	theme.Name = "high-contrast"
+	theme.Background = "#FFFFFF"
+	theme.Foreground = "#000000"
+	theme.Primary = "#000000"
+	theme.Secondary = "#000000"
+	theme.Selected = "#000000"
+	theme.Hover = "#EEEEEE"
+	theme.Active = "#CCCCCC"
+	theme.BorderColor = "#000000"
+	theme.HeaderBorderColor = "#000000"
+	theme.HeaderStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#000000")).Background(lipgloss.Color("#FFFFFF"))
+	theme.CellStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#000000"))
+	theme.SelectedStyle = lipgloss.NewStyle().Background(lipgloss.Color("#000000")).Foreground(lipgloss.Color("#FFFFFF"))
+	theme.CursorStyle = lipgloss.NewStyle().Background(lipgloss.Color("#000000")).Foreground(lipgloss.Color("#FFFFFF")).Bold(true)
+	theme.DisabledStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#666666"))
 	return theme
 }
 
-// ColorfulTheme returns a colorful theme for vtable components
-func ColorfulTheme() Theme {
-	theme := DefaultTheme()
-	theme.BorderStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("105"))
-	theme.HeaderBorderStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("99"))
-	theme.HeaderStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("231")).Background(lipgloss.Color("57"))
-	theme.RowStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("39"))
-	theme.RowEvenStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("39"))
-	theme.RowOddStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("38"))
-	theme.SelectedRowStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("231")).Background(lipgloss.Color("161"))
-	theme.TopThresholdStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("220"))
-	theme.BottomThresholdStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("220"))
-	return theme
+// StyleState contains rendering state information for applying themes
+type StyleState struct {
+	Selected  bool
+	IsCursor  bool
+	IsHeader  bool
+	Disabled  bool
+	Loading   bool
+	Error     error
+	IsHovered bool
+	IsActive  bool
 }
 
-// ThemeToStyleConfig converts a Theme to a StyleConfig (for backward compatibility)
-func ThemeToStyleConfig(theme Theme) StyleConfig {
+// ApplyTheme applies a theme to create a style for a specific state
+func (t *Theme) ApplyTheme(state StyleState) lipgloss.Style {
+	base := t.CellStyle
+
+	switch {
+	case state.Error != nil:
+		base = base.Copy().Inherit(t.ErrorStyle)
+	case state.Loading:
+		base = base.Copy().Inherit(t.LoadingStyle)
+	case state.Disabled:
+		base = base.Copy().Inherit(t.DisabledStyle)
+	case state.IsCursor:
+		base = base.Copy().Inherit(t.CursorStyle)
+	case state.Selected:
+		base = base.Copy().Inherit(t.SelectedStyle)
+	case state.IsHeader:
+		base = base.Copy().Inherit(t.HeaderStyle)
+	}
+
+	return base
+}
+
+// ToStyleConfig converts a theme to a legacy StyleConfig
+func (theme *Theme) ToStyleConfig() StyleConfig {
 	return StyleConfig{
-		BorderStyle:      theme.BorderStyle.String(),
+		BorderStyle:      theme.BorderColor,
 		HeaderStyle:      theme.HeaderStyle.String(),
-		RowStyle:         theme.RowStyle.String(),
-		SelectedRowStyle: theme.SelectedRowStyle.String(),
+		RowStyle:         theme.CellStyle.String(),
+		SelectedRowStyle: theme.SelectedStyle.String(),
 	}
 }
 
-// StyleToTheme converts a StyleConfig to a Theme (for backward compatibility)
-func StyleToTheme(style StyleConfig) Theme {
+// ThemeToStyleConfig converts a theme to a legacy StyleConfig (global function)
+func ThemeToStyleConfig(theme *Theme) StyleConfig {
+	return theme.ToStyleConfig()
+}
+
+// FromStyleConfig creates a Theme from a legacy StyleConfig
+func FromStyleConfig(style StyleConfig) *Theme {
 	theme := DefaultTheme()
 
 	// We'll use simple conversion since StyleConfig is limited
-	theme.BorderStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(style.BorderStyle))
-	theme.HeaderBorderStyle = theme.BorderStyle.Copy()
+	theme.BorderStyle = lipgloss.NormalBorder()
+	theme.HeaderBorder = lipgloss.NormalBorder()
 	theme.HeaderStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(style.HeaderStyle))
-	theme.SelectedRowStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(style.SelectedRowStyle))
-	theme.RowStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(style.RowStyle))
+	theme.CellStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(style.RowStyle))
+	theme.SelectedStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(style.SelectedRowStyle))
 
 	return theme
 }

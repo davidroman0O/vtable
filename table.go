@@ -72,43 +72,61 @@ func NewTable(
 	}
 
 	// Create horizontal border strings with the theme's border characters
-	var horizontalBorderTop string
-	var horizontalBorderMiddle string
-	var horizontalBorderBottom string
-
+	var horizontalBorderTop, horizontalBorderMiddle, horizontalBorderBottom string
 	if adjustedConfig.ShowBorders {
-		// Build border strings with proper junction characters
-		var topBuilder strings.Builder
-		var middleBuilder strings.Builder
-		var bottomBuilder strings.Builder
-
-		// Start with corner characters
-		topBuilder.WriteString(theme.BorderChars.TopLeft)
-		middleBuilder.WriteString(theme.BorderChars.LeftT)
-		bottomBuilder.WriteString(theme.BorderChars.BottomLeft)
+		var topBuilder, middleBuilder, bottomBuilder strings.Builder
 
 		for i, col := range adjustedConfig.Columns {
-			// Add horizontal line for each column width
-			topBuilder.WriteString(strings.Repeat(theme.BorderChars.Horizontal, col.Width))
-			middleBuilder.WriteString(strings.Repeat(theme.BorderChars.Horizontal, col.Width))
-			bottomBuilder.WriteString(strings.Repeat(theme.BorderChars.Horizontal, col.Width))
-
-			// Add junction if not the last column
-			if i < len(adjustedConfig.Columns)-1 {
+			// Top border
+			if i == 0 {
+				topBuilder.WriteString(theme.BorderChars.TopLeft)
+			}
+			for j := 0; j < col.Width; j++ {
+				topBuilder.WriteString(theme.BorderChars.Horizontal)
+			}
+			if i == len(adjustedConfig.Columns)-1 {
+				topBuilder.WriteString(theme.BorderChars.TopRight)
+			} else {
 				topBuilder.WriteString(theme.BorderChars.TopT)
+			}
+
+			// Middle border (separator)
+			if i == 0 {
+				middleBuilder.WriteString(theme.BorderChars.LeftT)
+			}
+			for j := 0; j < col.Width; j++ {
+				middleBuilder.WriteString(theme.BorderChars.Horizontal)
+			}
+			if i == len(adjustedConfig.Columns)-1 {
+				middleBuilder.WriteString(theme.BorderChars.RightT)
+			} else {
 				middleBuilder.WriteString(theme.BorderChars.Cross)
+			}
+
+			// Bottom border
+			if i == 0 {
+				bottomBuilder.WriteString(theme.BorderChars.BottomLeft)
+			}
+			for j := 0; j < col.Width; j++ {
+				bottomBuilder.WriteString(theme.BorderChars.Horizontal)
+			}
+			if i == len(adjustedConfig.Columns)-1 {
+				bottomBuilder.WriteString(theme.BorderChars.BottomRight)
+			} else {
 				bottomBuilder.WriteString(theme.BorderChars.BottomT)
 			}
 		}
 
-		// Add right corner characters
+		// Handle the last column properly for horizontal borders
 		topBuilder.WriteString(theme.BorderChars.TopRight)
 		middleBuilder.WriteString(theme.BorderChars.RightT)
 		bottomBuilder.WriteString(theme.BorderChars.BottomRight)
 
-		horizontalBorderTop = theme.BorderStyle.Render(topBuilder.String())
-		horizontalBorderMiddle = theme.BorderStyle.Render(middleBuilder.String())
-		horizontalBorderBottom = theme.BorderStyle.Render(bottomBuilder.String())
+		// Create proper styles for borders
+		borderStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.BorderColor))
+		horizontalBorderTop = borderStyle.Render(topBuilder.String())
+		horizontalBorderMiddle = borderStyle.Render(middleBuilder.String())
+		horizontalBorderBottom = borderStyle.Render(bottomBuilder.String())
 	}
 
 	// Create a formatter for the table rows
@@ -117,7 +135,7 @@ func NewTable(
 	}
 
 	// Convert theme to styleConfig for backward compatibility with List
-	styleConfig := ThemeToStyleConfig(theme)
+	styleConfig := ThemeToStyleConfig(&theme)
 
 	// Create the underlying list
 	list, err := NewList(adjustedConfig.ViewportConfig, provider, styleConfig, formatter)
@@ -159,10 +177,10 @@ func formatTableRow(
 	for i := 0; i < columnCount; i++ {
 		// Add starting border if needed
 		if config.ShowBorders && i == 0 {
-			borderStyle := theme.BorderStyle
+			borderStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.BorderColor))
 			if isCursor || isSelected {
 				// Highlight border for cursor or selected row
-				borderStyle = borderStyle.Copy().Bold(true)
+				borderStyle = borderStyle.Bold(true)
 			}
 			sb.WriteString(borderStyle.Render(theme.BorderChars.Vertical))
 		}
@@ -230,10 +248,10 @@ func formatTableRow(
 
 		// Add border if needed
 		if config.ShowBorders {
-			borderStyle := theme.BorderStyle
+			borderStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.BorderColor))
 			if isCursor || isSelected {
 				// Highlight border for cursor or selected row
-				borderStyle = borderStyle.Copy().Bold(true)
+				borderStyle = borderStyle.Bold(true)
 			}
 			sb.WriteString(borderStyle.Render(theme.BorderChars.Vertical))
 		}
@@ -808,37 +826,59 @@ func (t *Table) recalculateBorders() {
 	}
 
 	// Build border strings with proper junction characters
-	var topBuilder strings.Builder
-	var middleBuilder strings.Builder
-	var bottomBuilder strings.Builder
-
-	// Start with corner characters
-	topBuilder.WriteString(t.theme.BorderChars.TopLeft)
-	middleBuilder.WriteString(t.theme.BorderChars.LeftT)
-	bottomBuilder.WriteString(t.theme.BorderChars.BottomLeft)
+	var topBuilder, middleBuilder, bottomBuilder strings.Builder
 
 	for i, col := range t.config.Columns {
-		// Add horizontal line for each column width
-		topBuilder.WriteString(strings.Repeat(t.theme.BorderChars.Horizontal, col.Width))
-		middleBuilder.WriteString(strings.Repeat(t.theme.BorderChars.Horizontal, col.Width))
-		bottomBuilder.WriteString(strings.Repeat(t.theme.BorderChars.Horizontal, col.Width))
-
-		// Add junction if not the last column
-		if i < len(t.config.Columns)-1 {
+		// Top border
+		if i == 0 {
+			topBuilder.WriteString(t.theme.BorderChars.TopLeft)
+		}
+		for j := 0; j < col.Width; j++ {
+			topBuilder.WriteString(t.theme.BorderChars.Horizontal)
+		}
+		if i == len(t.config.Columns)-1 {
+			topBuilder.WriteString(t.theme.BorderChars.TopRight)
+		} else {
 			topBuilder.WriteString(t.theme.BorderChars.TopT)
+		}
+
+		// Middle border (separator)
+		if i == 0 {
+			middleBuilder.WriteString(t.theme.BorderChars.LeftT)
+		}
+		for j := 0; j < col.Width; j++ {
+			middleBuilder.WriteString(t.theme.BorderChars.Horizontal)
+		}
+		if i == len(t.config.Columns)-1 {
+			middleBuilder.WriteString(t.theme.BorderChars.RightT)
+		} else {
 			middleBuilder.WriteString(t.theme.BorderChars.Cross)
+		}
+
+		// Bottom border
+		if i == 0 {
+			bottomBuilder.WriteString(t.theme.BorderChars.BottomLeft)
+		}
+		for j := 0; j < col.Width; j++ {
+			bottomBuilder.WriteString(t.theme.BorderChars.Horizontal)
+		}
+		if i == len(t.config.Columns)-1 {
+			bottomBuilder.WriteString(t.theme.BorderChars.BottomRight)
+		} else {
 			bottomBuilder.WriteString(t.theme.BorderChars.BottomT)
 		}
 	}
 
-	// Add right corner characters
+	// Handle the last column properly for horizontal borders
 	topBuilder.WriteString(t.theme.BorderChars.TopRight)
 	middleBuilder.WriteString(t.theme.BorderChars.RightT)
 	bottomBuilder.WriteString(t.theme.BorderChars.BottomRight)
 
-	t.horizontalBorderTop = t.theme.BorderStyle.Render(topBuilder.String())
-	t.horizontalBorderMiddle = t.theme.BorderStyle.Render(middleBuilder.String())
-	t.horizontalBorderBottom = t.theme.BorderStyle.Render(bottomBuilder.String())
+	// Create proper styles for borders
+	borderStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(t.theme.BorderColor))
+	t.horizontalBorderTop = borderStyle.Render(topBuilder.String())
+	t.horizontalBorderMiddle = borderStyle.Render(middleBuilder.String())
+	t.horizontalBorderBottom = borderStyle.Render(bottomBuilder.String())
 }
 
 // SetDataProvider updates the data provider for the table.

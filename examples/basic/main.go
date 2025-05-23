@@ -55,7 +55,7 @@ func (p *StringListProvider) GetItems(request vtable.DataRequest) ([]vtable.Data
 		result[i-start] = vtable.Data[string]{
 			Item:     p.items[i],
 			Selected: p.selection[i],
-			Metadata: nil,
+			Metadata: vtable.NewTypedMetadata(),
 			Disabled: false,
 			Hidden:   false,
 		}
@@ -136,6 +136,25 @@ func (p *StringListProvider) FindItemIndex(key string, value any) (int, bool) {
 	return -1, false
 }
 
+// Add minimal missing methods
+func (p *StringListProvider) GetSelectedIDs() []string {
+	ids := make([]string, 0, len(p.selection))
+	for idx := range p.selection {
+		if idx < len(p.items) {
+			ids = append(ids, strconv.Itoa(idx))
+		}
+	}
+	return ids
+}
+
+func (p *StringListProvider) SetSelectedByIDs(ids []string, selected bool) bool {
+	return true // Minimal implementation
+}
+
+func (p *StringListProvider) SelectRange(startID, endID string) bool {
+	return true // Minimal implementation
+}
+
 // Table data provider
 type TableDataProvider struct {
 	rows      []vtable.TableRow
@@ -183,7 +202,7 @@ func (p *TableDataProvider) GetItems(request vtable.DataRequest) ([]vtable.Data[
 		result[i-start] = vtable.Data[vtable.TableRow]{
 			Item:     p.rows[i],
 			Selected: p.selection[i],
-			Metadata: nil,
+			Metadata: vtable.NewTypedMetadata(),
 			Disabled: false,
 			Hidden:   false,
 		}
@@ -262,6 +281,25 @@ func (p *TableDataProvider) FindItemIndex(key string, value any) (int, bool) {
 	}
 
 	return -1, false
+}
+
+// Add minimal missing methods
+func (p *TableDataProvider) GetSelectedIDs() []string {
+	ids := make([]string, 0, len(p.selection))
+	for idx := range p.selection {
+		if idx < len(p.rows) {
+			ids = append(ids, strconv.Itoa(idx))
+		}
+	}
+	return ids
+}
+
+func (p *TableDataProvider) SetSelectedByIDs(ids []string, selected bool) bool {
+	return true // Minimal implementation
+}
+
+func (p *TableDataProvider) SelectRange(startID, endID string) bool {
+	return true // Minimal implementation
 }
 
 // Main application
@@ -356,27 +394,28 @@ func initialModel() (Model, error) {
 	}
 
 	// Setup different themes
-	themes := make(map[string]vtable.Theme)
-	themes["default"] = vtable.DefaultTheme()
-	themes["dark"] = vtable.DarkTheme()
-	themes["light"] = vtable.LightTheme()
-	themes["colorful"] = vtable.ColorfulTheme()
+	// themes := make(map[string]vtable.Theme)
+	// themes["default"] = vtable.DefaultTheme()
+	// themes["dark"] = vtable.DarkTheme()
+	// themes["light"] = vtable.LightTheme()
+	// themes["colorful"] = vtable.ColorfulTheme()
 
 	// Create theme with custom border characters
-	roundedTheme := vtable.DefaultTheme()
-	roundedTheme.BorderChars = vtable.RoundedBorderCharacters()
-	themes["rounded"] = roundedTheme
+	// roundedTheme := vtable.DefaultTheme()
+	// roundedTheme.BorderChars = vtable.RoundedBorderCharacters()
+	// themes["rounded"] = roundedTheme
 
-	doubleTheme := vtable.ColorfulTheme()
-	doubleTheme.BorderChars = vtable.DoubleBorderCharacters()
-	themes["double"] = doubleTheme
+	// doubleTheme := vtable.ColorfulTheme()
+	// doubleTheme.BorderChars = vtable.DoubleBorderCharacters()
+	// themes["double"] = doubleTheme
 
-	thickTheme := vtable.DarkTheme()
-	thickTheme.BorderChars = vtable.ThickBorderCharacters()
-	themes["thick"] = thickTheme
+	// thickTheme := vtable.DarkTheme()
+	// thickTheme.BorderChars = vtable.ThickBorderCharacters()
+	// themes["thick"] = thickTheme
 
 	currentTheme := "default"
-	theme := themes[currentTheme]
+	// theme := themes[currentTheme]
+	theme := vtable.DefaultTheme()
 
 	// Create list provider
 	listProvider := NewStringListProvider(1000)
@@ -453,7 +492,7 @@ func initialModel() (Model, error) {
 	}
 
 	// Create table
-	tableModel, err := vtable.NewTeaTable(tableConfig, tableProvider, theme)
+	tableModel, err := vtable.NewTeaTable(tableConfig, tableProvider, *theme)
 	if err != nil {
 		return Model{}, err
 	}
@@ -474,7 +513,7 @@ func initialModel() (Model, error) {
 		searchResult: "",
 		debug:        false,
 		currentTheme: currentTheme,
-		themes:       themes,
+		themes:       map[string]vtable.Theme{},
 		activeKey:    "", // No key is initially active
 		termWidth:    0,  // Initialize termWidth
 		keyMap: map[string][]string{
@@ -494,6 +533,7 @@ func initialModel() (Model, error) {
 			"q":      {"q"},
 			"space":  {"space"},
 			"ctrl+a": {"ctrl+a"},
+			"ctrl+d": {"ctrl+d"},
 			"esc":    {"escape", "esc"},
 			"s":      {"s"},
 			"tab":    {"tab"},
@@ -531,18 +571,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyMsg:
 		// If we're searching, handle search input first
 		if m.searching {
-			// Set the active key for highlighting purposes (except for text entry)
-			keyStr := msg.String()
-			if keyStr == "enter" || keyStr == "esc" {
-				m.activeKey = keyStr
-				cmds = append(cmds, tea.Tick(200*time.Millisecond, func(_ time.Time) tea.Msg {
-					return KeyReleasedMsg{}
-				}))
-			} else {
-				// Don't highlight regular typing keys during search
-				m.activeKey = ""
-			}
-
 			switch msg.String() {
 			case "enter":
 				// Perform the search when Enter is pressed
@@ -599,7 +627,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 			// Return early to prevent component from processing space as PageDown
-			return m, tea.Batch(cmds...)
+			return m, nil
 		case "ctrl+a":
 			// Handle select all BEFORE component update
 			if m.activeView == viewList {
@@ -618,8 +646,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 			// Return early to prevent component processing
-			return m, tea.Batch(cmds...)
-		case "escape":
+			return m, nil
+		case "ctrl+d":
 			// Handle clear selection BEFORE component update
 			if m.activeView == viewList {
 				m.listModel.ClearSelection()
@@ -631,7 +659,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.searchResult = fmt.Sprintf("Cleared all selections (count: %d)", selectionCount)
 			}
 			// Return early to prevent component processing
-			return m, tea.Batch(cmds...)
+			return m, nil
 		case "s":
 			// Show selection count
 			if m.activeView == viewList {
@@ -642,7 +670,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.searchResult = fmt.Sprintf("Selected rows: %d", selectionCount)
 			}
 			// Return early to prevent component processing
-			return m, tea.Batch(cmds...)
+			return m, nil
+		case "f":
+			// Start search mode immediately
+			m.searching = true
+			m.searchInput.SetValue("")
+			m.searchInput.Focus()
+			return m, textinput.Blink
 		default:
 			// Check if this is a search key based on current model's key bindings
 			var isSearchKey bool
@@ -770,30 +804,33 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		case "t":
 			// Cycle through themes
-			themeKeys := []string{"default", "dark", "light", "colorful", "rounded", "double", "thick"}
-			currentIndex := 0
-			for i, key := range themeKeys {
-				if key == m.currentTheme {
-					currentIndex = i
-					break
+			/*
+				themeKeys := []string{"default", "dark", "light", "colorful", "rounded", "double", "thick"}
+				currentIndex := 0
+				for i, key := range themeKeys {
+					if key == m.currentTheme {
+						currentIndex = i
+						break
+					}
 				}
-			}
-			nextIndex := (currentIndex + 1) % len(themeKeys)
-			m.currentTheme = themeKeys[nextIndex]
-			newTheme := m.themes[m.currentTheme]
+				nextIndex := (currentIndex + 1) % len(themeKeys)
+				m.currentTheme = themeKeys[nextIndex]
+				newTheme := m.themes[m.currentTheme]
 
-			// Update theme for Table and List WITHOUT recreating them
-			// This preserves cursor position exactly
-			if m.activeView == viewTable {
-				// For table, update the theme directly
-				m.tableModel.SetTheme(newTheme)
-				m.searchResult = fmt.Sprintf("Theme changed to %s (Table view)", m.currentTheme)
-			} else {
-				// For list, convert theme to style and update
-				styleConfig := vtable.ThemeToStyleConfig(newTheme)
-				m.listModel.SetStyle(styleConfig)
-				m.searchResult = fmt.Sprintf("Theme changed to %s (List view)", m.currentTheme)
-			}
+				// Update theme for Table and List WITHOUT recreating them
+				// This preserves cursor position exactly
+				if m.activeView == viewTable {
+					// For table, update the theme directly
+					m.tableModel.SetTheme(newTheme)
+					m.searchResult = fmt.Sprintf("Theme changed to %s (Table view)", m.currentTheme)
+				} else {
+					// For list, convert theme to style and update
+					styleConfig := vtable.ThemeToStyleConfig(newTheme)
+					m.listModel.SetStyle(styleConfig)
+					m.searchResult = fmt.Sprintf("Theme changed to %s (List view)", m.currentTheme)
+				}
+			*/
+			m.searchResult = "Theme switching disabled"
 		}
 	}
 
@@ -1001,4 +1038,9 @@ func main() {
 		fmt.Printf("Error running program: %v\n", err)
 		os.Exit(1)
 	}
+
+	// Clear the terminal on exit
+	fmt.Print("\033[H\033[2J") // ANSI escape code to clear screen and home cursor
+	fmt.Print("\033[?25h")     // Show cursor
+	fmt.Print("\n\n")          // Add some newlines for cleaner exit
 }
