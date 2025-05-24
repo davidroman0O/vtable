@@ -318,14 +318,15 @@ func (p *TaskDataProvider) RestartTasks(indices []int) int {
 
 // Model for the animated example
 type animatedModel struct {
-	taskList      *vtable.TeaList[Task]
-	provider      *TaskDataProvider // Add reference to provider
-	currentView   int
-	quitting      bool
-	lastUpdate    time.Time
-	tickCount     int
-	activeFilter  string // Track current filter for display
-	statusMessage string // Show feedback messages
+	taskList          *vtable.TeaList[Task]
+	provider          *TaskDataProvider // Add reference to provider
+	currentView       int
+	quitting          bool
+	lastUpdate        time.Time
+	tickCount         int
+	activeFilter      string // Track current filter for display
+	statusMessage     string // Show feedback messages
+	animationsEnabled bool   // Track animation state
 }
 
 func newAnimatedModel() *animatedModel {
@@ -496,13 +497,16 @@ func newAnimatedModel() *animatedModel {
 
 	list.SetAnimatedFormatter(animatedFormatter)
 
-	return &animatedModel{
-		taskList:     list,
-		provider:     provider,
-		currentView:  0,
-		lastUpdate:   time.Now(),
-		activeFilter: "all", // Initialize with no filter
+	model := &animatedModel{
+		taskList:          list,
+		provider:          provider,
+		currentView:       1, // Start in animated mode since we set animated formatter
+		lastUpdate:        time.Now(),
+		activeFilter:      "all", // Initialize with no filter
+		animationsEnabled: true,  // Animations start enabled
 	}
+
+	return model
 }
 
 func getStatusEmoji(status string) string {
@@ -548,6 +552,20 @@ func (m *animatedModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "q", "ctrl+c":
 			m.quitting = true
 			return m, tea.Quit
+		case "a":
+			// Toggle animations dynamically
+			if m.animationsEnabled {
+				m.taskList.DisableAnimations()
+				m.animationsEnabled = false
+				m.statusMessage = "Animations disabled"
+			} else {
+				if cmd := m.taskList.EnableAnimations(); cmd != nil {
+					cmds = append(cmds, cmd)
+				}
+				m.animationsEnabled = true
+				m.statusMessage = "Animations enabled"
+			}
+			return m, tea.Batch(cmds...)
 		case "tab":
 			// Toggle between regular and animated view
 			m.currentView = (m.currentView + 1) % 2
@@ -763,9 +781,30 @@ func (m *animatedModel) View() string {
 		Foreground(lipgloss.Color("15")).
 		Padding(0, 1)
 
-	sb.WriteString(fmt.Sprintf("Mode: %s - %s\n",
+	// Animation status indicator
+	animStatus := "OFF"
+	animColor := lipgloss.Color("9") // Red
+	if m.animationsEnabled {
+		animStatus = "ON"
+		animColor = lipgloss.Color("10") // Green
+	}
+
+	animLoopRunning := m.taskList.IsAnimationLoopRunning()
+	loopStatus := "stopped"
+	if animLoopRunning {
+		loopStatus = "running"
+	}
+
+	animStyle := lipgloss.NewStyle().
+		Background(animColor).
+		Foreground(lipgloss.Color("0")).
+		Padding(0, 1)
+
+	sb.WriteString(fmt.Sprintf("Mode: %s - %s | Animations: %s (loop %s)\n",
 		modeStyle.Render(mode),
 		modeDescription,
+		animStyle.Render(animStatus),
+		loopStatus,
 	))
 
 	// Filter indicator
@@ -800,9 +839,9 @@ func (m *animatedModel) View() string {
 		MarginTop(1)
 
 	help := helpStyle.Render(
-		"Controls: ↑/↓ navigate • SPACE select • ENTER restart selected • TAB toggle animation • q quit\n" +
+		"Controls: ↑/↓ navigate • SPACE select • ENTER restart selected • TAB toggle animation • A toggle anim engine • q quit\n" +
 			"Filters: 1 all • 2 active • 3 pending • 4 completed • 5 urgent priority\n" +
-			"Features: Real-time filtering • Delta time animations • Dynamic data • Live progress")
+			"Features: Real-time filtering • Delta time animations • Dynamic data • Live progress • Dynamic anim control")
 	sb.WriteString("\n" + help)
 
 	// Status message

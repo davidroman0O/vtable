@@ -293,7 +293,11 @@ func (m *TeaList[T]) processAnimations() map[string]string {
 
 		// Handle animation triggers - register if not already registered
 		if len(result.RefreshTriggers) > 0 && !m.animationEngine.IsVisible(animationKey) {
-			m.animationEngine.RegisterAnimation(animationKey, result.RefreshTriggers, result.AnimationState)
+			if cmd := m.animationEngine.RegisterAnimation(animationKey, result.RefreshTriggers, result.AnimationState); cmd != nil {
+				// If RegisterAnimation returns a command (starting the loop), we should handle it
+				// For now, we'll just note that the loop should be running
+				_ = cmd
+			}
 		}
 
 		// Update animation state
@@ -432,12 +436,36 @@ func (m *TeaList[T]) SetAnimatedFormatter(formatter ItemFormatterAnimated[T]) {
 func (m *TeaList[T]) ClearAnimatedFormatter() {
 	m.animatedFormatter = nil
 	m.animationEngine.Cleanup()
+	// Explicitly stop the loop since we're no longer using animations
+	m.animationEngine.StopLoop()
 }
 
 // SetAnimationConfig updates the animation configuration.
-func (m *TeaList[T]) SetAnimationConfig(config AnimationConfig) {
+func (m *TeaList[T]) SetAnimationConfig(config AnimationConfig) tea.Cmd {
 	m.animationConfig = config
-	m.animationEngine.UpdateConfig(config)
+	return m.animationEngine.UpdateConfig(config)
+}
+
+// EnableAnimations enables the animation system and starts the loop if needed.
+func (m *TeaList[T]) EnableAnimations() tea.Cmd {
+	m.animationConfig.Enabled = true
+	return m.animationEngine.UpdateConfig(m.animationConfig)
+}
+
+// DisableAnimations disables the animation system and stops the loop.
+func (m *TeaList[T]) DisableAnimations() {
+	m.animationConfig.Enabled = false
+	m.animationEngine.UpdateConfig(m.animationConfig)
+}
+
+// IsAnimationEnabled returns whether animations are currently enabled.
+func (m *TeaList[T]) IsAnimationEnabled() bool {
+	return m.animationConfig.Enabled
+}
+
+// IsAnimationLoopRunning returns whether the animation loop is currently running.
+func (m *TeaList[T]) IsAnimationLoopRunning() bool {
+	return m.animationEngine.IsRunning()
 }
 
 // GetAnimationConfig returns the current animation configuration.
@@ -446,9 +474,9 @@ func (m *TeaList[T]) GetAnimationConfig() AnimationConfig {
 }
 
 // SetTickInterval sets the animation tick interval for smoother or more efficient animations.
-func (m *TeaList[T]) SetTickInterval(interval time.Duration) {
+func (m *TeaList[T]) SetTickInterval(interval time.Duration) tea.Cmd {
 	m.animationConfig.TickInterval = interval
-	m.animationEngine.UpdateConfig(m.animationConfig)
+	return m.animationEngine.UpdateConfig(m.animationConfig)
 }
 
 // GetTickInterval returns the current animation tick interval.

@@ -656,7 +656,7 @@ func (m *TeaTable) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 	case GlobalAnimationTickMsg:
-		// Handle global animation tick - this runs continuously
+		// Handle global animation tick - this runs continuously while animations are active
 		if cmd := m.animationEngine.ProcessGlobalTick(msg); cmd != nil {
 			cmds = append(cmds, cmd)
 		}
@@ -738,7 +738,11 @@ func (m *TeaTable) processAnimations() {
 
 		// Handle animation triggers - register if not already registered
 		if len(result.RefreshTriggers) > 0 && !m.animationEngine.IsVisible(animationKey) {
-			m.animationEngine.RegisterAnimation(animationKey, result.RefreshTriggers, result.AnimationState)
+			if cmd := m.animationEngine.RegisterAnimation(animationKey, result.RefreshTriggers, result.AnimationState); cmd != nil {
+				// If RegisterAnimation returns a command (starting the loop), we should handle it
+				// For now, we'll just note that the loop should be running
+				_ = cmd
+			}
 		}
 
 		// Update animation state
@@ -915,12 +919,36 @@ func (m *TeaTable) SetAnimatedFormatter(formatter ItemFormatterAnimated[TableRow
 func (m *TeaTable) ClearAnimatedFormatter() {
 	m.animatedFormatter = nil
 	m.animationEngine.Cleanup()
+	// Explicitly stop the loop since we're no longer using animations
+	m.animationEngine.StopLoop()
 }
 
 // SetAnimationConfig updates the animation configuration.
-func (m *TeaTable) SetAnimationConfig(config AnimationConfig) {
+func (m *TeaTable) SetAnimationConfig(config AnimationConfig) tea.Cmd {
 	m.animationConfig = config
-	m.animationEngine.UpdateConfig(config)
+	return m.animationEngine.UpdateConfig(config)
+}
+
+// EnableAnimations enables the animation system and starts the loop if needed.
+func (m *TeaTable) EnableAnimations() tea.Cmd {
+	m.animationConfig.Enabled = true
+	return m.animationEngine.UpdateConfig(m.animationConfig)
+}
+
+// DisableAnimations disables the animation system and stops the loop.
+func (m *TeaTable) DisableAnimations() {
+	m.animationConfig.Enabled = false
+	m.animationEngine.UpdateConfig(m.animationConfig)
+}
+
+// IsAnimationEnabled returns whether animations are currently enabled.
+func (m *TeaTable) IsAnimationEnabled() bool {
+	return m.animationConfig.Enabled
+}
+
+// IsAnimationLoopRunning returns whether the animation loop is currently running.
+func (m *TeaTable) IsAnimationLoopRunning() bool {
+	return m.animationEngine.IsRunning()
 }
 
 // GetAnimationConfig returns the current animation configuration.
@@ -929,9 +957,9 @@ func (m *TeaTable) GetAnimationConfig() AnimationConfig {
 }
 
 // SetTickInterval sets the animation tick interval for smoother or more efficient animations.
-func (m *TeaTable) SetTickInterval(interval time.Duration) {
+func (m *TeaTable) SetTickInterval(interval time.Duration) tea.Cmd {
 	m.animationConfig.TickInterval = interval
-	m.animationEngine.UpdateConfig(m.animationConfig)
+	return m.animationEngine.UpdateConfig(m.animationConfig)
 }
 
 // GetTickInterval returns the current animation tick interval.

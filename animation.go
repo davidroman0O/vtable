@@ -36,6 +36,7 @@ type AnimationEngine struct {
 	config           AnimationConfig
 	needsUpdate      bool
 	lastGlobalUpdate time.Time
+	isRunning        bool // Track if the animation loop is currently running
 }
 
 // NewAnimationEngine creates a new animation engine
@@ -44,6 +45,7 @@ func NewAnimationEngine(config AnimationConfig) *AnimationEngine {
 		animations:       make(map[string]*AnimationState),
 		config:           config,
 		lastGlobalUpdate: time.Now(),
+		isRunning:        false, // Start with loop stopped
 	}
 
 	return engine
@@ -68,12 +70,17 @@ func (ae *AnimationEngine) startGlobalTicker() tea.Cmd {
 
 // ProcessGlobalTick processes the global animation tick
 func (ae *AnimationEngine) ProcessGlobalTick(msg GlobalAnimationTickMsg) tea.Cmd {
+	ae.mu.Lock()
+	defer ae.mu.Unlock()
+
+	// If animations are disabled, stop the loop
 	if !ae.config.Enabled {
+		ae.isRunning = false
 		return nil
 	}
 
-	ae.mu.Lock()
-	defer ae.mu.Unlock()
+	// Mark that the loop is running
+	ae.isRunning = true
 
 	now := msg.Timestamp
 	updatedAnimations := []string{}
@@ -107,7 +114,8 @@ func (ae *AnimationEngine) ProcessGlobalTick(msg GlobalAnimationTickMsg) tea.Cmd
 	// Create batch commands
 	var cmds []tea.Cmd
 
-	// Always schedule the next global tick to maintain the animation loop
+	// Continue the animation loop if animations are enabled
+	// Don't stop the loop immediately - let it run and components can stop it explicitly
 	cmds = append(cmds, ae.startGlobalTicker())
 
 	// If we have updates, send an update message
@@ -120,6 +128,55 @@ func (ae *AnimationEngine) ProcessGlobalTick(msg GlobalAnimationTickMsg) tea.Cmd
 	}
 
 	return tea.Batch(cmds...)
+}
+
+// StartLoop starts the animation loop if it's not already running
+func (ae *AnimationEngine) StartLoop() tea.Cmd {
+	ae.mu.Lock()
+	defer ae.mu.Unlock()
+
+	// Don't start if disabled or already running
+	if !ae.config.Enabled || ae.isRunning {
+		return nil
+	}
+
+	ae.isRunning = true
+	return ae.startGlobalTicker()
+}
+
+// StopLoop stops the animation loop
+func (ae *AnimationEngine) StopLoop() {
+	ae.mu.Lock()
+	defer ae.mu.Unlock()
+	ae.isRunning = false
+}
+
+// StopLoopIfNoAnimations stops the animation loop if there are no active animations
+// This should be called by components when they know animations are not needed
+func (ae *AnimationEngine) StopLoopIfNoAnimations() {
+	ae.mu.Lock()
+	defer ae.mu.Unlock()
+
+	// Check if there are any active, visible animations
+	hasActiveAnimations := false
+	for _, animation := range ae.animations {
+		if animation.IsActive && animation.IsVisible {
+			hasActiveAnimations = true
+			break
+		}
+	}
+
+	// Only stop if no active animations
+	if !hasActiveAnimations {
+		ae.isRunning = false
+	}
+}
+
+// IsRunning returns whether the animation loop is currently running
+func (ae *AnimationEngine) IsRunning() bool {
+	ae.mu.RLock()
+	defer ae.mu.RUnlock()
+	return ae.isRunning
 }
 
 // RegisterAnimation registers a new animation
@@ -165,8 +222,9 @@ func (ae *AnimationEngine) RegisterAnimation(id string, triggers []RefreshTrigge
 
 	ae.animations[id] = animation
 
-	// Start global ticker if this is the first animation
-	if len(ae.animations) == 1 {
+	// Start the loop if this is the first animation and it's not already running
+	if !ae.isRunning {
+		ae.isRunning = true
 		return ae.startGlobalTicker()
 	}
 
@@ -324,17 +382,37 @@ func (ae *AnimationEngine) GetConfig() AnimationConfig {
 }
 
 // UpdateConfig updates the configuration
-func (ae *AnimationEngine) UpdateConfig(config AnimationConfig) {
+func (ae *AnimationEngine) UpdateConfig(config AnimationConfig) tea.Cmd {
 	ae.mu.Lock()
 	defer ae.mu.Unlock()
+
+	wasEnabled := ae.config.Enabled
 	ae.config = config
 
 	if !config.Enabled {
-		// Disable all animations
+		// Disable all animations and stop the loop
 		for _, animation := range ae.animations {
 			animation.IsActive = false
 		}
+		ae.isRunning = false
+		return nil
+	} else if !wasEnabled && config.Enabled {
+		// Animations were just enabled - start the loop if we have active animations
+		hasActiveAnimations := false
+		for _, animation := range ae.animations {
+			if animation.IsActive && animation.IsVisible {
+				hasActiveAnimations = true
+				break
+			}
+		}
+
+		if hasActiveAnimations && !ae.isRunning {
+			ae.isRunning = true
+			return ae.startGlobalTicker()
+		}
 	}
+
+	return nil
 }
 
 // ProcessEvent processes external events that might trigger animations
@@ -417,11 +495,42 @@ func GetAnimationEngine() *AnimationEngine {
 // StartGlobalAnimationLoop starts the global animation loop
 func StartGlobalAnimationLoop() tea.Cmd {
 	engine := GetAnimationEngine()
-	if engine.config.Enabled {
-		return engine.startGlobalTicker()
-	}
-	return nil
+	return engine.StartLoop()
 }
+
+// StopGlobalAnimationLoop stops the global animation loop
+func StopGlobalAnimationLoop() {
+	engine := GetAnimationEngine()
+	engine.StopLoop()
+}
+
+// IsGlobalAnimationLoopRunning returns whether the global animation loop is running
+func IsGlobalAnimationLoopRunning() bool {
+	engine := GetAnimationEngine()
+	return engine.IsRunning()
+}
+
+// SetGlobalAnimationConfig updates the global animation configuration
+func SetGlobalAnimationConfig(config AnimationConfig) tea.Cmd {
+	engine := GetAnimationEngine()
+	return engine.UpdateConfig(config)
+}
+
+// Example usage of dynamic animation control:
+//
+// To disable animations on the fly:
+//   if cmd := table.DisableAnimations(); cmd != nil {
+//       return m, cmd
+//   }
+//
+// To re-enable animations:
+//   if cmd := table.EnableAnimations(); cmd != nil {
+//       return m, cmd
+//   }
+//
+// To check if animations are running:
+//   isRunning := table.IsAnimationLoopRunning()
+//   isEnabled := table.IsAnimationEnabled()
 
 // Deprecated: AnimationManager - use AnimationEngine instead
 type AnimationManager = AnimationEngine

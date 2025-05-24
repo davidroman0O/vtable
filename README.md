@@ -48,6 +48,7 @@ A high-performance virtualized table and list component for [Bubble Tea](https:/
 ### 🎬 Animation System
 - **Delta-time rendering** - Frame-rate independent animations
 - **Global animation loop** - Efficient centralized animation management
+- **Dynamic control** - Enable/disable animations on-the-fly for performance
 - **Trigger-based updates** - TriggerTimer, TriggerEvent, TriggerConditional
 - **Configurable refresh rates** - SetTickInterval() for performance tuning
 
@@ -278,6 +279,75 @@ list.SetAnimatedFormatter(animatedFormatter)
 list.SetTickInterval(100 * time.Millisecond) // 10fps
 ```
 
+### Dynamic Animation Control
+
+Control animations on-the-fly for performance optimization:
+
+> **📝 Note:** Animations are **enabled by default** (`config.Enabled = true`), but the animation loop only starts when you actually use `SetAnimatedFormatter()`. If you never set an animated formatter, there's zero performance overhead.
+
+```go
+// Toggle animations during runtime
+func (m MyModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+    switch msg := msg.(type) {
+    case tea.KeyMsg:
+        switch msg.String() {
+        case "a":
+            // Toggle animations
+            if table.IsAnimationEnabled() {
+                table.DisableAnimations()
+            } else {
+                if cmd := table.EnableAnimations(); cmd != nil {
+                    return m, cmd
+                }
+            }
+        }
+    }
+    return m, nil
+}
+
+// Check animation status
+isEnabled := table.IsAnimationEnabled()
+isRunning := table.IsAnimationLoopRunning()
+```
+
+#### Performance Modes
+
+```go
+// Disable animations for large datasets
+if dataSize > 10000 {
+    table.DisableAnimations()
+}
+
+// Enable animations for real-time data
+if isRealTimeData {
+    if cmd := table.EnableAnimations(); cmd != nil {
+        cmds = append(cmds, cmd)
+    }
+}
+
+// Battery-saving mode
+if lowPowerMode {
+    table.DisableAnimations()
+} else {
+    table.SetTickInterval(50 * time.Millisecond) // Reduce frequency
+}
+```
+
+#### Global Animation Control
+
+```go
+// Control all animations globally
+vtable.StopGlobalAnimationLoop()
+running := vtable.IsGlobalAnimationLoopRunning()
+
+// Update global animation settings
+config := vtable.DefaultAnimationConfig()
+config.Enabled = false
+if cmd := vtable.SetGlobalAnimationConfig(config); cmd != nil {
+    return m, cmd
+}
+```
+
 ## 🔍 Filtering & Sorting
 
 ### Multi-Column Sorting
@@ -454,6 +524,10 @@ table.SetKeyMap(keyMap)
 | `ClearAnimatedFormatter()` | Disable animations |
 | `SetTickInterval(duration)` | Set refresh rate |
 | `SetAnimationConfig(config)` | Configure animation behavior |
+| `EnableAnimations()` | Enable animation system and start loop |
+| `DisableAnimations()` | Disable animation system and stop loop |
+| `IsAnimationEnabled()` | Check if animations are enabled |
+| `IsAnimationLoopRunning()` | Check if animation loop is running |
 
 ### Event Callbacks
 
@@ -495,6 +569,26 @@ config := vtable.ViewportConfig{
 | Smooth UI | 16ms (60fps) | High CPU |
 | Balanced | 50-100ms (10-20fps) | Moderate |
 | Background | 250ms (4fps) | Low CPU |
+
+#### Default Animation Behavior
+
+```go
+// Default animation configuration (animations are enabled but not running)
+config := vtable.DefaultAnimationConfig()
+// config.Enabled = true          // ✅ Animations are enabled by default
+// config.TickInterval = 100ms    // 10fps default refresh rate
+// config.MaxAnimations = 50      // Limit active animations for performance
+
+// The animation loop only starts when you actually use animations:
+// 1. Create table/list (no animation loop running yet)
+table, _ := vtable.NewTeaTable(config, provider, theme)
+
+// 2. Set animated formatter (animation loop starts automatically)
+table.SetAnimatedFormatter(myAnimatedFormatter)
+
+// 3. Clear animated formatter (animation loop stops automatically)  
+table.ClearAnimatedFormatter()
+```
 
 ## 📁 Examples
 
