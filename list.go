@@ -43,12 +43,19 @@ type List[T any] struct {
 	// totalItems is the total number of items in the dataset.
 	totalItems int
 
+	// totalItemsValid tracks whether the cached totalItems is still valid
+	// This prevents unnecessary GetTotal() calls when the dataset hasn't changed
+	totalItemsValid bool
+
 	// visibleItems is the slice of Data items currently visible in the viewport.
 	visibleItems []Data[T]
 
 	// dataRequest holds the current data request configuration
 	// including filtering and sorting options
 	dataRequest DataRequest
+
+	// lastDataRequest tracks the last data request to detect when filters/sorts change
+	lastDataRequest DataRequest
 }
 
 // NewList creates a new virtualized list component.
@@ -107,10 +114,14 @@ func NewList[T any](
 	}
 
 	list := &List[T]{
-		Config:       config,
-		DataProvider: provider,
-		StyleConfig:  styleConfig,
-		Formatter:    formatter,
+		Config:          config,
+		DataProvider:    provider,
+		StyleConfig:     styleConfig,
+		Formatter:       formatter,
+		chunks:          make(map[int]*chunk[T]),
+		totalItems:      totalItems,
+		totalItemsValid: true, // Valid since we just fetched it
+		visibleItems:    make([]Data[T], 0, config.Height),
 		State: ViewportState{
 			ViewportStartIndex:  viewportStartIndex,
 			CursorIndex:         initialIndex,
@@ -120,10 +131,20 @@ func NewList[T any](
 			AtDatasetStart:      viewportStartIndex == 0,
 			AtDatasetEnd:        viewportStartIndex+config.Height >= totalItems,
 		},
-		chunks:       make(map[int]*chunk[T]),
-		totalItems:   totalItems,
-		visibleItems: make([]Data[T], 0, config.Height),
-		dataRequest:  dataRequest,
+		dataRequest: dataRequest,
+		// IMPORTANT: Deep copy dataRequest to avoid reference sharing
+		lastDataRequest: DataRequest{
+			Start:          dataRequest.Start,
+			Count:          dataRequest.Count,
+			SortFields:     append([]string(nil), dataRequest.SortFields...),
+			SortDirections: append([]string(nil), dataRequest.SortDirections...),
+			Filters:        make(map[string]any),
+		},
+	}
+
+	// Copy filters map for lastDataRequest
+	for k, v := range dataRequest.Filters {
+		list.lastDataRequest.Filters[k] = v
 	}
 
 	// Load initial chunk
@@ -298,6 +319,56 @@ func (l *List[T]) GetVisibleItems() []Data[T] {
 // GetTotalItems returns the total number of items in the dataset.
 func (l *List[T]) GetTotalItems() int {
 	return l.totalItems
+}
+
+// getTotalItemsFromProvider intelligently fetches total items count
+// Only calls DataProvider.GetTotal() when the dataset structure has actually changed
+func (l *List[T]) getTotalItemsFromProvider() int {
+	// Check if our cached total is still valid by comparing data requests
+	if l.totalItemsValid && l.dataRequestsEqual(l.dataRequest, l.lastDataRequest) {
+		// Dataset structure hasn't changed, use cached value
+		return l.totalItems
+	}
+
+	// Dataset structure has changed, need to fetch fresh count
+	newTotal := l.DataProvider.GetTotal()
+	l.totalItems = newTotal
+	l.totalItemsValid = true
+
+	// IMPORTANT: Deep copy the dataRequest to avoid reference sharing
+	// The Filters map needs to be copied, not just referenced
+	l.lastDataRequest = DataRequest{
+		Start:          l.dataRequest.Start,
+		Count:          l.dataRequest.Count,
+		SortFields:     append([]string(nil), l.dataRequest.SortFields...),
+		SortDirections: append([]string(nil), l.dataRequest.SortDirections...),
+		Filters:        make(map[string]any),
+	}
+
+	// Copy filters map
+	for k, v := range l.dataRequest.Filters {
+		l.lastDataRequest.Filters[k] = v
+	}
+
+	return newTotal
+}
+
+// dataRequestsEqual compares two DataRequest objects to see if they would affect total count
+func (l *List[T]) dataRequestsEqual(a, b DataRequest) bool {
+	// Check if filters are the same
+	if len(a.Filters) != len(b.Filters) {
+		return false
+	}
+	for k, v := range a.Filters {
+		if bVal, exists := b.Filters[k]; !exists || v != bVal {
+			return false
+		}
+	}
+
+	// Sort fields don't affect total count, so we don't compare them
+	// Only filters can change the total number of items
+
+	return true
 }
 
 // GetCurrentItem returns the currently selected item.
@@ -633,13 +704,12 @@ func (l *List[T]) refreshData() {
 		delete(l.chunks, chunkStart)
 	}
 
-	// Get the new total items count after filters/sorting applied
-	newTotalItems := l.DataProvider.GetTotal()
-	// Update total items count
-	l.totalItems = newTotalItems
+	// SMART PERFORMANCE FIX: Only call GetTotal() when dataset structure actually changed
+	// This prevents unnecessary data provider calls on every animation update
+	newTotalItems := l.getTotalItemsFromProvider()
 
 	// Handle the case where the dataset is now empty after filtering
-	if l.totalItems == 0 {
+	if newTotalItems == 0 {
 		// Reset everything to default state for empty dataset
 		l.State.ViewportStartIndex = 0
 		l.State.CursorIndex = 0
@@ -835,4 +905,10 @@ func (l *List[T]) moveToIndex(index int) {
 // JumpToIndex jumps to the specified index in the dataset.
 func (l *List[T]) JumpToIndex(index int) {
 	l.moveToIndex(index)
+}
+
+// InvalidateTotalItemsCache marks the cached total items count as invalid
+// This should be called when the dataset is known to have changed externally
+func (l *List[T]) InvalidateTotalItemsCache() {
+	l.totalItemsValid = false
 }

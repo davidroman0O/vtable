@@ -623,6 +623,9 @@ func (m *TeaList[T]) SetDataProvider(provider DataProvider[T]) {
 
 	// Update provider
 	m.list.DataProvider = provider
+
+	// Invalidate cache since we're changing the data source
+	m.list.InvalidateTotalItemsCache()
 	m.list.totalItems = provider.GetTotal()
 
 	// Clear chunks and reload data
@@ -644,6 +647,9 @@ func (m *TeaList[T]) SetDataProvider(provider DataProvider[T]) {
 func (m *TeaList[T]) RefreshData() {
 	// Store current position
 	currentPos := m.list.State.CursorIndex
+
+	// Invalidate cache since we know data has changed externally
+	m.list.InvalidateTotalItemsCache()
 
 	// Update total items count
 	m.list.totalItems = m.list.DataProvider.GetTotal()
@@ -918,6 +924,8 @@ func (m *TeaList[T]) IsRealTimeUpdatesEnabled() bool {
 // ForceDataRefresh forces a complete data reload - use sparingly!
 // This should only be called when you know the data structure has changed
 func (m *TeaList[T]) ForceDataRefresh() {
+	// Invalidate cache since we know data has changed externally
+	m.list.InvalidateTotalItemsCache()
 	m.list.refreshData()
 }
 

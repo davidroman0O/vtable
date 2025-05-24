@@ -1102,6 +1102,9 @@ func (t *TeaTable) SetDataProvider(provider DataProvider[TableRow]) {
 
 	// Update provider on the underlying list
 	t.table.list.DataProvider = provider
+
+	// Invalidate cache since we're changing the data source
+	t.table.list.InvalidateTotalItemsCache()
 	t.table.list.totalItems = provider.GetTotal()
 
 	// Clear chunks and reload data
@@ -1230,6 +1233,9 @@ func (t *TeaTable) RefreshData() {
 
 	// Store current position
 	currentPos := t.table.list.State.CursorIndex
+
+	// Invalidate cache since we know data has changed externally
+	t.table.list.InvalidateTotalItemsCache()
 
 	// Update total items count
 	t.table.list.totalItems = t.table.list.DataProvider.GetTotal()
@@ -1362,6 +1368,8 @@ func (m *TeaTable) IsRealTimeUpdatesEnabled() bool {
 // ForceDataRefresh forces a complete data reload - use sparingly!
 // This should only be called when you know the data structure has changed
 func (m *TeaTable) ForceDataRefresh() {
+	// Invalidate cache since we know data has changed externally
+	m.table.list.InvalidateTotalItemsCache()
 	m.table.list.refreshData()
 }
 
