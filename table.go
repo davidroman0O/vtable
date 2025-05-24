@@ -1522,3 +1522,10 @@ func (m *TeaTable) updateSingleRowCache(viewportIndex int, isCursor bool) {
 	// DON'T call RegisterAnimation or UpdateAnimationState here - that would cause acceleration
 	// The animation state should persist, only the visual content changes
 }
+
+// GetCachedTotal returns the cached total items count without triggering any data provider calls.
+// This is useful for UI elements that need to display the total count efficiently.
+// Returns the last known total from the cache, which may be stale if InvalidateTotalItemsCache() was called.
+func (m *TeaTable) GetCachedTotal() int {
+	return m.table.list.GetCachedTotal()
+}

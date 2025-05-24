@@ -321,6 +321,13 @@ func (l *List[T]) GetTotalItems() int {
 	return l.totalItems
 }
 
+// GetCachedTotal returns the cached total items count without triggering any data provider calls.
+// This is useful for UI elements that need to display the total count efficiently.
+// Returns the last known total from the cache, which may be stale if InvalidateTotalItemsCache() was called.
+func (l *List[T]) GetCachedTotal() int {
+	return l.totalItems
+}
+
 // getTotalItemsFromProvider intelligently fetches total items count
 // Only calls DataProvider.GetTotal() when the dataset structure has actually changed
 func (l *List[T]) getTotalItemsFromProvider() int {

@@ -516,6 +516,7 @@ table.SetKeyMap(keyMap)
 | `RemoveSort(field)` | Remove sort field |
 | `ClearSort()` | Clear all sorting |
 | `RefreshData()` | Force data reload |
+| `GetCachedTotal()` | Get cached total count without triggering data provider calls |
 | `EnableRealTimeUpdates(interval)` | Enable periodic data refresh |
 | `DisableRealTimeUpdates()` | Disable periodic data refresh |
 | `IsRealTimeUpdatesEnabled()` | Check real-time update status |

@@ -473,6 +473,13 @@ func (m *TeaList[T]) GetVisibleItems() []T {
 	return items
 }
 
+// GetCachedTotal returns the cached total items count without triggering any data provider calls.
+// This is useful for UI elements that need to display the total count efficiently.
+// Returns the last known total from the cache, which may be stale if InvalidateTotalItemsCache() was called.
+func (m *TeaList[T]) GetCachedTotal() int {
+	return m.list.GetCachedTotal()
+}
+
 // GetCurrentItem returns the currently selected item.
 func (m *TeaList[T]) GetCurrentItem() (T, bool) {
 	data, ok := m.list.GetCurrentItem()
