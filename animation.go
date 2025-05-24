@@ -188,6 +188,18 @@ func (ae *AnimationEngine) RegisterAnimation(id string, triggers []RefreshTrigge
 	ae.mu.Lock()
 	defer ae.mu.Unlock()
 
+	// CRITICAL FIX: Prevent re-registration of existing animations
+	// This prevents animation acceleration when cursors move
+	if existingAnimation, exists := ae.animations[id]; exists && existingAnimation.IsActive {
+		// Animation already exists and is active - don't re-register
+		// Just update visibility if needed
+		if !existingAnimation.IsVisible {
+			existingAnimation.IsVisible = true
+			existingAnimation.IsDirty = true
+		}
+		return nil
+	}
+
 	// Limit active animations
 	if len(ae.animations) >= ae.config.MaxAnimations {
 		ae.removeOldestAnimationUnsafe()
@@ -267,16 +279,22 @@ func (ae *AnimationEngine) UpdateAnimationState(id string, newState map[string]a
 	defer ae.mu.Unlock()
 
 	if animation, exists := ae.animations[id]; exists && animation.IsActive {
-		// Update state
+		// PERFORMANCE FIX: Only update if state actually changed
+		// This prevents unnecessary updates from cursor movements
 		hasChanges := false
 		for k, v := range newState {
-			if animation.State[k] != v {
-				animation.State[k] = v
+			if currentValue, exists := animation.State[k]; !exists || currentValue != v {
 				hasChanges = true
+				break
 			}
 		}
 
+		// Only update if there are actual changes
 		if hasChanges {
+			// Update state
+			for k, v := range newState {
+				animation.State[k] = v
+			}
 			animation.LastUpdate = time.Now()
 			animation.IsDirty = true
 		}

@@ -497,6 +497,9 @@ func newAnimatedModel() *animatedModel {
 
 	list.SetAnimatedFormatter(animatedFormatter)
 
+	// Enable smart real-time updates for dynamic task data (every 2 seconds)
+	list.EnableRealTimeUpdates(2 * time.Second)
+
 	model := &animatedModel{
 		taskList:          list,
 		provider:          provider,
@@ -734,11 +737,12 @@ func (m *animatedModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.tickCount++
 		m.lastUpdate = time.Now()
 
-		// Update task data - this makes the example truly dynamic!
+		// Update task data in the provider - this just updates the in-memory data
+		// The smart real-time update system will handle refreshing the display
 		m.provider.UpdateTasks()
 
-		// Refresh the list data to show real changes
-		m.taskList.RefreshData()
+		// DON'T call any refresh methods here - the smart system handles it
+		// Real-time updates are configured to refresh every 2 seconds
 	case vtable.AnimationUpdateMsg:
 		// Animation updates received - no action needed, View() will handle
 	}

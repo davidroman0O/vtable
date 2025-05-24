@@ -621,12 +621,17 @@ func (l *List[T]) GetDataRequest() DataRequest {
 }
 
 // refreshData reloads the data with current filter and sort settings.
+// This should ONLY be called for structural changes (filters, sorts)
+// NOT for selection changes or navigation within loaded chunks
 func (l *List[T]) refreshData() {
 	// Store current position - we'll try to keep this position in view
 	currentPos := l.State.CursorIndex
 
-	// Clear all chunks first since filtering completely changes the dataset
-	l.chunks = make(map[int]*chunk[T])
+	// Mark all chunks as dirty but DON'T reload them immediately
+	// They will be loaded lazily when actually needed for display
+	for chunkStart := range l.chunks {
+		delete(l.chunks, chunkStart)
+	}
 
 	// Get the new total items count after filters/sorting applied
 	newTotalItems := l.DataProvider.GetTotal()
@@ -703,20 +708,10 @@ func (l *List[T]) refreshData() {
 	l.State.AtDatasetStart = viewportStartIndex == 0
 	l.State.AtDatasetEnd = viewportStartIndex+l.Config.Height >= l.totalItems
 
-	// Force load new chunks
-	if l.totalItems > 0 {
-		// Calculate chunk indices that contain our visible viewport
-		chunkStartIndex := (viewportStartIndex / l.Config.ChunkSize) * l.Config.ChunkSize
-		_ = l.loadChunk(chunkStartIndex)
+	// DON'T force load chunks here - let updateVisibleItems() load them lazily
+	// This is the key performance improvement: only load when actually needed for display
 
-		// Load additional chunk if viewport spans two chunks
-		nextChunkStart := chunkStartIndex + l.Config.ChunkSize
-		if nextChunkStart < l.totalItems && viewportStartIndex+l.Config.Height > nextChunkStart {
-			_ = l.loadChunk(nextChunkStart)
-		}
-	}
-
-	// Update the visible items
+	// Update the visible items (this will trigger lazy chunk loading)
 	l.updateVisibleItems()
 }
 

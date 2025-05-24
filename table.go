@@ -502,6 +502,17 @@ type TeaTable struct {
 	animatedFormatter ItemFormatterAnimated[TableRow]
 	animationConfig   AnimationConfig
 	lastAnimationTime time.Time
+
+	// Real-time data updates
+	realTimeUpdates    bool
+	realTimeInterval   time.Duration
+	lastRealTimeUpdate time.Time
+
+	// Animation content cache
+	cachedAnimationContent map[string]string
+
+	// Track cursor position for cache invalidation
+	lastCursorIndex int
 }
 
 // NewTeaTable creates a new Bubble Tea model for a virtualized table.
@@ -521,11 +532,13 @@ func NewTeaTable(
 	animEngine := NewAnimationEngine(animConfig)
 
 	return &TeaTable{
-		table:           table,
-		keyMap:          PlatformKeyMap(), // Use platform-specific key bindings
-		focused:         true,
-		animationEngine: animEngine,
-		animationConfig: animConfig,
+		table:                  table,
+		keyMap:                 PlatformKeyMap(), // Use platform-specific key bindings
+		focused:                true,
+		animationEngine:        animEngine,
+		animationConfig:        animConfig,
+		cachedAnimationContent: make(map[string]string),
+		lastCursorIndex:        0, // Initialize cursor tracking
 	}, nil
 }
 
@@ -660,9 +673,25 @@ func (m *TeaTable) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if cmd := m.animationEngine.ProcessGlobalTick(msg); cmd != nil {
 			cmds = append(cmds, cmd)
 		}
+
+		// Handle real-time data updates if enabled
+		if m.realTimeUpdates {
+			now := msg.Timestamp
+			if now.Sub(m.lastRealTimeUpdate) >= m.realTimeInterval {
+				// Time for a real-time data refresh
+				m.lastRealTimeUpdate = now
+				m.ForceDataRefresh()
+			}
+		}
 	case AnimationUpdateMsg:
 		// Animations have been updated - trigger re-render by doing nothing
 		// The View() method will automatically pick up the changes
+
+		// CRITICAL FIX: Only update animation content when we receive animation update messages
+		// This decouples animation updates from cursor movements
+		if m.animatedFormatter != nil {
+			m.updateAnimationContent()
+		}
 	}
 
 	// Check if we need to trigger callbacks based on state changes
@@ -687,10 +716,16 @@ func (m *TeaTable) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m *TeaTable) View() string {
 	// Handle animations if we have an animated formatter
 	if m.animatedFormatter != nil {
-		// Always process animations to register new ones and update content
-		m.processAnimations()
-		// Clear dirty flags after processing
-		m.animationEngine.ClearDirtyFlags()
+		// Check if cursor position has changed
+		currentCursorIndex := m.table.GetState().CursorIndex
+		if currentCursorIndex != m.lastCursorIndex {
+			// Cursor moved - update cache immediately for smooth movement
+			m.updateCursorInCache(m.lastCursorIndex, currentCursorIndex)
+			m.lastCursorIndex = currentCursorIndex
+		}
+
+		// Process animations for visibility tracking but don't re-render everything
+		_ = m.cachedAnimationContent
 	}
 
 	return m.table.Render()
@@ -736,21 +771,37 @@ func (m *TeaTable) processAnimations() {
 		// Call animated formatter
 		result := m.animatedFormatter(dataItem, absoluteIndex, ctx, animState, isCursor, isTopThreshold, isBottomThreshold)
 
-		// Handle animation triggers - register if not already registered
+		// CRITICAL FIX: Only register animations ONCE when they first become visible
+		// Do NOT re-register on every view render (this causes acceleration)
 		if len(result.RefreshTriggers) > 0 && !m.animationEngine.IsVisible(animationKey) {
+			// Register animation only if it doesn't exist yet
 			if cmd := m.animationEngine.RegisterAnimation(animationKey, result.RefreshTriggers, result.AnimationState); cmd != nil {
-				// If RegisterAnimation returns a command (starting the loop), we should handle it
-				// For now, we'll just note that the loop should be running
+				// Animation loop started - this only happens once
 				_ = cmd
 			}
 		}
 
-		// Update animation state
+		// Update animation state ONLY if it actually changed
+		// Don't update state on every render to prevent animation reset
 		if len(result.AnimationState) > 0 {
-			m.animationEngine.UpdateAnimationState(animationKey, result.AnimationState)
+			currentState := m.animationEngine.GetAnimationState(animationKey)
+			hasChanges := false
+
+			// Check if state actually changed
+			for k, newValue := range result.AnimationState {
+				if currentValue, exists := currentState[k]; !exists || currentValue != newValue {
+					hasChanges = true
+					break
+				}
+			}
+
+			// Only update if there are actual changes
+			if hasChanges {
+				m.animationEngine.UpdateAnimationState(animationKey, result.AnimationState)
+			}
 		}
 
-		// Make sure the animation is visible
+		// Make sure the animation is visible (this is safe to call repeatedly)
 		m.animationEngine.SetVisible(animationKey, true)
 	}
 
@@ -913,6 +964,14 @@ func (m *TeaTable) SetTheme(theme Theme) {
 // SetAnimatedFormatter sets an animated formatter that supports dynamic content.
 func (m *TeaTable) SetAnimatedFormatter(formatter ItemFormatterAnimated[TableRow]) {
 	m.animatedFormatter = formatter
+
+	// Clear existing cache and trigger initial animation setup
+	m.cachedAnimationContent = make(map[string]string)
+
+	// Trigger initial animation setup if formatter is set
+	if formatter != nil {
+		m.updateAnimationContent()
+	}
 }
 
 // ClearAnimatedFormatter removes the animated formatter and stops all animations.
@@ -1197,16 +1256,16 @@ func (m *TeaTable) ToggleSelection(index int) bool {
 	if data, ok := m.table.list.GetCurrentItem(); ok && m.table.list.State.CursorIndex == index {
 		newSelected := !data.Selected
 		if m.table.list.DataProvider.SetSelected(index, newSelected) {
-			// Refresh the data to show selection changes
-			m.RefreshData()
+			// Use efficient cache refresh instead of full data reload
+			m.refreshCachedData()
 			return true
 		}
 	} else {
 		// If not the current item, we need to determine current state differently
 		// For now, just set as selected
 		if m.table.list.DataProvider.SetSelected(index, true) {
-			// Refresh the data to show selection changes
-			m.RefreshData()
+			// Use efficient cache refresh instead of full data reload
+			m.refreshCachedData()
 			return true
 		}
 	}
@@ -1245,10 +1304,31 @@ func (m *TeaTable) ClearSelection() {
 }
 
 // refreshCachedData invalidates cached chunks to force refresh of visible data
+// This should ONLY affect visual representation, NOT trigger data provider calls
 func (m *TeaTable) refreshCachedData() {
-	// Clear chunks to force reload with updated selection state
-	m.table.list.chunks = make(map[int]*chunk[TableRow])
-	// Force update of visible items to reload fresh chunks
+	// DON'T clear chunks - that would trigger unnecessary data fetching
+	// Instead, we should only update the selection state in existing chunks
+	m.updateSelectionInVisibleChunks()
+}
+
+// updateSelectionInVisibleChunks updates selection state in currently loaded chunks
+// without triggering any data provider calls
+func (m *TeaTable) updateSelectionInVisibleChunks() {
+	selectedIndices := m.table.list.DataProvider.GetSelectedIndices()
+	selectedSet := make(map[int]bool)
+	for _, idx := range selectedIndices {
+		selectedSet[idx] = true
+	}
+
+	// Update selection state in all loaded chunks
+	for _, chunk := range m.table.list.chunks {
+		for i := range chunk.Items {
+			absoluteIndex := chunk.StartIndex + i
+			chunk.Items[i].Selected = selectedSet[absoluteIndex]
+		}
+	}
+
+	// Update visible items to reflect selection changes
 	m.table.list.updateVisibleItems()
 }
 
@@ -1260,4 +1340,177 @@ func (m *TeaTable) GetSelectedIndices() []int {
 // GetSelectionCount returns the number of selected rows.
 func (m *TeaTable) GetSelectionCount() int {
 	return len(m.table.list.DataProvider.GetSelectedIndices())
+}
+
+// EnableRealTimeUpdates enables periodic data refreshing for dynamic data sources
+func (m *TeaTable) EnableRealTimeUpdates(interval time.Duration) {
+	m.realTimeUpdates = true
+	m.realTimeInterval = interval
+	m.lastRealTimeUpdate = time.Now()
+}
+
+// DisableRealTimeUpdates disables periodic data refreshing
+func (m *TeaTable) DisableRealTimeUpdates() {
+	m.realTimeUpdates = false
+}
+
+// IsRealTimeUpdatesEnabled returns whether real-time updates are enabled
+func (m *TeaTable) IsRealTimeUpdatesEnabled() bool {
+	return m.realTimeUpdates
+}
+
+// ForceDataRefresh forces a complete data reload - use sparingly!
+// This should only be called when you know the data structure has changed
+func (m *TeaTable) ForceDataRefresh() {
+	m.table.list.refreshData()
+}
+
+// updateAnimationContent updates the animation content cache
+func (m *TeaTable) updateAnimationContent() {
+	visibleItems := m.table.list.GetVisibleItems()
+	state := m.table.GetState()
+
+	// Track which animations should be active
+	activeAnimationKeys := make(map[string]bool)
+
+	// Calculate delta time
+	now := time.Now()
+	deltaTime := time.Duration(0)
+	if !m.lastAnimationTime.IsZero() {
+		deltaTime = now.Sub(m.lastAnimationTime)
+	}
+	m.lastAnimationTime = now
+
+	// Process each visible item
+	for i, dataItem := range visibleItems {
+		absoluteIndex := state.ViewportStartIndex + i
+		animationKey := fmt.Sprintf("row-%d", absoluteIndex)
+		activeAnimationKeys[animationKey] = true
+
+		// Create render context with table-specific information and delta time
+		ctx := DefaultRenderContext()
+		ctx.CurrentTime = now
+		ctx.DeltaTime = deltaTime
+		ctx.MaxWidth = m.table.totalWidth
+		ctx.Theme = &m.table.theme
+
+		// Get animation state
+		animState := m.animationEngine.GetAnimationState(animationKey)
+
+		// Determine cursor state
+		isCursor := i == state.CursorViewportIndex
+		isTopThreshold := i == m.table.list.Config.TopThresholdIndex
+		isBottomThreshold := i == m.table.list.Config.BottomThresholdIndex
+
+		// Call animated formatter
+		result := m.animatedFormatter(dataItem, absoluteIndex, ctx, animState, isCursor, isTopThreshold, isBottomThreshold)
+
+		// CRITICAL FIX: Only register animations ONCE when they first become visible
+		// Do NOT re-register on every view render (this causes acceleration)
+		if len(result.RefreshTriggers) > 0 && !m.animationEngine.IsVisible(animationKey) {
+			// Register animation only if it doesn't exist yet
+			if cmd := m.animationEngine.RegisterAnimation(animationKey, result.RefreshTriggers, result.AnimationState); cmd != nil {
+				// Animation loop started - this only happens once
+				_ = cmd
+			}
+		}
+
+		// Update animation state ONLY if it actually changed
+		// Don't update state on every render to prevent animation reset
+		if len(result.AnimationState) > 0 {
+			currentState := m.animationEngine.GetAnimationState(animationKey)
+			hasChanges := false
+
+			// Check if state actually changed
+			for k, newValue := range result.AnimationState {
+				if currentValue, exists := currentState[k]; !exists || currentValue != newValue {
+					hasChanges = true
+					break
+				}
+			}
+
+			// Only update if there are actual changes
+			if hasChanges {
+				m.animationEngine.UpdateAnimationState(animationKey, result.AnimationState)
+			}
+		}
+
+		// Make sure the animation is visible (this is safe to call repeatedly)
+		m.animationEngine.SetVisible(animationKey, true)
+	}
+
+	// Clean up animations for items that are no longer visible
+	activeAnimations := m.animationEngine.GetActiveAnimations()
+	for _, animKey := range activeAnimations {
+		if !activeAnimationKeys[animKey] {
+			m.animationEngine.SetVisible(animKey, false)
+		}
+	}
+}
+
+// updateCursorInCache updates the cache for the cursor position
+func (m *TeaTable) updateCursorInCache(oldIndex, newIndex int) {
+	visibleItems := m.table.list.GetVisibleItems()
+	state := m.table.GetState()
+
+	// Find which viewport positions the old and new cursor positions map to
+	oldViewportIndex := -1
+	newViewportIndex := -1
+
+	for i := range visibleItems {
+		absoluteIndex := state.ViewportStartIndex + i
+		if absoluteIndex == oldIndex {
+			oldViewportIndex = i
+		}
+		if absoluteIndex == newIndex {
+			newViewportIndex = i
+		}
+	}
+
+	// Update cache for old cursor position (remove cursor)
+	if oldViewportIndex >= 0 && oldViewportIndex < len(visibleItems) {
+		m.updateSingleRowCache(oldViewportIndex, false) // Not cursor anymore
+	}
+
+	// Update cache for new cursor position (add cursor)
+	if newViewportIndex >= 0 && newViewportIndex < len(visibleItems) {
+		m.updateSingleRowCache(newViewportIndex, true) // Now cursor
+	}
+}
+
+// updateSingleRowCache updates the cache for a single row with cursor state
+func (m *TeaTable) updateSingleRowCache(viewportIndex int, isCursor bool) {
+	visibleItems := m.table.list.GetVisibleItems()
+	state := m.table.GetState()
+
+	if viewportIndex >= len(visibleItems) {
+		return
+	}
+
+	absoluteIndex := state.ViewportStartIndex + viewportIndex
+	animationKey := fmt.Sprintf("row-%d", absoluteIndex)
+	dataItem := visibleItems[viewportIndex]
+
+	// Create render context
+	ctx := DefaultRenderContext()
+	ctx.CurrentTime = time.Now()
+	ctx.DeltaTime = 0 // No delta time for cursor updates
+	ctx.MaxWidth = m.table.totalWidth
+	ctx.Theme = &m.table.theme
+
+	// Get existing animation state (preserve it!)
+	animState := m.animationEngine.GetAnimationState(animationKey)
+
+	// Determine threshold states
+	isTopThreshold := viewportIndex == m.table.list.Config.TopThresholdIndex
+	isBottomThreshold := viewportIndex == m.table.list.Config.BottomThresholdIndex
+
+	// Call animated formatter with updated cursor state
+	result := m.animatedFormatter(dataItem, absoluteIndex, ctx, animState, isCursor, isTopThreshold, isBottomThreshold)
+
+	// Update only the content in cache (DON'T re-register animations or update state)
+	m.cachedAnimationContent[animationKey] = result.Content
+
+	// DON'T call RegisterAnimation or UpdateAnimationState here - that would cause acceleration
+	// The animation state should persist, only the visual content changes
 }
