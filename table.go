@@ -43,9 +43,10 @@ func NewTable(
 	provider DataProvider[TableRow],
 	theme Theme,
 ) (*Table, error) {
-	// Validate column configuration
-	if len(config.Columns) == 0 {
-		return nil, fmt.Errorf("table must have at least one column")
+	// Auto-fix any configuration issues instead of failing
+	err := ValidateAndFixTableConfig(&config)
+	if err != nil {
+		return nil, err
 	}
 
 	// Get actual data size
@@ -58,6 +59,8 @@ func NewTable(
 	// This prevents empty rows from showing
 	if dataSize < config.ViewportConfig.Height {
 		adjustedConfig.ViewportConfig.Height = max(1, dataSize)
+		// Recalculate thresholds for the new height
+		ValidateAndFixViewportConfig(&adjustedConfig.ViewportConfig)
 	}
 
 	// Calculate the total width of the table
@@ -148,6 +151,37 @@ func NewTable(
 		horizontalBorderMiddle: horizontalBorderMiddle,
 		horizontalBorderBottom: horizontalBorderBottom,
 	}, nil
+}
+
+// NewSimpleTable creates a table with just columns and reasonable defaults.
+// This is the easiest way to create a table - just provide columns and a data provider.
+// Example: table, err := vtable.NewSimpleTable(columns, provider)
+func NewSimpleTable(columns []TableColumn, provider DataProvider[TableRow]) (*Table, error) {
+	config := NewSimpleTableConfig(columns)
+	theme := *DefaultTheme()
+	return NewTable(config, provider, theme)
+}
+
+// NewTableWithHeight creates a table with specified viewport height and auto-calculated thresholds.
+// Example: table, err := vtable.NewTableWithHeight(columns, provider, 15)
+func NewTableWithHeight(columns []TableColumn, provider DataProvider[TableRow], height int) (*Table, error) {
+	config := NewTableConfig(columns, height)
+	theme := *DefaultTheme()
+	return NewTable(config, provider, theme)
+}
+
+// NewTableWithTheme creates a table with a custom theme.
+// Example: table, err := vtable.NewTableWithTheme(columns, provider, vtable.DarkTheme())
+func NewTableWithTheme(columns []TableColumn, provider DataProvider[TableRow], theme *Theme) (*Table, error) {
+	config := NewSimpleTableConfig(columns)
+	return NewTable(config, provider, *theme)
+}
+
+// NewTableWithHeightAndTheme creates a table with custom height and theme.
+// Example: table, err := vtable.NewTableWithHeightAndTheme(columns, provider, 15, vtable.DarkTheme())
+func NewTableWithHeightAndTheme(columns []TableColumn, provider DataProvider[TableRow], height int, theme *Theme) (*Table, error) {
+	config := NewTableConfig(columns, height)
+	return NewTable(config, provider, *theme)
 }
 
 // CellConstraint represents the constraints for a cell
@@ -722,6 +756,37 @@ func NewTeaTable(
 		cachedAnimationContent: make(map[string]string),
 		lastCursorIndex:        0, // Initialize cursor tracking
 	}, nil
+}
+
+// NewSimpleTeaTable creates a Bubble Tea table with just columns and reasonable defaults.
+// This is the easiest way to create a Bubble Tea table - just provide columns and a data provider.
+// Example: table, err := vtable.NewSimpleTeaTable(columns, provider)
+func NewSimpleTeaTable(columns []TableColumn, provider DataProvider[TableRow]) (*TeaTable, error) {
+	config := NewSimpleTableConfig(columns)
+	theme := *DefaultTheme()
+	return NewTeaTable(config, provider, theme)
+}
+
+// NewTeaTableWithHeight creates a Bubble Tea table with specified viewport height.
+// Example: table, err := vtable.NewTeaTableWithHeight(columns, provider, 15)
+func NewTeaTableWithHeight(columns []TableColumn, provider DataProvider[TableRow], height int) (*TeaTable, error) {
+	config := NewTableConfig(columns, height)
+	theme := *DefaultTheme()
+	return NewTeaTable(config, provider, theme)
+}
+
+// NewTeaTableWithTheme creates a Bubble Tea table with a custom theme.
+// Example: table, err := vtable.NewTeaTableWithTheme(columns, provider, vtable.DarkTheme())
+func NewTeaTableWithTheme(columns []TableColumn, provider DataProvider[TableRow], theme *Theme) (*TeaTable, error) {
+	config := NewSimpleTableConfig(columns)
+	return NewTeaTable(config, provider, *theme)
+}
+
+// NewTeaTableWithHeightAndTheme creates a Bubble Tea table with custom height and theme.
+// Example: table, err := vtable.NewTeaTableWithHeightAndTheme(columns, provider, 15, vtable.DarkTheme())
+func NewTeaTableWithHeightAndTheme(columns []TableColumn, provider DataProvider[TableRow], height int, theme *Theme) (*TeaTable, error) {
+	config := NewTableConfig(columns, height)
+	return NewTeaTable(config, provider, *theme)
 }
 
 // Init initializes the Tea model.

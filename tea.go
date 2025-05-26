@@ -90,6 +90,35 @@ func NewTeaList[T any](
 	}, nil
 }
 
+// NewSimpleTeaList creates a Bubble Tea list with just a data provider and formatter.
+// This is the easiest way to create a Bubble Tea list with reasonable defaults.
+// Example: list, err := vtable.NewSimpleTeaList(provider, formatter)
+func NewSimpleTeaList[T any](provider DataProvider[T], formatter ItemFormatter[T]) (*TeaList[T], error) {
+	config := DefaultViewportConfig()
+	styleConfig := DefaultStyleConfig()
+	return NewTeaList(config, provider, styleConfig, formatter)
+}
+
+// NewTeaListWithHeight creates a Bubble Tea list with specified viewport height.
+// Example: list, err := vtable.NewTeaListWithHeight(provider, formatter, 15)
+func NewTeaListWithHeight[T any](provider DataProvider[T], formatter ItemFormatter[T], height int) (*TeaList[T], error) {
+	config := NewViewportConfig(height)
+	styleConfig := DefaultStyleConfig()
+	return NewTeaList(config, provider, styleConfig, formatter)
+}
+
+// NewTeaListWithConfig creates a Bubble Tea list with a full config.
+// This provides maximum flexibility while still benefiting from auto-correction.
+// Example: list, err := vtable.NewTeaListWithConfig(config, provider, styleConfig, formatter)
+func NewTeaListWithConfig[T any](
+	config ViewportConfig,
+	provider DataProvider[T],
+	styleConfig StyleConfig,
+	formatter ItemFormatter[T],
+) (*TeaList[T], error) {
+	return NewTeaList(config, provider, styleConfig, formatter)
+}
+
 // Init initializes the Tea model.
 func (m *TeaList[T]) Init() tea.Cmd {
 	// Start the global animation loop

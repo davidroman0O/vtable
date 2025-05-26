@@ -65,25 +65,8 @@ func NewList[T any](
 	styleConfig StyleConfig,
 	formatter ItemFormatter[T],
 ) (*List[T], error) {
-	if config.Height <= 0 {
-		return nil, fmt.Errorf("viewport height must be greater than 0")
-	}
-
-	if config.TopThresholdIndex < 0 || config.TopThresholdIndex >= config.Height {
-		return nil, fmt.Errorf("top threshold must be within viewport bounds")
-	}
-
-	if config.BottomThresholdIndex < 0 || config.BottomThresholdIndex >= config.Height {
-		return nil, fmt.Errorf("bottom threshold must be within viewport bounds")
-	}
-
-	if config.BottomThresholdIndex <= config.TopThresholdIndex {
-		return nil, fmt.Errorf("bottom threshold must be below top threshold")
-	}
-
-	if config.ChunkSize <= 0 {
-		return nil, fmt.Errorf("chunk size must be greater than 0")
-	}
+	// Auto-fix any configuration issues instead of failing
+	ValidateAndFixViewportConfig(&config)
 
 	totalItems := provider.GetTotal()
 	if totalItems <= 0 {

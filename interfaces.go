@@ -1,5 +1,29 @@
 // Package vtable provides a virtualized table and list component for Bubble Tea.
 // It efficiently handles large datasets by only loading and rendering the visible portion.
+//
+// # Easy Usage Examples
+//
+// Creating a simple table (easiest way):
+//
+//	columns := []vtable.TableColumn{
+//		vtable.NewColumn("Name", 20),
+//		vtable.NewRightColumn("Size", 10),
+//		vtable.NewColumn("Location", 30),
+//	}
+//	table, err := vtable.NewSimpleTeaTable(columns, provider)
+//
+// Or even simpler with auto-sized columns:
+//
+//	columns := vtable.CreateColumnsFromTitles("Name", "Size", "Location")
+//	table, err := vtable.NewSimpleTeaTable(columns, provider)
+//
+// Creating a table with custom height:
+//
+//	table, err := vtable.NewTeaTableWithHeight(columns, provider, 15)
+//
+// The library automatically calculates proper threshold values based on height,
+// eliminating configuration errors. Manual configuration is still possible
+// for advanced use cases, but auto-correction prevents most common mistakes.
 package vtable
 
 import (
@@ -293,6 +317,84 @@ type TableColumn struct {
 
 	// Field is the identifier used for sorting/filtering operations
 	Field string
+}
+
+// NewColumn creates a new table column with the specified title and width.
+// Uses left alignment by default.
+// Example: col := vtable.NewColumn("Name", 20)
+func NewColumn(title string, width int) TableColumn {
+	return TableColumn{
+		Title:     title,
+		Width:     width,
+		Alignment: AlignLeft,
+		Field:     title, // Use title as field by default
+	}
+}
+
+// NewColumnWithAlignment creates a new table column with specified alignment.
+// Example: col := vtable.NewColumnWithAlignment("Price", 10, vtable.AlignRight)
+func NewColumnWithAlignment(title string, width int, alignment int) TableColumn {
+	return TableColumn{
+		Title:     title,
+		Width:     width,
+		Alignment: alignment,
+		Field:     title, // Use title as field by default
+	}
+}
+
+// NewColumnWithField creates a new table column with a custom field name for sorting/filtering.
+// Example: col := vtable.NewColumnWithField("Full Name", "name", 25, vtable.AlignLeft)
+func NewColumnWithField(title, field string, width int, alignment int) TableColumn {
+	return TableColumn{
+		Title:     title,
+		Width:     width,
+		Alignment: alignment,
+		Field:     field,
+	}
+}
+
+// NewLeftColumn creates a left-aligned column.
+// Example: col := vtable.NewLeftColumn("Name", 20)
+func NewLeftColumn(title string, width int) TableColumn {
+	return NewColumnWithAlignment(title, width, AlignLeft)
+}
+
+// NewRightColumn creates a right-aligned column.
+// Example: col := vtable.NewRightColumn("Price", 10)
+func NewRightColumn(title string, width int) TableColumn {
+	return NewColumnWithAlignment(title, width, AlignRight)
+}
+
+// NewCenterColumn creates a center-aligned column.
+// Example: col := vtable.NewCenterColumn("Status", 12)
+func NewCenterColumn(title string, width int) TableColumn {
+	return NewColumnWithAlignment(title, width, AlignCenter)
+}
+
+// CreateSimpleColumns creates columns from title/width pairs.
+// This is useful for quickly setting up tables with basic columns.
+// Example: columns := vtable.CreateSimpleColumns(map[string]int{"Name": 20, "Age": 10, "City": 15})
+func CreateSimpleColumns(titleWidths map[string]int) []TableColumn {
+	columns := make([]TableColumn, 0, len(titleWidths))
+	for title, width := range titleWidths {
+		columns = append(columns, NewColumn(title, width))
+	}
+	return columns
+}
+
+// CreateColumnsFromTitles creates columns with auto-calculated widths based on title length.
+// Minimum width is 8 characters, and it adds some padding.
+// Example: columns := vtable.CreateColumnsFromTitles("Name", "Email Address", "Status")
+func CreateColumnsFromTitles(titles ...string) []TableColumn {
+	columns := make([]TableColumn, len(titles))
+	for i, title := range titles {
+		width := len(title) + 4 // Add padding
+		if width < 8 {
+			width = 8 // Minimum width
+		}
+		columns[i] = NewColumn(title, width)
+	}
+	return columns
 }
 
 // ViewportState represents the current state of the viewport.
