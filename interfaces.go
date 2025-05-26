@@ -5,9 +5,9 @@ package vtable
 import (
 	"strings"
 	"time"
-	"unicode/utf8"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/mattn/go-runewidth"
 )
 
 // DataRequest represents a request for data with optional filtering and sorting.
@@ -268,7 +268,7 @@ func defaultMeasure(text string) (int, int) {
 	height := len(lines)
 	width := 0
 	for _, line := range lines {
-		if w := utf8.RuneCountInString(line); w > width {
+		if w := properDisplayWidth(line); w > width {
 			width = w
 		}
 	}
@@ -409,6 +409,39 @@ type ItemFormatterAnimated[T any] func(
 	isBottomThreshold bool,
 ) RenderResult
 
+// CellFormatterAnimated is a formatter for individual table cells with animation support.
+// This enables true cell-level animations like horizontal text scrolling, smooth transitions, etc.
+type CellFormatterAnimated func(
+	cellValue string,
+	rowIndex int,
+	columnIndex int,
+	columnConfig TableColumn,
+	ctx RenderContext,
+	animationState map[string]any,
+	isCursor bool,
+	isSelected bool,
+	isTopThreshold bool,
+	isBottomThreshold bool,
+) CellRenderResult
+
+// CellRenderResult contains the result of rendering an individual cell with animation support
+type CellRenderResult struct {
+	// Content is the rendered cell content
+	Content string
+
+	// RefreshTriggers specify when this cell should be re-rendered
+	RefreshTriggers []RefreshTrigger
+
+	// AnimationState stores state between renders for this specific cell
+	AnimationState map[string]any
+
+	// Error contains any rendering error
+	Error error
+
+	// Fallback content to use if there's an error
+	Fallback string
+}
+
 // TriggerType defines when a render refresh should occur
 type TriggerType int
 
@@ -475,4 +508,13 @@ func DefaultAnimationConfig() AnimationConfig {
 		BatchUpdates:  true,
 		TickInterval:  100 * time.Millisecond, // Default tick interval
 	}
+}
+
+// properDisplayWidth calculates the correct display width of a string
+// This function combines lipgloss (for ANSI code handling) and go-runewidth (for proper Unicode width)
+func properDisplayWidth(text string) int {
+	// First, let lipgloss strip ANSI escape codes
+	stripped := lipgloss.NewStyle().Render(text)
+	// Then use go-runewidth for proper Unicode character width calculation
+	return runewidth.StringWidth(stripped)
 }

@@ -273,7 +273,7 @@ func (ae *AnimationEngine) GetAnimationState(id string) map[string]any {
 	return make(map[string]any)
 }
 
-// UpdateAnimationState updates the state for an animation
+// UpdateAnimationState updates the state of an animation
 func (ae *AnimationEngine) UpdateAnimationState(id string, newState map[string]any) {
 	ae.mu.Lock()
 	defer ae.mu.Unlock()
@@ -283,7 +283,7 @@ func (ae *AnimationEngine) UpdateAnimationState(id string, newState map[string]a
 		// This prevents unnecessary updates from cursor movements
 		hasChanges := false
 		for k, v := range newState {
-			if currentValue, exists := animation.State[k]; !exists || currentValue != v {
+			if currentValue, exists := animation.State[k]; !exists || !deepEqual(currentValue, v) {
 				hasChanges = true
 				break
 			}
@@ -299,6 +299,43 @@ func (ae *AnimationEngine) UpdateAnimationState(id string, newState map[string]a
 			animation.IsDirty = true
 		}
 	}
+}
+
+// deepEqual performs a deep comparison of two values, handling maps properly
+func deepEqual(a, b interface{}) bool {
+	// Handle nil cases
+	if a == nil && b == nil {
+		return true
+	}
+	if a == nil || b == nil {
+		return false
+	}
+
+	// For maps, we need to do deep comparison
+	mapA, isMapA := a.(map[string]any)
+	mapB, isMapB := b.(map[string]any)
+
+	if isMapA && isMapB {
+		if len(mapA) != len(mapB) {
+			return false
+		}
+
+		for k, v := range mapA {
+			if bVal, exists := mapB[k]; !exists || !deepEqual(v, bVal) {
+				return false
+			}
+		}
+		return true
+	}
+
+	// If only one is a map, they're not equal
+	if isMapA != isMapB {
+		return false
+	}
+
+	// For non-map types, use regular comparison
+	// This handles basic types like string, int, float64, bool, etc.
+	return a == b
 }
 
 // SetVisible marks an animation as visible or hidden
@@ -415,16 +452,15 @@ func (ae *AnimationEngine) UpdateConfig(config AnimationConfig) tea.Cmd {
 		ae.isRunning = false
 		return nil
 	} else if !wasEnabled && config.Enabled {
-		// Animations were just enabled - start the loop if we have active animations
-		hasActiveAnimations := false
+		// Animations were just enabled - re-activate all existing animations and start the loop
 		for _, animation := range ae.animations {
-			if animation.IsActive && animation.IsVisible {
-				hasActiveAnimations = true
-				break
-			}
+			// Re-activate the animation (they were disabled, not deleted)
+			animation.IsActive = true
 		}
 
-		if hasActiveAnimations && !ae.isRunning {
+		// Always start the loop when animations are re-enabled
+		// The loop will check for active animations and continue appropriately
+		if !ae.isRunning {
 			ae.isRunning = true
 			return ae.startGlobalTicker()
 		}

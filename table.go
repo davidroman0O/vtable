@@ -150,8 +150,119 @@ func NewTable(
 	}, nil
 }
 
-// formatTableRow formats a single table row.
-func formatTableRow(
+// CellConstraint represents the constraints for a cell
+type CellConstraint struct {
+	Width     int
+	Height    int // Currently only supports Height=1 (single line). Multi-line support TODO.
+	Alignment int // Use vtable alignment constants
+}
+
+// enforceCellConstraints ensures text fits exactly within cell constraints
+// This function handles padding, truncation, and alignment to produce exactly the required width
+func enforceCellConstraints(text string, constraint CellConstraint) string {
+	// Handle multi-line content by converting to single line for all cases
+	// Convert line breaks to spaces
+	text = strings.ReplaceAll(text, "\n", " ")
+	text = strings.ReplaceAll(text, "\r", " ")
+	// Collapse multiple spaces
+	for strings.Contains(text, "  ") {
+		text = strings.ReplaceAll(text, "  ", " ")
+	}
+	text = strings.TrimSpace(text)
+
+	// Get actual display width using proper Unicode calculation
+	actualWidth := properDisplayWidth(text)
+	targetWidth := constraint.Width
+
+	// If text is too long, truncate it
+	if actualWidth > targetWidth {
+		if targetWidth <= 0 {
+			return ""
+		}
+
+		if targetWidth <= 3 {
+			// For very small widths, just return dots
+			return strings.Repeat(".", targetWidth)
+		}
+
+		// Calculate how much we need to remove
+		excessWidth := actualWidth - targetWidth
+
+		// For small overflows (1-2 characters) or short target widths, use simple truncation
+		// For longer text that would benefit from ellipsis indication, use ellipsis
+		useEllipsis := targetWidth >= 6 && excessWidth >= 3
+
+		if useEllipsis {
+			// Try to fit with ellipsis
+			truncated := text
+			for properDisplayWidth(truncated+"...") > targetWidth && len(truncated) > 0 {
+				runes := []rune(truncated)
+				if len(runes) > 0 {
+					truncated = string(runes[:len(runes)-1])
+				} else {
+					break
+				}
+			}
+
+			if len(truncated) > 0 && properDisplayWidth(truncated+"...") <= targetWidth {
+				text = truncated + "..."
+			} else {
+				// Fallback to simple truncation
+				text = text
+				for properDisplayWidth(text) > targetWidth && len(text) > 0 {
+					runes := []rune(text)
+					if len(runes) > 0 {
+						text = string(runes[:len(runes)-1])
+					} else {
+						break
+					}
+				}
+			}
+		} else {
+			// Simple truncation - just remove characters until we fit
+			for properDisplayWidth(text) > targetWidth && len(text) > 0 {
+				runes := []rune(text)
+				if len(runes) > 0 {
+					text = string(runes[:len(runes)-1])
+				} else {
+					break
+				}
+			}
+		}
+
+		actualWidth = properDisplayWidth(text)
+	}
+
+	// If text is shorter than target, add padding based on alignment
+	if actualWidth < targetWidth {
+		padding := targetWidth - actualWidth
+
+		switch constraint.Alignment {
+		case AlignCenter:
+			leftPad := padding / 2
+			rightPad := padding - leftPad
+			text = strings.Repeat(" ", leftPad) + text + strings.Repeat(" ", rightPad)
+		case AlignRight:
+			text = strings.Repeat(" ", padding) + text
+		default: // AlignLeft
+			text = text + strings.Repeat(" ", padding)
+		}
+	}
+
+	return text
+}
+
+// min returns the minimum of two integers
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
+// FormatTableRow formats a table row for display with the given configuration.
+// This is exported for use in custom animation formatters.
+func FormatTableRow(
 	data Data[TableRow],
 	index int,
 	isCursor bool,
@@ -181,42 +292,34 @@ func formatTableRow(
 			sb.WriteString(borderStyle.Render(theme.BorderChars.Vertical))
 		}
 
-		// Determine the style to use
+		// Determine the style to use (don't set width - enforceCellConstraints handles that)
 		var style lipgloss.Style
 		if isCursor && isSelected {
 			// Both cursor and selected: Use a special combined style (bold selected style)
-			style = theme.SelectedRowStyle.Copy().Width(config.Columns[i].Width).Bold(true)
+			style = theme.SelectedRowStyle.Copy().Bold(true)
 		} else if isCursor {
 			// Just cursor: Use selected style for cursor row
-			style = theme.SelectedRowStyle.Copy().Width(config.Columns[i].Width)
+			style = theme.SelectedRowStyle.Copy()
 		} else if isSelected {
 			// Just selected: Use a modified style to show selection
-			style = theme.RowEvenStyle.Copy().Width(config.Columns[i].Width).
+			style = theme.RowEvenStyle.Copy().
 				Background(lipgloss.Color("22")). // Dark green background for selected
 				Foreground(lipgloss.Color("15"))  // White text
 		} else if isTopThreshold {
 			// Apply threshold styling if needed
-			style = theme.RowStyle.Copy().Width(config.Columns[i].Width)
+			style = theme.RowStyle.Copy()
 		} else if isBottomThreshold {
 			// Apply threshold styling if needed
-			style = theme.RowStyle.Copy().Width(config.Columns[i].Width)
+			style = theme.RowStyle.Copy()
 		} else if index%2 == 0 {
 			// Even rows
-			style = theme.RowEvenStyle.Copy().Width(config.Columns[i].Width)
+			style = theme.RowEvenStyle.Copy()
 		} else {
 			// Odd rows
-			style = theme.RowOddStyle.Copy().Width(config.Columns[i].Width)
+			style = theme.RowOddStyle.Copy()
 		}
 
-		// Set alignment
-		switch config.Columns[i].Alignment {
-		case AlignCenter:
-			style = style.Align(lipgloss.Center)
-		case AlignRight:
-			style = style.Align(lipgloss.Right)
-		default:
-			style = style.Align(lipgloss.Left)
-		}
+		// Don't set alignment on lipgloss style - enforceCellConstraints handles that too
 
 		// Get the cell value, or use empty string if this cell doesn't exist
 		var value string
@@ -233,11 +336,13 @@ func formatTableRow(
 			}
 		}
 
-		// Truncate if needed (accounting for selection indicator)
-		maxWidth := config.Columns[i].Width
-		if len(value) > maxWidth {
-			value = value[:maxWidth-3] + "..."
+		// Apply cell constraints to ensure content fits within column boundaries
+		constraint := CellConstraint{
+			Width:     config.Columns[i].Width,
+			Height:    1, // TODO: Support multi-line cells
+			Alignment: config.Columns[i].Alignment,
 		}
+		value = enforceCellConstraints(value, constraint)
 
 		// Render the cell
 		sb.WriteString(style.Render(value))
@@ -254,6 +359,19 @@ func formatTableRow(
 	}
 
 	return sb.String()
+}
+
+// formatTableRow is the internal function that calls FormatTableRow
+func formatTableRow(
+	data Data[TableRow],
+	index int,
+	isCursor bool,
+	isTopThreshold bool,
+	isBottomThreshold bool,
+	config TableConfig,
+	theme Theme,
+) string {
+	return FormatTableRow(data, index, isCursor, isTopThreshold, isBottomThreshold, config, theme)
 }
 
 // formatHeader formats the header row.
@@ -295,18 +413,8 @@ func (t *Table) formatHeader() string {
 			}
 		}
 
-		// Format the header cell
-		style := t.theme.HeaderStyle.Copy().Width(col.Width)
-
-		// Set alignment
-		switch col.Alignment {
-		case AlignCenter:
-			style = style.Align(lipgloss.Center)
-		case AlignRight:
-			style = style.Align(lipgloss.Right)
-		default:
-			style = style.Align(lipgloss.Left)
-		}
+		// Format the header cell using constraint-based approach instead of lipgloss .Width()
+		style := t.theme.HeaderStyle.Copy()
 
 		// Add sort indicator to title if this column is sorted
 		title := col.Title
@@ -318,7 +426,15 @@ func (t *Table) formatHeader() string {
 			}
 		}
 
-		sb.WriteString(style.Render(title))
+		// Apply cell constraints to header text (similar to data cells)
+		constraint := CellConstraint{
+			Width:     col.Width,
+			Height:    1,
+			Alignment: col.Alignment,
+		}
+		constrainedTitle := enforceCellConstraints(title, constraint)
+
+		sb.WriteString(style.Render(constrainedTitle))
 
 		// Add border if needed
 		if t.config.ShowBorders {
@@ -337,6 +453,11 @@ func (t *Table) formatHeader() string {
 
 // Render renders the table to a string.
 func (t *Table) Render() string {
+	return t.RenderWithAnimatedContent(nil, nil)
+}
+
+// RenderWithAnimatedContent renders the table with optional animated content and default formatter
+func (t *Table) RenderWithAnimatedContent(animatedContent map[string]string, defaultFormatter ItemFormatter[TableRow]) string {
 	var sb strings.Builder
 
 	// Add header if needed
@@ -356,9 +477,65 @@ func (t *Table) Render() string {
 		return sb.String()
 	}
 
-	// Render the list content - don't render beyond actual data
-	list := t.list.Render()
-	sb.WriteString(list)
+	// If no animated content provided, use the existing list rendering
+	if animatedContent == nil || len(animatedContent) == 0 {
+		// Render the list content - don't render beyond actual data
+		list := t.list.Render()
+		sb.WriteString(list)
+
+		// Add bottom border if needed - directly after the last data row
+		if t.config.ShowBorders {
+			sb.WriteString("\n")
+			sb.WriteString(t.horizontalBorderBottom)
+		}
+
+		return sb.String()
+	}
+
+	// Use animated content for rendering
+	visibleItems := t.list.GetVisibleItems()
+	state := t.list.GetState()
+
+	// Render each visible row with animated content
+	for i, item := range visibleItems {
+		absoluteIndex := state.ViewportStartIndex + i
+
+		// Skip if we've rendered all real data
+		if absoluteIndex >= actualRows {
+			break
+		}
+
+		isCursor := i == state.CursorViewportIndex
+		isTopThreshold := i == t.config.ViewportConfig.TopThresholdIndex
+		isBottomThreshold := i == t.config.ViewportConfig.BottomThresholdIndex
+
+		var renderedRow string
+
+		// Check if we have animated content for this row
+		animKey := fmt.Sprintf("row-%d", absoluteIndex)
+		if animatedContent[animKey] != "" {
+			renderedRow = animatedContent[animKey]
+		} else {
+			// Use default formatter if provided, otherwise fallback to regular table row formatter
+			if defaultFormatter != nil {
+				ctx := DefaultRenderContext()
+				ctx.CurrentTime = time.Now()
+				ctx.MaxWidth = t.totalWidth
+				ctx.Theme = &t.theme
+				renderedRow = defaultFormatter(item, absoluteIndex, ctx, isCursor, isTopThreshold, isBottomThreshold)
+			} else {
+				// Fallback to regular table row formatter
+				renderedRow = formatTableRow(item, absoluteIndex, isCursor, isTopThreshold, isBottomThreshold, t.config, t.theme)
+			}
+		}
+
+		sb.WriteString(renderedRow)
+
+		// Add a newline unless it's the last row
+		if i < len(visibleItems)-1 && absoluteIndex < actualRows-1 {
+			sb.WriteString("\n")
+		}
+	}
 
 	// Add bottom border if needed - directly after the last data row
 	if t.config.ShowBorders {
@@ -500,8 +677,12 @@ type TeaTable struct {
 	// Animation support
 	animationEngine   *AnimationEngine
 	animatedFormatter ItemFormatterAnimated[TableRow]
+	defaultFormatter  ItemFormatter[TableRow] // Optional formatter for when animations are disabled/not active
 	animationConfig   AnimationConfig
 	lastAnimationTime time.Time
+
+	// Animation behavior controls
+	animateOnlyCursorRow bool // If true, only animate the cursor row; if false, animate all visible rows
 
 	// Real-time data updates
 	realTimeUpdates    bool
@@ -537,6 +718,7 @@ func NewTeaTable(
 		focused:                true,
 		animationEngine:        animEngine,
 		animationConfig:        animConfig,
+		animateOnlyCursorRow:   true, // By default, only animate cursor row
 		cachedAnimationContent: make(map[string]string),
 		lastCursorIndex:        0, // Initialize cursor tracking
 	}, nil
@@ -724,8 +906,11 @@ func (m *TeaTable) View() string {
 			m.lastCursorIndex = currentCursorIndex
 		}
 
-		// Process animations for visibility tracking but don't re-render everything
-		_ = m.cachedAnimationContent
+		// Ensure cache is populated for all visible items
+		m.ensureAnimationCachePopulated()
+
+		// Use cached animation content - only updated when animation update messages are received
+		return m.table.RenderWithAnimatedContent(m.cachedAnimationContent, m.defaultFormatter)
 	}
 
 	return m.table.Render()
@@ -733,6 +918,11 @@ func (m *TeaTable) View() string {
 
 // processAnimations handles the animation lifecycle for visible items
 func (m *TeaTable) processAnimations() {
+	// Don't process animations if they're disabled or no formatter is set
+	if !m.animationConfig.Enabled || m.animatedFormatter == nil {
+		return
+	}
+
 	visibleItems := m.table.list.GetVisibleItems()
 	state := m.table.GetState()
 
@@ -789,7 +979,7 @@ func (m *TeaTable) processAnimations() {
 
 			// Check if state actually changed
 			for k, newValue := range result.AnimationState {
-				if currentValue, exists := currentState[k]; !exists || currentValue != newValue {
+				if currentValue, exists := currentState[k]; !exists || !deepEqual(currentValue, newValue) {
 					hasChanges = true
 					break
 				}
@@ -864,7 +1054,7 @@ func (m *TeaTable) RemoveFilter(field string) {
 	m.table.RemoveFilter(field)
 }
 
-// SetSort sets the sort field and direction, clearing any existing sorts.
+// SetSort sets a sort field and direction, clearing any existing sorts.
 func (m *TeaTable) SetSort(field, direction string) {
 	m.table.SetSort(field, direction)
 }
@@ -961,20 +1151,38 @@ func (m *TeaTable) SetTheme(theme Theme) {
 	m.table.recalculateBorders()
 }
 
-// SetAnimatedFormatter sets an animated formatter that supports dynamic content.
+// SetAnimatedFormatter sets a formatter that supports animations for the entire row.
 func (m *TeaTable) SetAnimatedFormatter(formatter ItemFormatterAnimated[TableRow]) {
 	m.animatedFormatter = formatter
-
-	// Clear existing cache and trigger initial animation setup
-	m.cachedAnimationContent = make(map[string]string)
-
-	// Trigger initial animation setup if formatter is set
-	if formatter != nil {
-		m.updateAnimationContent()
+	// Initialize animation content cache if needed
+	if m.cachedAnimationContent == nil {
+		m.cachedAnimationContent = make(map[string]string)
 	}
 }
 
-// ClearAnimatedFormatter removes the animated formatter and stops all animations.
+// SetDefaultFormatter sets a formatter to use for rows when animations are not active.
+// This gives you control over how non-animated rows are rendered.
+// If no default formatter is set, rows fall back to the standard table formatter.
+func (m *TeaTable) SetDefaultFormatter(formatter ItemFormatter[TableRow]) {
+	m.defaultFormatter = formatter
+}
+
+// ClearDefaultFormatter removes the default formatter, causing non-animated rows
+// to use the standard table formatter.
+func (m *TeaTable) ClearDefaultFormatter() {
+	m.defaultFormatter = nil
+}
+
+// SetCellAnimatedFormatter sets a formatter that supports animations for individual cells.
+// This enables true cell-level animations like horizontal text scrolling, smooth transitions, etc.
+// Note: This is a placeholder for future cell-level animation implementation
+func (m *TeaTable) SetCellAnimatedFormatter(formatter CellFormatterAnimated) {
+	// TODO: Implement cell-level animation support
+	// For now, this is a placeholder that demonstrates the API design
+	// Full implementation would require extending the table rendering system
+}
+
+// ClearAnimatedFormatter removes any animated formatter and falls back to the default formatter.
 func (m *TeaTable) ClearAnimatedFormatter() {
 	m.animatedFormatter = nil
 	m.animationEngine.Cleanup()
@@ -991,6 +1199,15 @@ func (m *TeaTable) SetAnimationConfig(config AnimationConfig) tea.Cmd {
 // EnableAnimations enables the animation system and starts the loop if needed.
 func (m *TeaTable) EnableAnimations() tea.Cmd {
 	m.animationConfig.Enabled = true
+
+	// Clear cached content to force fresh rendering when animations are re-enabled
+	if m.animatedFormatter != nil {
+		m.cachedAnimationContent = make(map[string]string)
+		// Update animation content to ensure proper state
+		m.updateAnimationContent()
+	}
+
+	// Update config - the animation engine will handle reactivation and loop restart
 	return m.animationEngine.UpdateConfig(m.animationConfig)
 }
 
@@ -998,6 +1215,30 @@ func (m *TeaTable) EnableAnimations() tea.Cmd {
 func (m *TeaTable) DisableAnimations() {
 	m.animationConfig.Enabled = false
 	m.animationEngine.UpdateConfig(m.animationConfig)
+
+	// Clear cached animation content to ensure fallback to default formatting
+	m.cachedAnimationContent = make(map[string]string)
+}
+
+// SetAnimateOnlyCursorRow sets whether to animate only the cursor row or all visible rows.
+// By default, only the cursor row is animated for better performance.
+func (m *TeaTable) SetAnimateOnlyCursorRow(cursorOnly bool) {
+	if m.animateOnlyCursorRow == cursorOnly {
+		return // No change
+	}
+
+	m.animateOnlyCursorRow = cursorOnly
+
+	// Clear cache and update animations with new behavior
+	if m.animatedFormatter != nil {
+		m.cachedAnimationContent = make(map[string]string)
+		m.updateAnimationContent()
+	}
+}
+
+// GetAnimateOnlyCursorRow returns whether only the cursor row is animated.
+func (m *TeaTable) GetAnimateOnlyCursorRow() bool {
+	return m.animateOnlyCursorRow
 }
 
 // IsAnimationEnabled returns whether animations are currently enabled.
@@ -1393,6 +1634,19 @@ func (m *TeaTable) updateAnimationContent() {
 	for i, dataItem := range visibleItems {
 		absoluteIndex := state.ViewportStartIndex + i
 		animationKey := fmt.Sprintf("row-%d", absoluteIndex)
+
+		// Determine if this row should be animated
+		isCursor := i == state.CursorViewportIndex
+		shouldAnimate := !m.animateOnlyCursorRow || isCursor
+
+		if !shouldAnimate {
+			// This row should NOT be animated - remove from cache and animation engine
+			m.animationEngine.SetVisible(animationKey, false)
+			delete(m.cachedAnimationContent, animationKey)
+			// Row will fall back to regular table rendering
+			continue
+		}
+
 		activeAnimationKeys[animationKey] = true
 
 		// Create render context with table-specific information and delta time
@@ -1405,13 +1659,15 @@ func (m *TeaTable) updateAnimationContent() {
 		// Get animation state
 		animState := m.animationEngine.GetAnimationState(animationKey)
 
-		// Determine cursor state
-		isCursor := i == state.CursorViewportIndex
+		// Determine threshold states
 		isTopThreshold := i == m.table.list.Config.TopThresholdIndex
 		isBottomThreshold := i == m.table.list.Config.BottomThresholdIndex
 
 		// Call animated formatter
 		result := m.animatedFormatter(dataItem, absoluteIndex, ctx, animState, isCursor, isTopThreshold, isBottomThreshold)
+
+		// CRITICAL FIX: Actually update the cached content!
+		m.cachedAnimationContent[animationKey] = result.Content
 
 		// CRITICAL FIX: Only register animations ONCE when they first become visible
 		// Do NOT re-register on every view render (this causes acceleration)
@@ -1431,7 +1687,7 @@ func (m *TeaTable) updateAnimationContent() {
 
 			// Check if state actually changed
 			for k, newValue := range result.AnimationState {
-				if currentValue, exists := currentState[k]; !exists || currentValue != newValue {
+				if currentValue, exists := currentState[k]; !exists || !deepEqual(currentValue, newValue) {
 					hasChanges = true
 					break
 				}
@@ -1447,11 +1703,13 @@ func (m *TeaTable) updateAnimationContent() {
 		m.animationEngine.SetVisible(animationKey, true)
 	}
 
-	// Clean up animations for items that are no longer visible
+	// Clean up animations for items that are no longer visible or should not be animated
 	activeAnimations := m.animationEngine.GetActiveAnimations()
 	for _, animKey := range activeAnimations {
 		if !activeAnimationKeys[animKey] {
 			m.animationEngine.SetVisible(animKey, false)
+			// Remove cached content for invisible items
+			delete(m.cachedAnimationContent, animKey)
 		}
 	}
 }
@@ -1499,6 +1757,19 @@ func (m *TeaTable) updateSingleRowCache(viewportIndex int, isCursor bool) {
 	animationKey := fmt.Sprintf("row-%d", absoluteIndex)
 	dataItem := visibleItems[viewportIndex]
 
+	// Determine if this row should be animated
+	shouldAnimate := !m.animateOnlyCursorRow || isCursor
+
+	if !shouldAnimate {
+		// This row should NOT be animated - remove from cache and animation engine
+		m.animationEngine.SetVisible(animationKey, false)
+		delete(m.cachedAnimationContent, animationKey)
+		// Row will fall back to regular table rendering
+		return
+	}
+
+	// Row should be animated - proceed with animation logic
+
 	// Create render context
 	ctx := DefaultRenderContext()
 	ctx.CurrentTime = time.Now()
@@ -1507,20 +1778,128 @@ func (m *TeaTable) updateSingleRowCache(viewportIndex int, isCursor bool) {
 	ctx.Theme = &m.table.theme
 
 	// Get existing animation state (preserve it!)
-	animState := m.animationEngine.GetAnimationState(animationKey)
+	existingAnimState := m.animationEngine.GetAnimationState(animationKey)
 
 	// Determine threshold states
 	isTopThreshold := viewportIndex == m.table.list.Config.TopThresholdIndex
 	isBottomThreshold := viewportIndex == m.table.list.Config.BottomThresholdIndex
 
 	// Call animated formatter with updated cursor state
-	result := m.animatedFormatter(dataItem, absoluteIndex, ctx, animState, isCursor, isTopThreshold, isBottomThreshold)
+	result := m.animatedFormatter(dataItem, absoluteIndex, ctx, existingAnimState, isCursor, isTopThreshold, isBottomThreshold)
 
-	// Update only the content in cache (DON'T re-register animations or update state)
+	// Update only the content in cache
 	m.cachedAnimationContent[animationKey] = result.Content
 
-	// DON'T call RegisterAnimation or UpdateAnimationState here - that would cause acceleration
-	// The animation state should persist, only the visual content changes
+	// IMPROVED: Allow animation updates when cursor state changes, but prevent acceleration
+	// Only update if there are actual changes to refresh triggers or animation state
+	if len(result.RefreshTriggers) > 0 {
+		// Check if this animation is already active and visible
+		animationExists := m.animationEngine.IsVisible(animationKey)
+
+		// Only re-register if no animation exists
+		// This allows cursor state changes to trigger animations when needed
+		if !animationExists {
+			if cmd := m.animationEngine.RegisterAnimation(animationKey, result.RefreshTriggers, result.AnimationState); cmd != nil {
+				_ = cmd
+			}
+		}
+	}
+
+	// Update animation state only if it has actually changed
+	if len(result.AnimationState) > 0 {
+		hasChanges := false
+
+		// Check if state actually changed
+		for k, newValue := range result.AnimationState {
+			if currentValue, exists := existingAnimState[k]; !exists || !deepEqual(currentValue, newValue) {
+				hasChanges = true
+				break
+			}
+		}
+
+		// Only update if there are actual changes
+		if hasChanges {
+			m.animationEngine.UpdateAnimationState(animationKey, result.AnimationState)
+		}
+	}
+
+	// Make sure the animation is visible
+	m.animationEngine.SetVisible(animationKey, true)
+}
+
+// ensureAnimationCachePopulated ensures all visible items have cached animation content
+func (m *TeaTable) ensureAnimationCachePopulated() {
+	visibleItems := m.table.list.GetVisibleItems()
+	state := m.table.GetState()
+
+	for i := range visibleItems {
+		absoluteIndex := state.ViewportStartIndex + i
+		animationKey := fmt.Sprintf("row-%d", absoluteIndex)
+
+		// Check if this row should be animated
+		isCursor := i == state.CursorViewportIndex
+		shouldAnimate := !m.animateOnlyCursorRow || isCursor
+
+		// Only populate cache for rows that should be animated
+		if !shouldAnimate {
+			continue
+		}
+
+		// If we don't have cached content for this item, it means it's newly visible
+		// We need to populate the cache without triggering animation acceleration
+		if _, exists := m.cachedAnimationContent[animationKey]; !exists {
+			// This is a new visible item - we need to populate its cache
+			// But we should only call the formatter once for initial setup
+			m.populateInitialAnimationContent(i, absoluteIndex, animationKey)
+		}
+	}
+}
+
+// populateInitialAnimationContent populates cache for a newly visible item
+func (m *TeaTable) populateInitialAnimationContent(viewportIndex, absoluteIndex int, animationKey string) {
+	visibleItems := m.table.list.GetVisibleItems()
+	if viewportIndex >= len(visibleItems) {
+		return
+	}
+
+	dataItem := visibleItems[viewportIndex]
+	state := m.table.GetState()
+
+	// Create render context
+	ctx := DefaultRenderContext()
+	ctx.CurrentTime = time.Now()
+	ctx.DeltaTime = 0 // No delta time for initial render
+	ctx.MaxWidth = m.table.totalWidth
+	ctx.Theme = &m.table.theme
+
+	// Get animation state (will be empty for new animations)
+	animState := m.animationEngine.GetAnimationState(animationKey)
+
+	// Determine cursor state
+	isCursor := viewportIndex == state.CursorViewportIndex
+	isTopThreshold := viewportIndex == m.table.list.Config.TopThresholdIndex
+	isBottomThreshold := viewportIndex == m.table.list.Config.BottomThresholdIndex
+
+	// Call animated formatter ONCE for initial setup
+	result := m.animatedFormatter(dataItem, absoluteIndex, ctx, animState, isCursor, isTopThreshold, isBottomThreshold)
+
+	// Cache the content
+	m.cachedAnimationContent[animationKey] = result.Content
+
+	// Register animation if needed (this should only happen once)
+	if len(result.RefreshTriggers) > 0 && !m.animationEngine.IsVisible(animationKey) {
+		if cmd := m.animationEngine.RegisterAnimation(animationKey, result.RefreshTriggers, result.AnimationState); cmd != nil {
+			_ = cmd
+		}
+	}
+
+	// Set initial animation state
+	if len(result.AnimationState) > 0 {
+		m.animationEngine.UpdateAnimationState(animationKey, result.AnimationState)
+	}
+
+	// Make animation visible
+	m.animationEngine.SetVisible(animationKey, true)
 }
 
 // GetCachedTotal returns the cached total items count without triggering any data provider calls.
@@ -1528,4 +1907,111 @@ func (m *TeaTable) updateSingleRowCache(viewportIndex int, isCursor bool) {
 // Returns the last known total from the cache, which may be stale if InvalidateTotalItemsCache() was called.
 func (m *TeaTable) GetCachedTotal() int {
 	return m.table.list.GetCachedTotal()
+}
+
+// CreateAnimatedTableRow is a helper function that applies animations to individual cells
+// while maintaining proper table formatting, borders, and styling.
+// This prevents alignment issues that can occur when manually building table content.
+func CreateAnimatedTableRow(
+	data Data[TableRow],
+	index int,
+	isCursor bool,
+	isTopThreshold bool,
+	isBottomThreshold bool,
+	config TableConfig,
+	theme Theme,
+	cellAnimations map[int]string, // map of column index to animated content
+) string {
+	var sb strings.Builder
+
+	row := data.Item
+	isSelected := data.Selected
+
+	// Ensure we don't iterate beyond the row's cell count
+	cellCount := len(row.Cells)
+	columnCount := len(config.Columns)
+
+	// Format cells
+	for i := 0; i < columnCount; i++ {
+		// Add starting border if needed
+		if config.ShowBorders && i == 0 {
+			borderStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.BorderColor))
+			if isCursor || isSelected {
+				// Highlight border for cursor or selected row
+				borderStyle = borderStyle.Bold(true)
+			}
+			sb.WriteString(borderStyle.Render(theme.BorderChars.Vertical))
+		}
+
+		// Determine the style to use (don't set width - enforceCellConstraints handles that)
+		var style lipgloss.Style
+		if isCursor && isSelected {
+			// Both cursor and selected: Use a special combined style (bold selected style)
+			style = theme.SelectedRowStyle.Copy().Bold(true)
+		} else if isCursor {
+			// Just cursor: Use selected style for cursor row
+			style = theme.SelectedRowStyle.Copy()
+		} else if isSelected {
+			// Just selected: Use a modified style to show selection
+			style = theme.RowEvenStyle.Copy().
+				Background(lipgloss.Color("22")). // Dark green background for selected
+				Foreground(lipgloss.Color("15"))  // White text
+		} else if isTopThreshold {
+			// Apply threshold styling if needed
+			style = theme.RowStyle.Copy()
+		} else if isBottomThreshold {
+			// Apply threshold styling if needed
+			style = theme.RowStyle.Copy()
+		} else if index%2 == 0 {
+			// Even rows
+			style = theme.RowEvenStyle.Copy()
+		} else {
+			// Odd rows
+			style = theme.RowOddStyle.Copy()
+		}
+
+		// Don't set alignment on lipgloss style - enforceCellConstraints handles that too
+
+		// Get the cell value, using animated content if available
+		var value string
+		if animatedContent, hasAnimation := cellAnimations[i]; hasAnimation {
+			// Use animated content for this cell
+			value = animatedContent
+		} else if i < cellCount {
+			// Use regular cell content
+			value = row.Cells[i]
+		}
+
+		// Add selection indicator to the first column
+		if i == 0 && isSelected {
+			if isCursor {
+				value = "✓>" + value // Both selected and cursor
+			} else {
+				value = "✓ " + value // Just selected
+			}
+		}
+
+		// Apply cell constraints to ensure content fits within column boundaries
+		constraint := CellConstraint{
+			Width:     config.Columns[i].Width,
+			Height:    1, // TODO: Support multi-line cells
+			Alignment: config.Columns[i].Alignment,
+		}
+		value = enforceCellConstraints(value, constraint)
+
+		// Render the cell
+		sb.WriteString(style.Render(value))
+
+		// Add border if needed
+		if config.ShowBorders {
+			borderStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.BorderColor))
+			if isCursor || isSelected {
+				// Highlight border for cursor or selected row
+				borderStyle = borderStyle.Bold(true)
+			}
+			sb.WriteString(borderStyle.Render(theme.BorderChars.Vertical))
+		}
+	}
+
+	return sb.String()
 }
