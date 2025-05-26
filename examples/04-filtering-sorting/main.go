@@ -372,13 +372,6 @@ type ListFilterSortModel struct {
 func newListFilterSortModel() *ListFilterSortModel {
 	provider := NewTaskProvider()
 
-	config := vtable.DefaultViewportConfig()
-	config.Height = 10
-	config.TopThresholdIndex = 0
-	config.BottomThresholdIndex = 8
-
-	style := vtable.DefaultStyleConfig()
-
 	formatter := func(data vtable.Data[string], index int, ctx vtable.RenderContext, isCursor bool, isTopThreshold bool, isBottomThreshold bool) string {
 		prefix := "  "
 		if isCursor {
@@ -387,7 +380,7 @@ func newListFilterSortModel() *ListFilterSortModel {
 		return fmt.Sprintf("%s%s", prefix, data.Item)
 	}
 
-	list, err := vtable.NewTeaList(config, provider, style, formatter)
+	list, err := vtable.NewTeaListWithHeight(provider, formatter, 10)
 	if err != nil {
 		panic(err)
 	}
@@ -783,27 +776,15 @@ type TableFilterSortModel struct {
 func newTableFilterSortModel() *TableFilterSortModel {
 	provider := NewEmployeeProvider()
 
-	config := vtable.TableConfig{
-		Columns: []vtable.TableColumn{
-			{Title: "ID", Width: 8, Alignment: vtable.AlignRight},
-			{Title: "Name", Width: 15, Alignment: vtable.AlignLeft},
-			{Title: "Department", Width: 12, Alignment: vtable.AlignLeft},
-			{Title: "Salary", Width: 10, Alignment: vtable.AlignRight},
-			{Title: "Experience", Width: 12, Alignment: vtable.AlignRight},
-		},
-		ShowHeader:  true,
-		ShowBorders: true,
-		ViewportConfig: vtable.ViewportConfig{
-			Height:               10,
-			TopThresholdIndex:    0,
-			BottomThresholdIndex: 8,
-			ChunkSize:            20,
-			InitialIndex:         0,
-		},
+	columns := []vtable.TableColumn{
+		vtable.NewRightColumn("ID", 8),
+		vtable.NewColumn("Name", 15),
+		vtable.NewColumn("Department", 12),
+		vtable.NewRightColumn("Salary", 10),
+		vtable.NewRightColumn("Experience", 12),
 	}
 
-	theme := vtable.DefaultTheme()
-	table, err := vtable.NewTeaTable(config, provider, *theme)
+	table, err := vtable.NewTeaTableWithHeight(columns, provider, 10)
 	if err != nil {
 		panic(err)
 	}

@@ -385,29 +385,18 @@ func newAnimatedTableModel() *animatedTableModel {
 	// Create data provider
 	provider := NewServerDataProvider()
 
-	// Configure table
-	config := vtable.TableConfig{
-		Columns: []vtable.TableColumn{
-			{Title: "Server", Width: 12, Alignment: vtable.AlignLeft, Field: "name"},
-			{Title: "Status", Width: 10, Alignment: vtable.AlignCenter, Field: "status"},
-			{Title: "CPU", Width: 8, Alignment: vtable.AlignRight, Field: "cpu"},
-			{Title: "Memory", Width: 8, Alignment: vtable.AlignRight, Field: "memory"},
-			{Title: "Network", Width: 12, Alignment: vtable.AlignRight, Field: "network"},
-			{Title: "Uptime", Width: 8, Alignment: vtable.AlignRight, Field: "uptime"},
-		},
-		ShowHeader:  true,
-		ShowBorders: true,
-		ViewportConfig: vtable.ViewportConfig{
-			Height:               8,
-			TopThresholdIndex:    1,
-			BottomThresholdIndex: 6,
-			ChunkSize:            20,
-			InitialIndex:         0,
-		},
+	// Configure table columns using convenience functions
+	columns := []vtable.TableColumn{
+		vtable.NewColumn("Server", 12),
+		vtable.NewCenterColumn("Status", 10),
+		vtable.NewRightColumn("CPU", 8),
+		vtable.NewRightColumn("Memory", 8),
+		vtable.NewRightColumn("Network", 12),
+		vtable.NewRightColumn("Uptime", 8),
 	}
 
-	// Create table with dark theme
-	table, err := vtable.NewTeaTable(config, provider, *vtable.DarkTheme())
+	// Create table with dark theme and convenience function
+	table, err := vtable.NewTeaTableWithTheme(columns, provider, vtable.DarkTheme())
 	if err != nil {
 		log.Fatal(err)
 	}

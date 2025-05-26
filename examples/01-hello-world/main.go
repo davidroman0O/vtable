@@ -207,13 +207,6 @@ func newListModel() ListModel {
 		items: []string{"Apple", "Banana", "Cherry"},
 	}
 
-	config := vtable.DefaultViewportConfig()
-	config.Height = 3
-	config.TopThresholdIndex = 0
-	config.BottomThresholdIndex = 2
-
-	style := vtable.DefaultStyleConfig()
-
 	formatter := func(data vtable.Data[string], index int, ctx vtable.RenderContext, isCursor bool, isTopThreshold bool, isBottomThreshold bool) string {
 		prefix := "  "
 		if isCursor {
@@ -222,7 +215,7 @@ func newListModel() ListModel {
 		return fmt.Sprintf("%s%d: %s", prefix, index, data.Item)
 	}
 
-	list, err := vtable.NewTeaList(config, provider, style, formatter)
+	list, err := vtable.NewTeaListWithHeight(provider, formatter, 3)
 	if err != nil {
 		panic(err)
 	}
@@ -317,25 +310,13 @@ func newTableModel() TableModel {
 		},
 	}
 
-	config := vtable.TableConfig{
-		Columns: []vtable.TableColumn{
-			{Title: "Name", Width: 15, Alignment: vtable.AlignLeft},
-			{Title: "Age", Width: 5, Alignment: vtable.AlignRight},
-			{Title: "City", Width: 15, Alignment: vtable.AlignLeft},
-		},
-		ShowHeader:  true,
-		ShowBorders: true,
-		ViewportConfig: vtable.ViewportConfig{
-			Height:               4,
-			TopThresholdIndex:    0,
-			BottomThresholdIndex: 2,
-			ChunkSize:            10,
-			InitialIndex:         0,
-		},
+	columns := []vtable.TableColumn{
+		vtable.NewColumn("Name", 15),
+		vtable.NewRightColumn("Age", 5),
+		vtable.NewColumn("City", 15),
 	}
 
-	theme := vtable.DefaultTheme()
-	table, err := vtable.NewTeaTable(config, provider, *theme)
+	table, err := vtable.NewTeaTableWithHeight(columns, provider, 4)
 	if err != nil {
 		panic(err)
 	}

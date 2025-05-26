@@ -205,19 +205,6 @@ func main() {
 	// Create provider
 	provider := NewTestStringProvider(20)
 
-	// Create viewport config
-	config := vtable.ViewportConfig{
-		Height:               10,
-		TopThresholdIndex:    2,
-		BottomThresholdIndex: 7,
-		ChunkSize:            20,
-		InitialIndex:         0,
-		Debug:                false,
-	}
-
-	// Create style config
-	styleConfig := vtable.ThemeToStyleConfig(vtable.DefaultTheme())
-
 	// Create the PROPER formatter
 	listFormatter := func(data vtable.Data[string], index int, ctx vtable.RenderContext, isCursor bool, isTopThreshold bool, isBottomThreshold bool) string {
 		item := data.Item
@@ -252,8 +239,8 @@ func main() {
 		return style.Render(result)
 	}
 
-	// Create list with the ACTUAL formatter
-	list, err := vtable.NewTeaList(config, provider, styleConfig, listFormatter)
+	// Create list with the ACTUAL formatter and convenience function
+	list, err := vtable.NewTeaListWithHeight(provider, listFormatter, 10)
 	if err != nil {
 		fmt.Printf("Error: %v\n", err)
 		return

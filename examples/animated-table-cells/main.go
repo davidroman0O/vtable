@@ -132,26 +132,15 @@ func newCellAnimationModel() *cellAnimationModel {
 	provider := NewLogDataProvider()
 
 	// Configure table with columns that will demonstrate different scrolling modes
-	config := vtable.TableConfig{
-		Columns: []vtable.TableColumn{
-			{Title: "Time", Width: 9, Alignment: vtable.AlignLeft, Field: "timestamp"},
-			{Title: "Level", Width: 12, Alignment: vtable.AlignCenter, Field: "level"},
-			{Title: "Service", Width: 16, Alignment: vtable.AlignLeft, Field: "service"},
-			{Title: "Message", Width: 45, Alignment: vtable.AlignLeft, Field: "message"}, // Bounce scrolling
-			{Title: "Details", Width: 40, Alignment: vtable.AlignLeft, Field: "details"}, // Smooth scrolling
-		},
-		ShowHeader:  true,
-		ShowBorders: true,
-		ViewportConfig: vtable.ViewportConfig{
-			Height:               8,
-			TopThresholdIndex:    1,
-			BottomThresholdIndex: 6,
-			ChunkSize:            20,
-			InitialIndex:         0,
-		},
+	columns := []vtable.TableColumn{
+		vtable.NewColumn("Time", 9),
+		vtable.NewCenterColumn("Level", 12),
+		vtable.NewColumn("Service", 16),
+		vtable.NewColumn("Message", 45), // Bounce scrolling
+		vtable.NewColumn("Details", 40), // Smooth scrolling
 	}
 
-	table, err := vtable.NewTeaTable(config, provider, *vtable.DarkTheme())
+	table, err := vtable.NewTeaTableWithTheme(columns, provider, vtable.DarkTheme())
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -177,7 +166,7 @@ func newCellAnimationModel() *cellAnimationModel {
 			isCursor,
 			isTopThreshold,
 			isBottomThreshold,
-			config,
+			table.GetConfig(),
 			*vtable.DarkTheme(),
 		)
 	}
@@ -209,7 +198,7 @@ func newCellAnimationModel() *cellAnimationModel {
 				isCursor,
 				isTopThreshold,
 				isBottomThreshold,
-				config,
+				table.GetConfig(),
 				*vtable.DarkTheme(),
 			)
 			return vtable.RenderResult{Content: content}
@@ -369,7 +358,7 @@ func newCellAnimationModel() *cellAnimationModel {
 			isCursor,
 			isTopThreshold,
 			isBottomThreshold,
-			config,
+			table.GetConfig(),
 			*vtable.DarkTheme(),
 		)
 

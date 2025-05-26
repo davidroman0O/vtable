@@ -330,13 +330,6 @@ type ListKeybindingModel struct {
 func newListKeybindingModel() *ListKeybindingModel {
 	provider := NewNoteProvider()
 
-	config := vtable.DefaultViewportConfig()
-	config.Height = 12
-	config.TopThresholdIndex = 0
-	config.BottomThresholdIndex = 8
-
-	style := vtable.DefaultStyleConfig()
-
 	formatter := func(data vtable.Data[string], index int, ctx vtable.RenderContext, isCursor bool, isTopThreshold bool, isBottomThreshold bool) string {
 		prefix := "  "
 		if isCursor {
@@ -345,7 +338,7 @@ func newListKeybindingModel() *ListKeybindingModel {
 		return fmt.Sprintf("%s%s", prefix, data.Item)
 	}
 
-	list, err := vtable.NewTeaList(config, provider, style, formatter)
+	list, err := vtable.NewTeaListWithHeight(provider, formatter, 12)
 	if err != nil {
 		panic(err)
 	}
@@ -621,29 +614,17 @@ type TableKeybindingModel struct {
 func newTableKeybindingModel() *TableKeybindingModel {
 	provider := NewProjectProvider()
 
-	config := vtable.TableConfig{
-		Columns: []vtable.TableColumn{
-			{Title: "ID", Width: 4, Alignment: vtable.AlignRight},
-			{Title: "Project", Width: 18, Alignment: vtable.AlignLeft},
-			{Title: "Status", Width: 12, Alignment: vtable.AlignLeft},
-			{Title: "Priority", Width: 8, Alignment: vtable.AlignLeft},
-			{Title: "Assignee", Width: 10, Alignment: vtable.AlignLeft},
-			{Title: "Deadline", Width: 12, Alignment: vtable.AlignLeft},
-			{Title: "Progress", Width: 8, Alignment: vtable.AlignRight},
-		},
-		ShowHeader:  true,
-		ShowBorders: true,
-		ViewportConfig: vtable.ViewportConfig{
-			Height:               12,
-			TopThresholdIndex:    0,
-			BottomThresholdIndex: 8,
-			ChunkSize:            20,
-			InitialIndex:         0,
-		},
+	columns := []vtable.TableColumn{
+		vtable.NewRightColumn("ID", 4),
+		vtable.NewColumn("Project", 18),
+		vtable.NewColumn("Status", 12),
+		vtable.NewColumn("Priority", 8),
+		vtable.NewColumn("Assignee", 10),
+		vtable.NewColumn("Deadline", 12),
+		vtable.NewRightColumn("Progress", 8),
 	}
 
-	theme := vtable.DefaultTheme()
-	table, err := vtable.NewTeaTable(config, provider, *theme)
+	table, err := vtable.NewTeaTableWithHeight(columns, provider, 12)
 	if err != nil {
 		panic(err)
 	}

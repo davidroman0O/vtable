@@ -316,23 +316,21 @@ type ListSingleModel struct {
 func newListSingleModel() *ListSingleModel {
 	provider := NewTaskSingleProvider()
 
-	config := vtable.DefaultViewportConfig()
-	config.Height = 8
-	config.TopThresholdIndex = 0
-	config.BottomThresholdIndex = 6
-
-	style := vtable.DefaultStyleConfig()
-
 	formatter := func(data vtable.Data[string], index int, ctx vtable.RenderContext, isCursor bool, isTopThreshold bool, isBottomThreshold bool) string {
-		prefix := "  "
-		if isCursor {
+		var prefix string
+		if data.Selected && isCursor {
+			prefix = "✓>"
+		} else if data.Selected {
+			prefix = "✓ "
+		} else if isCursor {
 			prefix = "> "
+		} else {
+			prefix = "  "
 		}
-
-		return fmt.Sprintf("%s%s", prefix, data.Item)
+		return fmt.Sprintf("%s %s", prefix, data.Item)
 	}
 
-	list, err := vtable.NewTeaList(config, provider, style, formatter)
+	list, err := vtable.NewTeaListWithHeight(provider, formatter, 8)
 	if err != nil {
 		panic(err)
 	}
@@ -513,13 +511,6 @@ type ListMultipleModel struct {
 func newListMultipleModel() *ListMultipleModel {
 	provider := NewTaskMultipleProvider()
 
-	config := vtable.DefaultViewportConfig()
-	config.Height = 8
-	config.TopThresholdIndex = 0
-	config.BottomThresholdIndex = 6
-
-	style := vtable.DefaultStyleConfig()
-
 	formatter := func(data vtable.Data[string], index int, ctx vtable.RenderContext, isCursor bool, isTopThreshold bool, isBottomThreshold bool) string {
 		prefix := "  "
 		if isCursor {
@@ -529,7 +520,7 @@ func newListMultipleModel() *ListMultipleModel {
 		return fmt.Sprintf("%s%s", prefix, data.Item)
 	}
 
-	list, err := vtable.NewTeaList(config, provider, style, formatter)
+	list, err := vtable.NewTeaListWithHeight(provider, formatter, 8)
 	if err != nil {
 		panic(err)
 	}
@@ -714,26 +705,14 @@ type TableSingleModel struct {
 func newTableSingleModel() *TableSingleModel {
 	provider := NewEmployeeSingleProvider()
 
-	config := vtable.TableConfig{
-		Columns: []vtable.TableColumn{
-			{Title: "ID", Width: 4, Alignment: vtable.AlignRight},
-			{Title: "Name", Width: 15, Alignment: vtable.AlignLeft},
-			{Title: "Department", Width: 12, Alignment: vtable.AlignLeft},
-			{Title: "Salary", Width: 10, Alignment: vtable.AlignRight},
-		},
-		ShowHeader:  true,
-		ShowBorders: true,
-		ViewportConfig: vtable.ViewportConfig{
-			Height:               8,
-			TopThresholdIndex:    0,
-			BottomThresholdIndex: 6,
-			ChunkSize:            20,
-			InitialIndex:         0,
-		},
+	columns := []vtable.TableColumn{
+		vtable.NewRightColumn("ID", 4),
+		vtable.NewColumn("Name", 15),
+		vtable.NewColumn("Department", 12),
+		vtable.NewRightColumn("Salary", 10),
 	}
 
-	theme := vtable.DefaultTheme()
-	table, err := vtable.NewTeaTable(config, provider, *theme)
+	table, err := vtable.NewTeaTableWithHeight(columns, provider, 8)
 	if err != nil {
 		panic(err)
 	}
@@ -922,26 +901,14 @@ type TableMultipleModel struct {
 func newTableMultipleModel() *TableMultipleModel {
 	provider := NewEmployeeMultipleProvider()
 
-	config := vtable.TableConfig{
-		Columns: []vtable.TableColumn{
-			{Title: "ID", Width: 8, Alignment: vtable.AlignRight},
-			{Title: "Name", Width: 15, Alignment: vtable.AlignLeft},
-			{Title: "Department", Width: 12, Alignment: vtable.AlignLeft},
-			{Title: "Salary", Width: 10, Alignment: vtable.AlignRight},
-		},
-		ShowHeader:  true,
-		ShowBorders: true,
-		ViewportConfig: vtable.ViewportConfig{
-			Height:               8,
-			TopThresholdIndex:    0,
-			BottomThresholdIndex: 6,
-			ChunkSize:            20,
-			InitialIndex:         0,
-		},
+	columns := []vtable.TableColumn{
+		vtable.NewRightColumn("ID", 8),
+		vtable.NewColumn("Name", 15),
+		vtable.NewColumn("Department", 12),
+		vtable.NewRightColumn("Salary", 10),
 	}
 
-	theme := vtable.DefaultTheme()
-	table, err := vtable.NewTeaTable(config, provider, *theme)
+	table, err := vtable.NewTeaTableWithHeight(columns, provider, 8)
 	if err != nil {
 		panic(err)
 	}

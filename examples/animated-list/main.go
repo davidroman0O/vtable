@@ -333,24 +333,6 @@ func newAnimatedModel() *animatedModel {
 	// Create data provider
 	provider := NewTaskDataProvider()
 
-	// Create viewport config
-	config := vtable.ViewportConfig{
-		Height:               8,
-		TopThresholdIndex:    1,
-		BottomThresholdIndex: 6,
-		ChunkSize:            50,
-		InitialIndex:         0,
-		Debug:                false,
-	}
-
-	// Create style config
-	styleConfig := vtable.StyleConfig{
-		BorderStyle:      "245",             // Gray
-		HeaderStyle:      "bold 252 on 238", // Bold white on dark gray
-		RowStyle:         "252",             // Light white
-		SelectedRowStyle: "bold 252 on 63",  // Bold white on blue
-	}
-
 	// Regular formatter
 	regularFormatter := func(data vtable.Data[Task], index int, ctx vtable.RenderContext, isCursor bool, isTopThreshold bool, isBottomThreshold bool) string {
 		task := data.Item
@@ -377,8 +359,8 @@ func newAnimatedModel() *animatedModel {
 		)
 	}
 
-	// Create the list
-	list, err := vtable.NewTeaList(config, provider, styleConfig, regularFormatter)
+	// Create the list with convenience function
+	list, err := vtable.NewTeaListWithHeight(provider, regularFormatter, 8)
 	if err != nil {
 		log.Fatal(err)
 	}

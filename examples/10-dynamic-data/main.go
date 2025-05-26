@@ -322,24 +322,6 @@ type DynamicDataModel struct {
 func newDynamicDataDemo() *DynamicDataModel {
 	provider := NewDynamicDataProvider()
 
-	// Configure viewport - consistent with other examples
-	viewportConfig := vtable.ViewportConfig{
-		Height:               12,
-		TopThresholdIndex:    2,
-		BottomThresholdIndex: 9,
-		ChunkSize:            20,
-		InitialIndex:         0,
-		Debug:                false,
-	}
-
-	// Create style config
-	styleConfig := vtable.StyleConfig{
-		BorderStyle:      "245",
-		HeaderStyle:      "bold 252 on 238",
-		RowStyle:         "252",
-		SelectedRowStyle: "bold 252 on 63",
-	}
-
 	// Create formatter for log entries
 	formatter := func(data vtable.Data[LogEntry], index int, ctx vtable.RenderContext, isCursor bool, isTopThreshold bool, isBottomThreshold bool) string {
 		entry := data.Item
@@ -386,7 +368,7 @@ func newDynamicDataDemo() *DynamicDataModel {
 	}
 
 	// Create the list
-	list, err := vtable.NewTeaList(viewportConfig, provider, styleConfig, formatter)
+	list, err := vtable.NewTeaListWithHeight(provider, formatter, 12)
 	if err != nil {
 		log.Fatal(err)
 	}
