@@ -333,24 +333,6 @@ func newAnimatedModel() *animatedModel {
 	// Create data provider
 	provider := NewTaskDataProvider()
 
-	// Create viewport config
-	config := vtable.ViewportConfig{
-		Height:               8,
-		TopThresholdIndex:    1,
-		BottomThresholdIndex: 6,
-		ChunkSize:            50,
-		InitialIndex:         0,
-		Debug:                false,
-	}
-
-	// Create style config
-	styleConfig := vtable.StyleConfig{
-		BorderStyle:      "245",             // Gray
-		HeaderStyle:      "bold 252 on 238", // Bold white on dark gray
-		RowStyle:         "252",             // Light white
-		SelectedRowStyle: "bold 252 on 63",  // Bold white on blue
-	}
-
 	// Regular formatter
 	regularFormatter := func(data vtable.Data[Task], index int, ctx vtable.RenderContext, isCursor bool, isTopThreshold bool, isBottomThreshold bool) string {
 		task := data.Item
@@ -377,8 +359,8 @@ func newAnimatedModel() *animatedModel {
 		)
 	}
 
-	// Create the list
-	list, err := vtable.NewTeaList(config, provider, styleConfig, regularFormatter)
+	// Create the list with convenience function
+	list, err := vtable.NewTeaListWithHeight(provider, regularFormatter, 8)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -496,6 +478,9 @@ func newAnimatedModel() *animatedModel {
 	}
 
 	list.SetAnimatedFormatter(animatedFormatter)
+
+	// Enable smart real-time updates for dynamic task data (every 2 seconds)
+	list.EnableRealTimeUpdates(2 * time.Second)
 
 	model := &animatedModel{
 		taskList:          list,
@@ -734,11 +719,12 @@ func (m *animatedModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.tickCount++
 		m.lastUpdate = time.Now()
 
-		// Update task data - this makes the example truly dynamic!
+		// Update task data in the provider - this just updates the in-memory data
+		// The smart real-time update system will handle refreshing the display
 		m.provider.UpdateTasks()
 
-		// Refresh the list data to show real changes
-		m.taskList.RefreshData()
+		// DON'T call any refresh methods here - the smart system handles it
+		// Real-time updates are configured to refresh every 2 seconds
 	case vtable.AnimationUpdateMsg:
 		// Animation updates received - no action needed, View() will handle
 	}

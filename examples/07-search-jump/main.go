@@ -303,18 +303,6 @@ type ListJumpModel struct {
 func newListJumpModel() *ListJumpModel {
 	provider := NewItemProvider()
 
-	// Use the exact same viewport config that works in the basic example
-	viewportConfig := vtable.ViewportConfig{
-		Height:               12,
-		TopThresholdIndex:    2,
-		BottomThresholdIndex: 9,
-		ChunkSize:            20,
-		InitialIndex:         0,
-		Debug:                false,
-	}
-
-	style := vtable.DefaultStyleConfig()
-
 	formatter := func(data vtable.Data[string], index int, ctx vtable.RenderContext, isCursor bool, isTopThreshold bool, isBottomThreshold bool) string {
 		prefix := "  "
 		if isCursor {
@@ -323,7 +311,7 @@ func newListJumpModel() *ListJumpModel {
 		return fmt.Sprintf("%s%s", prefix, data.Item)
 	}
 
-	list, err := vtable.NewTeaList(viewportConfig, provider, style, formatter)
+	list, err := vtable.NewTeaListWithHeight(provider, formatter, 12)
 	if err != nil {
 		panic(err)
 	}
@@ -668,34 +656,18 @@ type TableJumpModel struct {
 func newTableJumpModel() *TableJumpModel {
 	provider := NewRecordProvider()
 
-	// Use the exact same viewport config that works in the basic example
-	viewportConfig := vtable.ViewportConfig{
-		Height:               12,
-		TopThresholdIndex:    2,
-		BottomThresholdIndex: 9,
-		ChunkSize:            20,
-		InitialIndex:         0,
-		Debug:                false,
+	columns := []vtable.TableColumn{
+		vtable.NewColumn("ID", 8),
+		vtable.NewColumn("Code", 12),
+		vtable.NewColumn("Name", 20),
+		vtable.NewColumn("Category", 15),
+		vtable.NewColumn("Status", 10),
+		vtable.NewRightColumn("Priority", 8),
+		vtable.NewRightColumn("Value", 12),
+		vtable.NewColumn("Updated", 12),
 	}
 
-	config := vtable.TableConfig{
-		Columns: []vtable.TableColumn{
-			{Title: "ID", Width: 8, Alignment: vtable.AlignLeft},
-			{Title: "Code", Width: 12, Alignment: vtable.AlignLeft},
-			{Title: "Name", Width: 20, Alignment: vtable.AlignLeft},
-			{Title: "Category", Width: 15, Alignment: vtable.AlignLeft},
-			{Title: "Status", Width: 10, Alignment: vtable.AlignLeft},
-			{Title: "Priority", Width: 8, Alignment: vtable.AlignRight},
-			{Title: "Value", Width: 12, Alignment: vtable.AlignRight},
-			{Title: "Updated", Width: 12, Alignment: vtable.AlignLeft},
-		},
-		ShowHeader:     true,
-		ShowBorders:    true,
-		ViewportConfig: viewportConfig,
-	}
-
-	theme := vtable.DefaultTheme()
-	table, err := vtable.NewTeaTable(config, provider, *theme)
+	table, err := vtable.NewTeaTableWithHeight(columns, provider, 12)
 	if err != nil {
 		panic(err)
 	}

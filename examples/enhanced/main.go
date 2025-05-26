@@ -456,25 +456,20 @@ type FilteredTableDemo struct {
 
 // NewFilteredTableDemo creates a new demo
 func NewFilteredTableDemo() (*FilteredTableDemo, error) {
-	// Create columns
+	// Create table columns using convenience functions
 	columns := []vtable.TableColumn{
-		{Title: "ID", Width: 8, Alignment: vtable.AlignRight, Field: "id"},
-		{Title: "First Name", Width: 12, Alignment: vtable.AlignLeft, Field: "firstName"},
-		{Title: "Last Name", Width: 12, Alignment: vtable.AlignLeft, Field: "lastName"},
-		{Title: "Age", Width: 5, Alignment: vtable.AlignRight, Field: "age"},
-		{Title: "City", Width: 15, Alignment: vtable.AlignLeft, Field: "city"},
+		vtable.NewRightColumn("ID", 8),
+		vtable.NewColumn("First Name", 12),
+		vtable.NewColumn("Last Name", 12),
+		vtable.NewRightColumn("Age", 5),
+		vtable.NewColumn("City", 15),
 	}
-
-	// Create table config
-	config := vtable.DefaultTableConfig()
-	config.Columns = columns
-	config.ViewportConfig.Height = 10
 
 	// Create data provider
 	provider := NewPersonDataProvider()
 
-	// Create the table
-	table, err := vtable.NewTeaTable(config, provider, *vtable.DefaultTheme())
+	// Create the table with convenience function
+	table, err := vtable.NewTeaTableWithHeight(columns, provider, 10)
 	if err != nil {
 		return nil, err
 	}

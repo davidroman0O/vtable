@@ -236,14 +236,6 @@ func newListModel() ListModel {
 	// 1 million items!
 	provider := NewLargeListProvider(1000000)
 
-	config := vtable.DefaultViewportConfig()
-	config.Height = 10 // Show 10 items at once
-	config.TopThresholdIndex = 2
-	config.BottomThresholdIndex = 7
-	config.ChunkSize = 50 // Load 50 items at a time
-
-	style := vtable.DefaultStyleConfig()
-
 	formatter := func(data vtable.Data[string], index int, ctx vtable.RenderContext, isCursor bool, isTopThreshold bool, isBottomThreshold bool) string {
 		prefix := "  "
 		if isCursor {
@@ -252,7 +244,7 @@ func newListModel() ListModel {
 		return fmt.Sprintf("%s[%d] %s", prefix, index, data.Item)
 	}
 
-	list, err := vtable.NewTeaList(config, provider, style, formatter)
+	list, err := vtable.NewTeaListWithHeight(provider, formatter, 10)
 	if err != nil {
 		panic(err)
 	}
@@ -400,27 +392,15 @@ func newTableModel() TableModel {
 	// 500k user records!
 	provider := NewLargeTableProvider(500000)
 
-	config := vtable.TableConfig{
-		Columns: []vtable.TableColumn{
-			{Title: "ID", Width: 8, Alignment: vtable.AlignRight},
-			{Title: "Username", Width: 15, Alignment: vtable.AlignLeft},
-			{Title: "Email", Width: 25, Alignment: vtable.AlignLeft},
-			{Title: "Score", Width: 8, Alignment: vtable.AlignRight},
-			{Title: "Country", Width: 12, Alignment: vtable.AlignLeft},
-		},
-		ShowHeader:  true,
-		ShowBorders: true,
-		ViewportConfig: vtable.ViewportConfig{
-			Height:               12,
-			TopThresholdIndex:    3,
-			BottomThresholdIndex: 8,
-			ChunkSize:            100,
-			InitialIndex:         0,
-		},
+	columns := []vtable.TableColumn{
+		vtable.NewRightColumn("ID", 8),
+		vtable.NewColumn("Username", 15),
+		vtable.NewColumn("Email", 25),
+		vtable.NewRightColumn("Score", 8),
+		vtable.NewColumn("Country", 12),
 	}
 
-	theme := vtable.DefaultTheme()
-	table, err := vtable.NewTeaTable(config, provider, *theme)
+	table, err := vtable.NewTeaTableWithHeight(columns, provider, 12)
 	if err != nil {
 		panic(err)
 	}

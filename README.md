@@ -51,6 +51,7 @@ A high-performance virtualized table and list component for [Bubble Tea](https:/
 - **Dynamic control** - Enable/disable animations on-the-fly for performance
 - **Trigger-based updates** - TriggerTimer, TriggerEvent, TriggerConditional
 - **Configurable refresh rates** - SetTickInterval() for performance tuning
+- **Event-decoupled design** - Animations run independently of user input
 
 ### 🛠️ Extensibility
 - **Generic data providers** - Type-safe DataProvider[T] interface
@@ -515,6 +516,11 @@ table.SetKeyMap(keyMap)
 | `RemoveSort(field)` | Remove sort field |
 | `ClearSort()` | Clear all sorting |
 | `RefreshData()` | Force data reload |
+| `GetCachedTotal()` | Get cached total count without triggering data provider calls |
+| `EnableRealTimeUpdates(interval)` | Enable periodic data refresh |
+| `DisableRealTimeUpdates()` | Disable periodic data refresh |
+| `IsRealTimeUpdatesEnabled()` | Check real-time update status |
+| `ForceDataRefresh()` | Force immediate data reload (use sparingly) |
 
 ### Animation Methods
 

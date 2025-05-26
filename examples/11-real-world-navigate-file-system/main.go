@@ -426,24 +426,6 @@ func newFileNavigatorDemo() *FileNavigatorModel {
 	startPath, _ := os.Getwd()
 	provider := NewFileSystemProvider(startPath)
 
-	// Configure viewport
-	viewportConfig := vtable.ViewportConfig{
-		Height:               15,
-		TopThresholdIndex:    2,
-		BottomThresholdIndex: 12,
-		ChunkSize:            50,
-		InitialIndex:         0,
-		Debug:                false,
-	}
-
-	// Create style config
-	styleConfig := vtable.StyleConfig{
-		BorderStyle:      "245",
-		HeaderStyle:      "bold 252 on 238",
-		RowStyle:         "252",
-		SelectedRowStyle: "bold 252 on 63",
-	}
-
 	// Create formatter
 	formatter := func(data vtable.Data[FileEntry], index int, ctx vtable.RenderContext, isCursor bool, isTopThreshold bool, isBottomThreshold bool) string {
 		entry := data.Item
@@ -500,7 +482,7 @@ func newFileNavigatorDemo() *FileNavigatorModel {
 	}
 
 	// Create the list
-	list, err := vtable.NewTeaList(viewportConfig, provider, styleConfig, formatter)
+	list, err := vtable.NewTeaListWithHeight(provider, formatter, 15)
 	if err != nil {
 		log.Fatal(err)
 	}

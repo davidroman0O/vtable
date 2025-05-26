@@ -49,6 +49,17 @@ type TeaList[T any] struct {
 	animatedFormatter ItemFormatterAnimated[T]
 	animationConfig   AnimationConfig
 	lastAnimationTime time.Time
+
+	// Real-time data updates
+	realTimeUpdates    bool
+	realTimeInterval   time.Duration
+	lastRealTimeUpdate time.Time
+
+	// Animation content cache
+	cachedAnimationContent map[string]string
+
+	// Track cursor position for cache invalidation
+	lastCursorIndex int
 }
 
 // NewTeaList creates a new Bubble Tea model for a virtualized list.
@@ -69,12 +80,43 @@ func NewTeaList[T any](
 	animEngine := NewAnimationEngine(animConfig)
 
 	return &TeaList[T]{
-		list:            list,
-		keyMap:          PlatformKeyMap(), // Use platform-specific key bindings
-		focused:         true,
-		animationEngine: animEngine,
-		animationConfig: animConfig,
+		list:                   list,
+		keyMap:                 PlatformKeyMap(), // Use platform-specific key bindings
+		focused:                true,
+		animationEngine:        animEngine,
+		animationConfig:        animConfig,
+		cachedAnimationContent: make(map[string]string),
+		lastCursorIndex:        0, // Initialize cursor tracking
 	}, nil
+}
+
+// NewSimpleTeaList creates a Bubble Tea list with just a data provider and formatter.
+// This is the easiest way to create a Bubble Tea list with reasonable defaults.
+// Example: list, err := vtable.NewSimpleTeaList(provider, formatter)
+func NewSimpleTeaList[T any](provider DataProvider[T], formatter ItemFormatter[T]) (*TeaList[T], error) {
+	config := DefaultViewportConfig()
+	styleConfig := DefaultStyleConfig()
+	return NewTeaList(config, provider, styleConfig, formatter)
+}
+
+// NewTeaListWithHeight creates a Bubble Tea list with specified viewport height.
+// Example: list, err := vtable.NewTeaListWithHeight(provider, formatter, 15)
+func NewTeaListWithHeight[T any](provider DataProvider[T], formatter ItemFormatter[T], height int) (*TeaList[T], error) {
+	config := NewViewportConfig(height)
+	styleConfig := DefaultStyleConfig()
+	return NewTeaList(config, provider, styleConfig, formatter)
+}
+
+// NewTeaListWithConfig creates a Bubble Tea list with a full config.
+// This provides maximum flexibility while still benefiting from auto-correction.
+// Example: list, err := vtable.NewTeaListWithConfig(config, provider, styleConfig, formatter)
+func NewTeaListWithConfig[T any](
+	config ViewportConfig,
+	provider DataProvider[T],
+	styleConfig StyleConfig,
+	formatter ItemFormatter[T],
+) (*TeaList[T], error) {
+	return NewTeaList(config, provider, styleConfig, formatter)
 }
 
 // Init initializes the Tea model.
@@ -116,13 +158,29 @@ func (m *TeaList[T]) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 	case GlobalAnimationTickMsg:
-		// Handle global animation tick - this runs continuously
+		// Handle global animation tick - this runs continuously while animations are active
 		if cmd := m.animationEngine.ProcessGlobalTick(msg); cmd != nil {
 			cmds = append(cmds, cmd)
+		}
+
+		// Handle real-time data updates if enabled
+		if m.realTimeUpdates {
+			now := msg.Timestamp
+			if now.Sub(m.lastRealTimeUpdate) >= m.realTimeInterval {
+				// Time for a real-time data refresh
+				m.lastRealTimeUpdate = now
+				m.ForceDataRefresh()
+			}
 		}
 	case AnimationUpdateMsg:
 		// Animations have been updated - trigger re-render by doing nothing
 		// The View() method will automatically pick up the changes
+
+		// CRITICAL FIX: Only update animation content when we receive animation update messages
+		// This decouples animation updates from cursor movements
+		if m.animatedFormatter != nil {
+			m.updateAnimationContent()
+		}
 	case FilterMsg:
 		previousFilters := make(map[string]any)
 		for k, v := range m.list.dataRequest.Filters {
@@ -235,17 +293,91 @@ func (m *TeaList[T]) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m *TeaList[T]) View() string {
 	// Handle animations if we have an animated formatter
 	if m.animatedFormatter != nil {
-		// Ensure we have fresh data before processing animations
+		// Ensure we have fresh data before rendering
 		m.list.updateVisibleItems()
-		// Always process animations to register new ones and update content
-		animatedContent := m.processAnimations()
-		result := m.list.RenderWithAnimatedContent(animatedContent)
-		// Clear dirty flags after rendering
-		m.animationEngine.ClearDirtyFlags()
+
+		// Check if cursor position has changed
+		currentCursorIndex := m.list.GetState().CursorIndex
+		if currentCursorIndex != m.lastCursorIndex {
+			// Cursor moved - update cache immediately for smooth movement
+			m.updateCursorInCache(m.lastCursorIndex, currentCursorIndex)
+			m.lastCursorIndex = currentCursorIndex
+		}
+
+		// Ensure cache is populated for all visible items
+		m.ensureAnimationCachePopulated()
+
+		// Use cached animation content - only updated when animation update messages are received
+		result := m.list.RenderWithAnimatedContent(m.cachedAnimationContent)
 		return result
 	}
 
 	return m.list.Render()
+}
+
+// ensureAnimationCachePopulated ensures all visible items have cached animation content
+func (m *TeaList[T]) ensureAnimationCachePopulated() {
+	visibleItems := m.list.GetVisibleItems()
+	state := m.list.GetState()
+
+	for i := range visibleItems {
+		absoluteIndex := state.ViewportStartIndex + i
+		animationKey := fmt.Sprintf("item-%d", absoluteIndex)
+
+		// If we don't have cached content for this item, it means it's newly visible
+		// We need to populate the cache without triggering animation acceleration
+		if _, exists := m.cachedAnimationContent[animationKey]; !exists {
+			// This is a new visible item - we need to populate its cache
+			// But we should only call the formatter once for initial setup
+			m.populateInitialAnimationContent(i, absoluteIndex, animationKey)
+		}
+	}
+}
+
+// populateInitialAnimationContent populates cache for a newly visible item
+func (m *TeaList[T]) populateInitialAnimationContent(viewportIndex, absoluteIndex int, animationKey string) {
+	visibleItems := m.list.GetVisibleItems()
+	if viewportIndex >= len(visibleItems) {
+		return
+	}
+
+	dataItem := visibleItems[viewportIndex]
+	state := m.list.GetState()
+
+	// Create render context
+	ctx := DefaultRenderContext()
+	ctx.CurrentTime = time.Now()
+	ctx.DeltaTime = 0 // No delta time for initial render
+	ctx.MaxWidth = 80
+
+	// Get animation state (will be empty for new animations)
+	animState := m.animationEngine.GetAnimationState(animationKey)
+
+	// Determine cursor state
+	isCursor := viewportIndex == state.CursorViewportIndex
+	isTopThreshold := viewportIndex == m.list.Config.TopThresholdIndex
+	isBottomThreshold := viewportIndex == m.list.Config.BottomThresholdIndex
+
+	// Call animated formatter ONCE for initial setup
+	result := m.animatedFormatter(dataItem, absoluteIndex, ctx, animState, isCursor, isTopThreshold, isBottomThreshold)
+
+	// Cache the content
+	m.cachedAnimationContent[animationKey] = result.Content
+
+	// Register animation if needed (this should only happen once)
+	if len(result.RefreshTriggers) > 0 && !m.animationEngine.IsVisible(animationKey) {
+		if cmd := m.animationEngine.RegisterAnimation(animationKey, result.RefreshTriggers, result.AnimationState); cmd != nil {
+			_ = cmd
+		}
+	}
+
+	// Set initial animation state
+	if len(result.AnimationState) > 0 {
+		m.animationEngine.UpdateAnimationState(animationKey, result.AnimationState)
+	}
+
+	// Make animation visible
+	m.animationEngine.SetVisible(animationKey, true)
 }
 
 // processAnimations handles the animation lifecycle for visible items and returns rendered content
@@ -255,7 +387,6 @@ func (m *TeaList[T]) processAnimations() map[string]string {
 
 	// Track which animations should be active
 	activeAnimationKeys := make(map[string]bool)
-	animatedContent := make(map[string]string)
 
 	// Calculate delta time
 	now := time.Now()
@@ -288,24 +419,40 @@ func (m *TeaList[T]) processAnimations() map[string]string {
 		// Call animated formatter
 		result := m.animatedFormatter(dataItem, absoluteIndex, ctx, animState, isCursor, isTopThreshold, isBottomThreshold)
 
-		// Store the rendered content
-		animatedContent[animationKey] = result.Content
+		// Cache the rendered content
+		m.cachedAnimationContent[animationKey] = result.Content
 
-		// Handle animation triggers - register if not already registered
+		// CRITICAL FIX: Only register animations ONCE when they first become visible
+		// Do NOT re-register on every view render (this causes acceleration)
 		if len(result.RefreshTriggers) > 0 && !m.animationEngine.IsVisible(animationKey) {
+			// Register animation only if it doesn't exist yet
 			if cmd := m.animationEngine.RegisterAnimation(animationKey, result.RefreshTriggers, result.AnimationState); cmd != nil {
-				// If RegisterAnimation returns a command (starting the loop), we should handle it
-				// For now, we'll just note that the loop should be running
+				// Animation loop started - this only happens once
 				_ = cmd
 			}
 		}
 
-		// Update animation state
+		// Update animation state ONLY if it actually changed
+		// Don't update state on every render to prevent animation reset
 		if len(result.AnimationState) > 0 {
-			m.animationEngine.UpdateAnimationState(animationKey, result.AnimationState)
+			currentState := m.animationEngine.GetAnimationState(animationKey)
+			hasChanges := false
+
+			// Check if state actually changed
+			for k, newValue := range result.AnimationState {
+				if currentValue, exists := currentState[k]; !exists || currentValue != newValue {
+					hasChanges = true
+					break
+				}
+			}
+
+			// Only update if there are actual changes
+			if hasChanges {
+				m.animationEngine.UpdateAnimationState(animationKey, result.AnimationState)
+			}
 		}
 
-		// Make sure the animation is visible
+		// Make sure the animation is visible (this is safe to call repeatedly)
 		m.animationEngine.SetVisible(animationKey, true)
 	}
 
@@ -314,10 +461,15 @@ func (m *TeaList[T]) processAnimations() map[string]string {
 	for _, animKey := range activeAnimations {
 		if !activeAnimationKeys[animKey] {
 			m.animationEngine.SetVisible(animKey, false)
+			// Remove cached content for invisible items
+			delete(m.cachedAnimationContent, animKey)
 		}
 	}
 
-	return animatedContent
+	// Clear dirty flags after processing
+	m.animationEngine.ClearDirtyFlags()
+
+	return m.cachedAnimationContent
 }
 
 // Focus sets the focus state of the component.
@@ -348,6 +500,13 @@ func (m *TeaList[T]) GetVisibleItems() []T {
 		items[i] = data.Item
 	}
 	return items
+}
+
+// GetCachedTotal returns the cached total items count without triggering any data provider calls.
+// This is useful for UI elements that need to display the total count efficiently.
+// Returns the last known total from the cache, which may be stale if InvalidateTotalItemsCache() was called.
+func (m *TeaList[T]) GetCachedTotal() int {
+	return m.list.GetCachedTotal()
 }
 
 // GetCurrentItem returns the currently selected item.
@@ -430,6 +589,14 @@ func (m *TeaList[T]) SetFormatter(formatter ItemFormatter[T]) {
 // SetAnimatedFormatter sets an animated formatter that supports dynamic content.
 func (m *TeaList[T]) SetAnimatedFormatter(formatter ItemFormatterAnimated[T]) {
 	m.animatedFormatter = formatter
+
+	// Clear existing cache and trigger initial animation setup
+	m.cachedAnimationContent = make(map[string]string)
+
+	// Trigger initial animation setup if formatter is set
+	if formatter != nil {
+		m.processAnimations()
+	}
 }
 
 // ClearAnimatedFormatter removes the animated formatter and stops all animations.
@@ -492,6 +659,9 @@ func (m *TeaList[T]) SetDataProvider(provider DataProvider[T]) {
 
 	// Update provider
 	m.list.DataProvider = provider
+
+	// Invalidate cache since we're changing the data source
+	m.list.InvalidateTotalItemsCache()
 	m.list.totalItems = provider.GetTotal()
 
 	// Clear chunks and reload data
@@ -513,6 +683,9 @@ func (m *TeaList[T]) SetDataProvider(provider DataProvider[T]) {
 func (m *TeaList[T]) RefreshData() {
 	// Store current position
 	currentPos := m.list.State.CursorIndex
+
+	// Invalidate cache since we know data has changed externally
+	m.list.InvalidateTotalItemsCache()
 
 	// Update total items count
 	m.list.totalItems = m.list.DataProvider.GetTotal()
@@ -681,16 +854,16 @@ func (m *TeaList[T]) ToggleSelection(index int) bool {
 	if data, ok := m.list.GetCurrentItem(); ok && m.list.State.CursorIndex == index {
 		newSelected := !data.Selected
 		if m.list.DataProvider.SetSelected(index, newSelected) {
-			// Refresh the data to show selection changes
-			m.RefreshData()
+			// Use efficient cache refresh instead of full data reload
+			m.refreshCachedData()
 			return true
 		}
 	} else {
 		// If not the current item, we need to determine current state differently
 		// For now, just set as selected
 		if m.list.DataProvider.SetSelected(index, true) {
-			// Refresh the data to show selection changes
-			m.RefreshData()
+			// Use efficient cache refresh instead of full data reload
+			m.refreshCachedData()
 			return true
 		}
 	}
@@ -729,10 +902,31 @@ func (m *TeaList[T]) ClearSelection() {
 }
 
 // refreshCachedData invalidates cached chunks to force refresh of visible data
+// This should ONLY affect visual representation, NOT trigger data provider calls
 func (m *TeaList[T]) refreshCachedData() {
-	// Clear chunks to force reload with updated selection state
-	m.list.chunks = make(map[int]*chunk[T])
-	// Force update of visible items to reload fresh chunks
+	// DON'T clear chunks - that would trigger unnecessary data fetching
+	// Instead, we should only update the selection state in existing chunks
+	m.updateSelectionInVisibleChunks()
+}
+
+// updateSelectionInVisibleChunks updates selection state in currently loaded chunks
+// without triggering any data provider calls
+func (m *TeaList[T]) updateSelectionInVisibleChunks() {
+	selectedIndices := m.list.DataProvider.GetSelectedIndices()
+	selectedSet := make(map[int]bool)
+	for _, idx := range selectedIndices {
+		selectedSet[idx] = true
+	}
+
+	// Update selection state in all loaded chunks
+	for _, chunk := range m.list.chunks {
+		for i := range chunk.Items {
+			absoluteIndex := chunk.StartIndex + i
+			chunk.Items[i].Selected = selectedSet[absoluteIndex]
+		}
+	}
+
+	// Update visible items to reflect selection changes
 	m.list.updateVisibleItems()
 }
 
@@ -744,4 +938,104 @@ func (m *TeaList[T]) GetSelectedIndices() []int {
 // GetSelectionCount returns the number of selected items.
 func (m *TeaList[T]) GetSelectionCount() int {
 	return len(m.list.DataProvider.GetSelectedIndices())
+}
+
+// EnableRealTimeUpdates enables periodic data refreshing for dynamic data sources
+func (m *TeaList[T]) EnableRealTimeUpdates(interval time.Duration) {
+	m.realTimeUpdates = true
+	m.realTimeInterval = interval
+	m.lastRealTimeUpdate = time.Now()
+}
+
+// DisableRealTimeUpdates disables periodic data refreshing
+func (m *TeaList[T]) DisableRealTimeUpdates() {
+	m.realTimeUpdates = false
+}
+
+// IsRealTimeUpdatesEnabled returns whether real-time updates are enabled
+func (m *TeaList[T]) IsRealTimeUpdatesEnabled() bool {
+	return m.realTimeUpdates
+}
+
+// ForceDataRefresh forces a complete data reload - use sparingly!
+// This should only be called when you know the data structure has changed
+func (m *TeaList[T]) ForceDataRefresh() {
+	// Invalidate cache since we know data has changed externally
+	m.list.InvalidateTotalItemsCache()
+	m.list.refreshData()
+}
+
+// updateAnimationContent updates animation content when animation update messages are received
+func (m *TeaList[T]) updateAnimationContent() {
+	// Handle animations when animation update messages are received
+	// This decouples animation updates from cursor movements
+	if m.animatedFormatter != nil {
+		m.processAnimations()
+	}
+}
+
+// updateCursorInCache updates the cache for the cursor position
+func (m *TeaList[T]) updateCursorInCache(oldIndex, newIndex int) {
+	visibleItems := m.list.GetVisibleItems()
+	state := m.list.GetState()
+
+	// Find which viewport positions the old and new cursor positions map to
+	oldViewportIndex := -1
+	newViewportIndex := -1
+
+	for i := range visibleItems {
+		absoluteIndex := state.ViewportStartIndex + i
+		if absoluteIndex == oldIndex {
+			oldViewportIndex = i
+		}
+		if absoluteIndex == newIndex {
+			newViewportIndex = i
+		}
+	}
+
+	// Update cache for old cursor position (remove cursor)
+	if oldViewportIndex >= 0 && oldViewportIndex < len(visibleItems) {
+		m.updateSingleItemCache(oldViewportIndex, false) // Not cursor anymore
+	}
+
+	// Update cache for new cursor position (add cursor)
+	if newViewportIndex >= 0 && newViewportIndex < len(visibleItems) {
+		m.updateSingleItemCache(newViewportIndex, true) // Now cursor
+	}
+}
+
+// updateSingleItemCache updates the cache for a single item with cursor state
+func (m *TeaList[T]) updateSingleItemCache(viewportIndex int, isCursor bool) {
+	visibleItems := m.list.GetVisibleItems()
+	state := m.list.GetState()
+
+	if viewportIndex >= len(visibleItems) {
+		return
+	}
+
+	absoluteIndex := state.ViewportStartIndex + viewportIndex
+	animationKey := fmt.Sprintf("item-%d", absoluteIndex)
+	dataItem := visibleItems[viewportIndex]
+
+	// Create render context
+	ctx := DefaultRenderContext()
+	ctx.CurrentTime = time.Now()
+	ctx.DeltaTime = 0 // No delta time for cursor updates
+	ctx.MaxWidth = 80
+
+	// Get existing animation state (preserve it!)
+	animState := m.animationEngine.GetAnimationState(animationKey)
+
+	// Determine threshold states
+	isTopThreshold := viewportIndex == m.list.Config.TopThresholdIndex
+	isBottomThreshold := viewportIndex == m.list.Config.BottomThresholdIndex
+
+	// Call animated formatter with updated cursor state
+	result := m.animatedFormatter(dataItem, absoluteIndex, ctx, animState, isCursor, isTopThreshold, isBottomThreshold)
+
+	// Update only the content in cache (DON'T re-register animations or update state)
+	m.cachedAnimationContent[animationKey] = result.Content
+
+	// DON'T call RegisterAnimation or UpdateAnimationState here - that would cause acceleration
+	// The animation state should persist, only the visual content changes
 }

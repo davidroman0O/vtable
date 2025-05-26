@@ -383,16 +383,6 @@ func searchTableCommand(table *vtable.TeaTable, value string) tea.Cmd {
 }
 
 func initialModel() (Model, error) {
-	// Configure common viewport settings
-	viewportConfig := vtable.ViewportConfig{
-		Height:               12,
-		TopThresholdIndex:    2,
-		BottomThresholdIndex: 9,
-		ChunkSize:            20,
-		InitialIndex:         0,
-		Debug:                false,
-	}
-
 	// Setup different themes
 	// themes := make(map[string]vtable.Theme)
 	// themes["default"] = vtable.DefaultTheme()
@@ -415,7 +405,6 @@ func initialModel() (Model, error) {
 
 	currentTheme := "default"
 	// theme := themes[currentTheme]
-	theme := vtable.DefaultTheme()
 
 	// Create list provider
 	listProvider := NewStringListProvider(1000)
@@ -467,11 +456,8 @@ func initialModel() (Model, error) {
 		return style.Render(result)
 	}
 
-	// Create style config for backward compatibility
-	styleConfig := vtable.ThemeToStyleConfig(theme)
-
 	// Create list
-	listModel, err := vtable.NewTeaList(viewportConfig, listProvider, styleConfig, listFormatter)
+	listModel, err := vtable.NewTeaListWithHeight(listProvider, listFormatter, 12)
 	if err != nil {
 		return Model{}, err
 	}
@@ -479,20 +465,15 @@ func initialModel() (Model, error) {
 	// Create table provider
 	tableProvider := NewTableDataProvider(1000)
 
-	// Create table config
-	tableConfig := vtable.TableConfig{
-		Columns: []vtable.TableColumn{
-			{Title: "ID", Width: 10, Alignment: vtable.AlignLeft},
-			{Title: "Value", Width: 15, Alignment: vtable.AlignRight},
-			{Title: "Description", Width: 30, Alignment: vtable.AlignLeft},
-		},
-		ShowHeader:     true,
-		ShowBorders:    true,
-		ViewportConfig: viewportConfig,
+	// Create table columns using convenience functions
+	columns := []vtable.TableColumn{
+		vtable.NewColumn("ID", 10),
+		vtable.NewRightColumn("Value", 15),
+		vtable.NewColumn("Description", 30),
 	}
 
 	// Create table
-	tableModel, err := vtable.NewTeaTable(tableConfig, tableProvider, *theme)
+	tableModel, err := vtable.NewTeaTableWithHeight(columns, tableProvider, 12)
 	if err != nil {
 		return Model{}, err
 	}

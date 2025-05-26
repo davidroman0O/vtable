@@ -165,29 +165,11 @@ type CustomFormatterModel struct {
 func newCustomFormatterDemo() *CustomFormatterModel {
 	provider := NewPersonDataProvider()
 
-	// Configure viewport - consistent with other examples
-	viewportConfig := vtable.ViewportConfig{
-		Height:               12,
-		TopThresholdIndex:    2,
-		BottomThresholdIndex: 9,
-		ChunkSize:            20,
-		InitialIndex:         0,
-		Debug:                false,
-	}
-
-	// Create style config
-	styleConfig := vtable.StyleConfig{
-		BorderStyle:      "245",
-		HeaderStyle:      "bold 252 on 238",
-		RowStyle:         "252",
-		SelectedRowStyle: "bold 252 on 63",
-	}
-
 	// Start with basic formatter
 	basicFormatter := createBasicFormatter()
 
-	// Create the list
-	list, err := vtable.NewTeaList(viewportConfig, provider, styleConfig, basicFormatter)
+	// Create the list with default height
+	list, err := vtable.NewTeaListWithHeight(provider, basicFormatter, 12)
 	if err != nil {
 		log.Fatal(err)
 	}
