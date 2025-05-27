@@ -575,3 +575,7 @@ func DefaultBorderChars() BorderChars {
 		Cross:       "┼",
 	}
 }
+
+// ================================
+// KEYBINDING TYPES
+// ================================

@@ -6,7 +6,6 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
 )
 
 // ================================
@@ -496,72 +495,9 @@ func (l *List) GetState() ViewportState {
 	return l.viewport
 }
 
-// GetTotalItems returns the total number of items
-func (l *List) GetTotalItems() int {
-	return l.totalItems
-}
-
-// GetSelectedIndices returns the indices of selected items
-func (l *List) GetSelectedIndices() []int {
-	var indices []int
-	// Read selection state from chunks (DataSource owns the state)
-	for _, chunk := range l.chunks {
-		for i, item := range chunk.Items {
-			if item.Selected {
-				indices = append(indices, chunk.StartIndex+i)
-			}
-		}
-	}
-	return indices
-}
-
-// GetSelectedIDs returns the IDs of selected items
-func (l *List) GetSelectedIDs() []string {
-	var ids []string
-	// Read selection state from chunks (DataSource owns the state)
-	for _, chunk := range l.chunks {
-		for _, item := range chunk.Items {
-			if item.Selected {
-				ids = append(ids, item.ID)
-			}
-		}
-	}
-	return ids
-}
-
 // GetSelectionCount returns the number of selected items
 func (l *List) GetSelectionCount() int {
-	count := 0
-	// Read selection state from chunks (DataSource owns the state)
-	for _, chunk := range l.chunks {
-		for _, item := range chunk.Items {
-			if item.Selected {
-				count++
-			}
-		}
-	}
-	return count
-}
-
-// SetFormatter sets the item formatter
-func (l *List) SetFormatter(formatter ItemFormatter[any]) tea.Cmd {
-	return FormatterSetCmd(formatter)
-}
-
-// SetAnimatedFormatter sets the animated item formatter
-func (l *List) SetAnimatedFormatter(formatter ItemFormatterAnimated[any]) tea.Cmd {
-	return AnimatedFormatterSetCmd(formatter)
-}
-
-// SetMaxWidth sets the maximum width
-func (l *List) SetMaxWidth(width int) tea.Cmd {
-	return MaxWidthSetCmd(width)
-}
-
-// GetCurrentItem returns the item at the cursor position
-func (l *List) GetCurrentItem() (Data[any], bool) {
-	item, exists := l.getItemAtIndex(l.viewport.CursorIndex)
-	return item, exists
+	return GetSelectionCount(l.chunks)
 }
 
 // ================================
@@ -700,61 +636,7 @@ func (l *List) handleCursorUp() tea.Cmd {
 	}
 
 	previousState := l.viewport
-	topThreshold := l.config.ViewportConfig.TopThreshold
-
-	// Handle top threshold logic (only if thresholds are enabled)
-	if previousState.IsAtTopThreshold && !l.viewport.AtDatasetStart && topThreshold >= 0 {
-		// Cursor was at the top threshold, scroll viewport up while keeping cursor at threshold
-		if l.viewport.ViewportStartIndex > 0 {
-			l.viewport.ViewportStartIndex--
-			l.viewport.CursorViewportIndex = topThreshold // LOCK cursor at threshold
-			// Update absolute cursor position based on new viewport
-			l.viewport.CursorIndex = l.viewport.ViewportStartIndex + l.viewport.CursorViewportIndex
-		} else {
-			// Can't scroll viewport up anymore, move cursor normally
-			l.viewport.CursorIndex--
-			l.viewport.CursorViewportIndex--
-		}
-	} else if topThreshold < 0 {
-		// Thresholds disabled - use pure edge-based scrolling
-		l.viewport.CursorIndex-- // Move cursor normally
-		// Move cursor within viewport if possible, otherwise scroll
-		if previousState.CursorViewportIndex > 0 {
-			// Cursor can move within viewport
-			l.viewport.CursorViewportIndex--
-		} else {
-			// Cursor is at top edge of viewport - scroll if possible
-			if l.viewport.ViewportStartIndex > 0 {
-				l.viewport.ViewportStartIndex--
-				l.viewport.CursorViewportIndex = 0
-			}
-		}
-	} else {
-		// Thresholds enabled - move cursor normally, let viewport follow
-		l.viewport.CursorIndex-- // Move cursor first
-
-		if previousState.CursorViewportIndex > 0 {
-			// Cursor not at threshold, move within viewport
-			l.viewport.CursorViewportIndex--
-		} else {
-			// At viewport top edge, scroll if possible
-			if l.viewport.ViewportStartIndex > 0 {
-				l.viewport.ViewportStartIndex--
-				l.viewport.CursorViewportIndex = 0
-			} else {
-				// Can't scroll, cursor stays at top
-				l.viewport.CursorViewportIndex = 0
-			}
-		}
-	}
-
-	// Final safety check - ensure cursor doesn't go negative
-	if l.viewport.CursorIndex < 0 {
-		l.viewport.CursorIndex = 0
-		l.viewport.CursorViewportIndex = 0
-	}
-
-	l.updateViewportBounds()
+	l.viewport = CalculateCursorUp(l.viewport, l.config.ViewportConfig, l.totalItems)
 
 	// Update visible items if viewport changed
 	if l.viewport.ViewportStartIndex != previousState.ViewportStartIndex {
@@ -777,69 +659,7 @@ func (l *List) handleCursorDown() tea.Cmd {
 	}
 
 	previousState := l.viewport
-	bottomThreshold := l.config.ViewportConfig.BottomThreshold
-
-	// Handle bottom threshold logic (only if thresholds are enabled)
-	if previousState.IsAtBottomThreshold && !l.viewport.AtDatasetEnd && bottomThreshold >= 0 {
-		// Cursor was at the bottom threshold, scroll viewport down while keeping cursor at threshold
-		l.viewport.ViewportStartIndex++
-		bottomPosition := l.config.ViewportConfig.Height - bottomThreshold - 1
-		l.viewport.CursorViewportIndex = bottomPosition // LOCK cursor at threshold
-		// Update absolute cursor position based on new viewport
-		l.viewport.CursorIndex = l.viewport.ViewportStartIndex + l.viewport.CursorViewportIndex
-	} else if bottomThreshold < 0 {
-		// Thresholds disabled - use pure edge-based scrolling
-		l.viewport.CursorIndex++ // Move cursor normally
-		// Move cursor within viewport if possible, otherwise scroll
-		if previousState.CursorViewportIndex < l.config.ViewportConfig.Height-1 {
-			// Cursor can move within viewport
-			l.viewport.CursorViewportIndex++
-		} else {
-			// Cursor is at bottom edge of viewport - scroll if possible
-			if l.viewport.ViewportStartIndex+l.config.ViewportConfig.Height < l.totalItems {
-				l.viewport.ViewportStartIndex++
-				l.viewport.CursorViewportIndex = l.config.ViewportConfig.Height - 1
-			}
-		}
-	} else {
-		// Thresholds enabled - move cursor normally, let viewport follow
-		l.viewport.CursorIndex++ // Move cursor first
-
-		// Ensure we don't exceed actual data count
-		if l.viewport.CursorIndex >= l.totalItems {
-			l.viewport.CursorIndex = l.totalItems - 1
-			// If we're already at the last item, no need to continue
-			if l.viewport.CursorIndex == previousState.CursorIndex {
-				return nil
-			}
-		}
-
-		if previousState.CursorViewportIndex < l.config.ViewportConfig.Height-1 &&
-			l.viewport.ViewportStartIndex+previousState.CursorViewportIndex+1 < l.totalItems {
-			// Cursor not at threshold, move within viewport
-			l.viewport.CursorViewportIndex++
-		} else {
-			// At viewport bottom edge, scroll if possible
-			if l.viewport.ViewportStartIndex+l.config.ViewportConfig.Height < l.totalItems {
-				l.viewport.ViewportStartIndex++
-			}
-			l.viewport.CursorViewportIndex = l.viewport.CursorIndex - l.viewport.ViewportStartIndex
-		}
-	}
-
-	// Final boundary check - ensure we're not beyond data
-	if l.viewport.CursorIndex >= l.totalItems {
-		l.viewport.CursorIndex = l.totalItems - 1
-		l.viewport.CursorViewportIndex = l.viewport.CursorIndex - l.viewport.ViewportStartIndex
-	}
-
-	// Ensure cursor viewport index is within bounds
-	if l.viewport.CursorViewportIndex < 0 {
-		l.viewport.CursorViewportIndex = 0
-		l.viewport.CursorIndex = l.viewport.ViewportStartIndex
-	}
-
-	l.updateViewportBounds()
+	l.viewport = CalculateCursorDown(l.viewport, l.config.ViewportConfig, l.totalItems)
 
 	// Update visible items if viewport changed
 	if l.viewport.ViewportStartIndex != previousState.ViewportStartIndex {
@@ -856,12 +676,7 @@ func (l *List) handlePageUp() tea.Cmd {
 		return nil
 	}
 
-	pageSize := l.config.ViewportConfig.Height
-	newIndex := l.viewport.CursorIndex - pageSize
-	if newIndex < 0 {
-		newIndex = 0
-	}
-
+	newIndex := CalculatePageMovement(l.viewport.CursorIndex, l.config.ViewportConfig.Height, l.totalItems, -1)
 	l.viewport.CursorIndex = newIndex
 	l.updateViewportPosition()
 	return l.smartChunkManagement()
@@ -869,18 +684,14 @@ func (l *List) handlePageUp() tea.Cmd {
 
 // handlePageDown moves cursor down one page
 func (l *List) handlePageDown() tea.Cmd {
-	if l.totalItems == 0 || !l.canScroll {
+	if l.viewport.CursorIndex >= l.totalItems-1 {
 		return nil
 	}
 
-	pageSize := l.config.ViewportConfig.Height
-	newIndex := l.viewport.CursorIndex + pageSize
-	if newIndex >= l.totalItems {
-		newIndex = l.totalItems - 1
-	}
-
+	newIndex := CalculatePageMovement(l.viewport.CursorIndex, l.config.ViewportConfig.Height, l.totalItems, 1)
 	l.viewport.CursorIndex = newIndex
-	l.updateViewportPosition()
+	l.viewport = UpdateViewportPosition(l.viewport, l.config.ViewportConfig, l.totalItems)
+
 	return l.smartChunkManagement()
 }
 
@@ -890,8 +701,7 @@ func (l *List) handleJumpToStart() tea.Cmd {
 		return nil
 	}
 
-	l.viewport.CursorIndex = 0
-	l.updateViewportPosition()
+	l.viewport = CalculateJumpToStart(l.config.ViewportConfig, l.totalItems)
 	return l.smartChunkManagement()
 }
 
@@ -902,32 +712,7 @@ func (l *List) handleJumpToEnd() tea.Cmd {
 	}
 
 	previousState := l.viewport
-
-	l.viewport.CursorIndex = l.totalItems - 1
-
-	// Calculate viewport start to show the cursor at the bottom threshold (or bottom if small dataset)
-	if l.totalItems <= l.config.ViewportConfig.Height {
-		l.viewport.ViewportStartIndex = 0
-		l.viewport.CursorViewportIndex = l.totalItems - 1
-	} else {
-		l.viewport.ViewportStartIndex = l.totalItems - l.config.ViewportConfig.Height
-		l.viewport.CursorViewportIndex = l.config.ViewportConfig.Height - 1
-	}
-
-	l.viewport.IsAtTopThreshold = false
-	l.viewport.IsAtBottomThreshold = false
-
-	// Only set threshold flags if thresholds are enabled
-	if l.config.ViewportConfig.TopThreshold >= 0 && l.config.ViewportConfig.TopThreshold < l.config.ViewportConfig.Height {
-		l.viewport.IsAtTopThreshold = l.viewport.CursorViewportIndex == l.config.ViewportConfig.TopThreshold
-	}
-	if l.config.ViewportConfig.BottomThreshold >= 0 && l.config.ViewportConfig.BottomThreshold < l.config.ViewportConfig.Height {
-		l.viewport.IsAtBottomThreshold = l.viewport.CursorViewportIndex == l.config.ViewportConfig.BottomThreshold
-	}
-
-	// Update dataset boundary flags
-	l.viewport.AtDatasetStart = l.viewport.ViewportStartIndex == 0
-	l.viewport.AtDatasetEnd = true
+	l.viewport = CalculateJumpToEnd(l.config.ViewportConfig, l.totalItems)
 
 	// Update visible items if viewport changed
 	if l.viewport.ViewportStartIndex != previousState.ViewportStartIndex {
@@ -1090,59 +875,52 @@ func (l *List) handleFilterChange() tea.Cmd {
 
 // handleSortToggle toggles sorting on a field
 func (l *List) handleSortToggle(field string) tea.Cmd {
-	// Find field in current sort
-	for i, sortField := range l.sortFields {
-		if sortField == field {
-			// Toggle direction
-			if l.sortDirs[i] == "asc" {
-				l.sortDirs[i] = "desc"
-			} else {
-				l.sortDirs[i] = "asc"
-			}
-			return l.handleDataRefresh()
-		}
+	currentSort := SortState{
+		Fields:     l.sortFields,
+		Directions: l.sortDirs,
 	}
 
-	// Field not found, add it
-	l.sortFields = append(l.sortFields, field)
-	l.sortDirs = append(l.sortDirs, "asc")
+	newSort := ToggleSortField(currentSort, field)
+	l.sortFields = newSort.Fields
+	l.sortDirs = newSort.Directions
+
 	return l.handleDataRefresh()
 }
 
 // handleSortSet sets sorting on a field
 func (l *List) handleSortSet(field, direction string) tea.Cmd {
-	l.sortFields = []string{field}
-	l.sortDirs = []string{direction}
+	newSort := SetSortField(field, direction)
+	l.sortFields = newSort.Fields
+	l.sortDirs = newSort.Directions
 	return l.handleDataRefresh()
 }
 
 // handleSortAdd adds a sort field
 func (l *List) handleSortAdd(field, direction string) tea.Cmd {
-	// Remove field if it already exists
-	for i, sortField := range l.sortFields {
-		if sortField == field {
-			l.sortFields = append(l.sortFields[:i], l.sortFields[i+1:]...)
-			l.sortDirs = append(l.sortDirs[:i], l.sortDirs[i+1:]...)
-			break
-		}
+	currentSort := SortState{
+		Fields:     l.sortFields,
+		Directions: l.sortDirs,
 	}
 
-	// Add to end
-	l.sortFields = append(l.sortFields, field)
-	l.sortDirs = append(l.sortDirs, direction)
+	newSort := AddSortField(currentSort, field, direction)
+	l.sortFields = newSort.Fields
+	l.sortDirs = newSort.Directions
+
 	return l.handleDataRefresh()
 }
 
 // handleSortRemove removes a sort field
 func (l *List) handleSortRemove(field string) tea.Cmd {
-	for i, sortField := range l.sortFields {
-		if sortField == field {
-			l.sortFields = append(l.sortFields[:i], l.sortFields[i+1:]...)
-			l.sortDirs = append(l.sortDirs[:i], l.sortDirs[i+1:]...)
-			return l.handleDataRefresh()
-		}
+	currentSort := SortState{
+		Fields:     l.sortFields,
+		Directions: l.sortDirs,
 	}
-	return nil
+
+	newSort := RemoveSortField(currentSort, field)
+	l.sortFields = newSort.Fields
+	l.sortDirs = newSort.Directions
+
+	return l.handleDataRefresh()
 }
 
 // ================================
@@ -1244,19 +1022,14 @@ func (l *List) handleKeyPress(msg tea.KeyMsg) tea.Cmd {
 
 // renderEmpty renders the empty state
 func (l *List) renderEmpty() string {
-	style := l.config.StyleConfig.DefaultStyle
-	if l.lastError != nil {
-		style = l.config.StyleConfig.ErrorStyle
-		return style.Render("Error: " + l.lastError.Error())
-	}
-	return style.Render("No items")
+	return RenderEmptyState(l.config.StyleConfig, l.lastError)
 }
 
 // renderItem renders a single list item
 func (l *List) renderItem(absoluteIndex, viewportIndex int) string {
 	item, exists := l.getItemAtIndex(absoluteIndex)
 	if !exists {
-		return l.config.StyleConfig.LoadingStyle.Render("Loading...")
+		return RenderLoadingPlaceholder(l.config.StyleConfig)
 	}
 
 	isCursor := absoluteIndex == l.viewport.CursorIndex
@@ -1308,33 +1081,7 @@ func (l *List) renderItem(absoluteIndex, viewportIndex int) string {
 
 // applyItemStyle applies the appropriate style to an item
 func (l *List) applyItemStyle(content string, isCursor, isSelected bool, item Data[any]) string {
-	var style lipgloss.Style
-
-	switch {
-	case item.Error != nil:
-		style = l.config.StyleConfig.ErrorStyle
-	case item.Loading:
-		style = l.config.StyleConfig.LoadingStyle
-	case item.Disabled:
-		style = l.config.StyleConfig.DisabledStyle
-	case isCursor && isSelected:
-		// Combine cursor and selected styles
-		style = l.config.StyleConfig.CursorStyle.Copy().
-			Background(l.config.StyleConfig.SelectedStyle.GetBackground())
-	case isCursor:
-		style = l.config.StyleConfig.CursorStyle
-	case isSelected:
-		style = l.config.StyleConfig.SelectedStyle
-	default:
-		style = l.config.StyleConfig.DefaultStyle
-	}
-
-	// Truncate content to max width
-	if l.config.MaxWidth > 0 && len(content) > l.config.MaxWidth {
-		content = l.renderContext.Truncate(content, l.config.MaxWidth)
-	}
-
-	return style.Render(content)
+	return ApplyItemStyle(content, isCursor, isSelected, item, l.config.StyleConfig, l.config.MaxWidth, l.renderContext.Truncate)
 }
 
 // ================================
@@ -1343,54 +1090,12 @@ func (l *List) applyItemStyle(content string, isCursor, isSelected bool, item Da
 
 // updateViewportPosition updates the viewport based on cursor position
 func (l *List) updateViewportPosition() {
-	if l.totalItems == 0 {
-		return
-	}
-
-	height := l.config.ViewportConfig.Height
-
-	// Calculate relative position within viewport
-	l.viewport.CursorViewportIndex = l.viewport.CursorIndex - l.viewport.ViewportStartIndex
-
-	// Adjust viewport if cursor is outside
-	if l.viewport.CursorViewportIndex < 0 {
-		l.viewport.ViewportStartIndex = l.viewport.CursorIndex
-		l.viewport.CursorViewportIndex = 0
-	} else if l.viewport.CursorViewportIndex >= height {
-		l.viewport.ViewportStartIndex = l.viewport.CursorIndex - height + 1
-		l.viewport.CursorViewportIndex = height - 1
-	}
-
-	l.updateViewportBounds()
+	l.viewport = UpdateViewportPosition(l.viewport, l.config.ViewportConfig, l.totalItems)
 }
 
 // updateViewportBounds updates viewport boundary flags
 func (l *List) updateViewportBounds() {
-	height := l.config.ViewportConfig.Height
-	topThreshold := l.config.ViewportConfig.TopThreshold
-	bottomThreshold := l.config.ViewportConfig.BottomThreshold
-
-	// Update threshold flags using offset semantics
-	// TopThreshold: offset from viewport start (e.g., TopThreshold=2 means position 2)
-	// BottomThreshold: offset from viewport end (e.g., BottomThreshold=2 means position height-2-1)
-	l.viewport.IsAtTopThreshold = false
-	l.viewport.IsAtBottomThreshold = false
-
-	if topThreshold >= 0 && topThreshold < height {
-		l.viewport.IsAtTopThreshold = l.viewport.CursorViewportIndex == topThreshold
-	}
-
-	if bottomThreshold >= 0 && bottomThreshold < height {
-		// BottomThreshold is offset from end: if height=8 and bottomThreshold=2, then position is 8-2-1=5
-		bottomPosition := height - bottomThreshold - 1
-		if bottomPosition >= 0 && bottomPosition < height {
-			l.viewport.IsAtBottomThreshold = l.viewport.CursorViewportIndex == bottomPosition
-		}
-	}
-
-	// Update dataset boundary flags
-	l.viewport.AtDatasetStart = l.viewport.ViewportStartIndex == 0
-	l.viewport.AtDatasetEnd = l.viewport.ViewportStartIndex+height >= l.totalItems
+	l.viewport = UpdateViewportBounds(l.viewport, l.config.ViewportConfig, l.totalItems)
 }
 
 // ================================
@@ -1407,83 +1112,7 @@ type BoundingArea struct {
 
 // calculateBoundingArea calculates the bounding area around the current viewport automatically
 func (l *List) calculateBoundingArea() BoundingArea {
-	if l.totalItems == 0 {
-		return BoundingArea{}
-	}
-
-	chunkSize := l.config.ViewportConfig.ChunkSize
-	viewportHeight := l.config.ViewportConfig.Height
-	boundingBefore := l.config.ViewportConfig.BoundingAreaBefore
-	boundingAfter := l.config.ViewportConfig.BoundingAreaAfter
-
-	// Calculate viewport bounds (item indices)
-	viewportStart := l.viewport.ViewportStartIndex
-	viewportEnd := viewportStart + viewportHeight - 1
-
-	// FULLY AUTOMATED BOUNDING AREA CALCULATION
-	// Automatically calculate bounding area based on current viewport position
-	// using the configured distances (boundingBefore/boundingAfter items)
-	boundingStartIndex := viewportStart - boundingBefore
-	boundingEndIndex := viewportEnd + boundingAfter
-
-	// Clamp to dataset bounds
-	if boundingStartIndex < 0 {
-		boundingStartIndex = 0
-	}
-	if boundingEndIndex >= l.totalItems {
-		boundingEndIndex = l.totalItems - 1
-	}
-
-	// Find which chunks intersect with this bounding area
-	firstChunkStart := (boundingStartIndex / chunkSize) * chunkSize
-	lastChunkStart := (boundingEndIndex / chunkSize) * chunkSize
-
-	// ChunkEnd is the boundary for the loop (exclusive)
-	chunkEnd := lastChunkStart + chunkSize
-
-	return BoundingArea{
-		StartIndex: boundingStartIndex,
-		EndIndex:   boundingEndIndex,
-		ChunkStart: firstChunkStart,
-		ChunkEnd:   chunkEnd,
-	}
-}
-
-// ensureBoundingAreaLoaded ensures all chunks in the bounding area are loaded
-func (l *List) ensureBoundingAreaLoaded() tea.Cmd {
-	if l.dataSource == nil {
-		return nil
-	}
-
-	boundingArea := l.calculateBoundingArea()
-	chunkSize := l.config.ViewportConfig.ChunkSize
-	var cmds []tea.Cmd
-
-	// Load all chunks that should be in the bounding area
-	for chunkStart := boundingArea.ChunkStart; chunkStart < boundingArea.ChunkEnd; chunkStart += chunkSize {
-		if chunkStart >= l.totalItems {
-			break // Don't load chunks beyond dataset
-		}
-
-		if !l.isChunkLoaded(chunkStart) {
-			// Calculate actual chunk size (might be smaller at the end)
-			actualChunkSize := chunkSize
-			if chunkStart+chunkSize > l.totalItems {
-				actualChunkSize = l.totalItems - chunkStart
-			}
-
-			request := DataRequest{
-				Start:          chunkStart,
-				Count:          actualChunkSize,
-				SortFields:     l.sortFields,
-				SortDirections: l.sortDirs,
-				Filters:        l.filters,
-			}
-			cmds = append(cmds, l.dataSource.LoadChunk(request))
-		}
-	}
-
-	return tea.Batch(cmds...)
+	return CalculateBoundingArea(l.viewport, l.config.ViewportConfig, l.totalItems)
 }
 
 // unloadChunksOutsideBoundingArea unloads chunks that are outside the bounding area
@@ -1492,92 +1121,12 @@ func (l *List) unloadChunksOutsideBoundingArea() tea.Cmd {
 	chunkSize := l.config.ViewportConfig.ChunkSize
 	var cmds []tea.Cmd
 
-	// Unload chunks that do NOT intersect with the bounding area
-	for chunkStart := range l.chunks {
-		chunkEnd := chunkStart + chunkSize - 1
-
-		// Check if this chunk intersects with the bounding area
-		// A chunk intersects if: chunkStart <= boundingArea.EndIndex AND chunkEnd >= boundingArea.StartIndex
-		doesIntersect := chunkStart <= boundingArea.EndIndex && chunkEnd >= boundingArea.StartIndex
-
-		if !doesIntersect {
-			// This chunk is completely outside the bounding area, unload it
-			delete(l.chunks, chunkStart)
-			delete(l.chunkAccessTime, chunkStart)
-			cmds = append(cmds, ChunkUnloadedCmd(chunkStart))
-		}
-	}
-
-	return tea.Batch(cmds...)
-}
-
-// manageBoundingArea is the main method that manages the bounding area
-// It ensures chunks are loaded proactively and unloads distant chunks
-func (l *List) manageBoundingArea() tea.Cmd {
-	var cmds []tea.Cmd
-
-	// First, ensure all chunks in the bounding area are loaded
-	if loadCmd := l.ensureBoundingAreaLoaded(); loadCmd != nil {
-		cmds = append(cmds, loadCmd)
-	}
-
-	// Then, unload chunks outside the bounding area
-	if unloadCmd := l.unloadChunksOutsideBoundingArea(); unloadCmd != nil {
-		cmds = append(cmds, unloadCmd)
-	}
-
-	return tea.Batch(cmds...)
-}
-
-// checkAndLoadChunks is now replaced by the bounding area system
-func (l *List) checkAndLoadChunks() tea.Cmd {
-	if l.dataSource == nil {
-		return nil
-	}
-
-	// Calculate bounding area and load necessary chunks
-	boundingArea := l.calculateBoundingArea()
-	chunkSize := l.config.ViewportConfig.ChunkSize
-	var cmds []tea.Cmd
-
-	// Load all chunks that should be in the bounding area
-	for chunkStart := boundingArea.ChunkStart; chunkStart < boundingArea.ChunkEnd; chunkStart += chunkSize {
-		if chunkStart >= l.totalItems {
-			break // Don't load chunks beyond dataset
-		}
-
-		if !l.isChunkLoaded(chunkStart) {
-			// Calculate actual chunk size (might be smaller at the end)
-			actualChunkSize := chunkSize
-			if chunkStart+chunkSize > l.totalItems {
-				actualChunkSize = l.totalItems - chunkStart
-			}
-
-			request := DataRequest{
-				Start:          chunkStart,
-				Count:          actualChunkSize,
-				SortFields:     l.sortFields,
-				SortDirections: l.sortDirs,
-				Filters:        l.filters,
-			}
-			cmds = append(cmds, l.dataSource.LoadChunk(request))
-		}
-	}
-
-	// Also unload chunks outside bounding area
-	for chunkStart := range l.chunks {
-		chunkEnd := chunkStart + chunkSize - 1
-
-		// Check if this chunk intersects with the bounding area
-		// A chunk intersects if: chunkStart <= boundingArea.EndIndex AND chunkEnd >= boundingArea.StartIndex
-		doesIntersect := chunkStart <= boundingArea.EndIndex && chunkEnd >= boundingArea.StartIndex
-
-		if !doesIntersect {
-			// This chunk is completely outside the bounding area, unload it
-			delete(l.chunks, chunkStart)
-			delete(l.chunkAccessTime, chunkStart)
-			cmds = append(cmds, ChunkUnloadedCmd(chunkStart))
-		}
+	// Find and unload chunks outside the bounding area
+	chunksToUnload := FindChunksToUnload(l.chunks, boundingArea, chunkSize)
+	for _, chunkStart := range chunksToUnload {
+		delete(l.chunks, chunkStart)
+		delete(l.chunkAccessTime, chunkStart)
+		cmds = append(cmds, ChunkUnloadedCmd(chunkStart))
 	}
 
 	return tea.Batch(cmds...)
@@ -1585,46 +1134,17 @@ func (l *List) checkAndLoadChunks() tea.Cmd {
 
 // isChunkLoaded checks if a chunk containing the given index is loaded
 func (l *List) isChunkLoaded(index int) bool {
-	for _, chunk := range l.chunks {
-		if index >= chunk.StartIndex && index <= chunk.EndIndex {
-			return true
-		}
-	}
-	return false
+	return IsChunkLoaded(index, l.chunks)
 }
 
 // getItemAtIndex retrieves an item at a specific index
 func (l *List) getItemAtIndex(index int) (Data[any], bool) {
-	if index < 0 || index >= l.totalItems {
-		return Data[any]{}, false
-	}
-
-	// Find chunk containing this index
-	for chunkStart, chunk := range l.chunks {
-		if index >= chunk.StartIndex && index <= chunk.EndIndex {
-			// Update access time for LRU management
-			l.chunkAccessTime[chunkStart] = time.Now()
-
-			chunkIndex := index - chunk.StartIndex
-			if chunkIndex < len(chunk.Items) {
-				return chunk.Items[chunkIndex], true
-			}
-		}
-	}
-
-	return Data[any]{}, false
+	return GetItemAtIndex(index, l.chunks, l.totalItems, l.chunkAccessTime)
 }
 
 // findItemIndex finds the index of an item by ID
 func (l *List) findItemIndex(id string) int {
-	for _, chunk := range l.chunks {
-		for i, item := range chunk.Items {
-			if item.ID == id {
-				return chunk.StartIndex + i
-			}
-		}
-	}
-	return -1
+	return FindItemIndex(id, l.chunks)
 }
 
 // toggleItemSelection toggles selection for an item via DataSource
@@ -1672,29 +1192,16 @@ func (l *List) clearSelection() {
 	}
 }
 
-// max returns the larger of two integers
-func max(a, b int) int {
-	if a > b {
-		return a
-	}
-	return b
-}
-
 // unloadOldChunks unloads chunks that are no longer needed based on smart strategy
 func (l *List) unloadOldChunks() tea.Cmd {
 	// Calculate the bounds of chunks that should be kept
-	viewportChunkIndex := (l.viewport.ViewportStartIndex / l.config.ViewportConfig.ChunkSize) * l.config.ViewportConfig.ChunkSize
-	keepLowerBound := viewportChunkIndex - l.config.ViewportConfig.ChunkSize
-	if keepLowerBound < 0 {
-		keepLowerBound = 0
-	}
-	keepUpperBound := viewportChunkIndex + (2 * l.config.ViewportConfig.ChunkSize)
+	keepLowerBound, keepUpperBound := CalculateUnloadBounds(l.viewport, l.config.ViewportConfig)
 
 	var unloadedChunks []int
 
 	// Unload chunks outside the bounds
 	for startIndex := range l.chunks {
-		if startIndex < keepLowerBound || startIndex > keepUpperBound {
+		if ShouldUnloadChunk(startIndex, keepLowerBound, keepUpperBound) {
 			delete(l.chunks, startIndex)
 			delete(l.chunkAccessTime, startIndex)
 		}
@@ -1714,131 +1221,36 @@ func (l *List) unloadOldChunks() tea.Cmd {
 
 // updateVisibleItems updates the slice of items currently visible in the viewport
 func (l *List) updateVisibleItems() {
-	// If there's no data, return an empty slice
-	if l.totalItems == 0 {
-		l.visibleItems = []Data[any]{}
-		return
-	}
+	result := CalculateVisibleItemsFromChunks(
+		l.viewport,
+		l.config.ViewportConfig,
+		l.totalItems,
+		l.chunks,
+		l.ensureChunkLoadedImmediate,
+	)
 
-	// Calculate how many actual items we can show
-	maxVisibleItems := l.config.ViewportConfig.Height
-	if l.totalItems < maxVisibleItems {
-		maxVisibleItems = l.totalItems
-	}
-
-	// Ensure viewport doesn't extend beyond dataset
-	maxStart := l.totalItems - maxVisibleItems
-	if l.viewport.ViewportStartIndex > maxStart {
-		l.viewport.ViewportStartIndex = maxStart
-	}
-	if l.viewport.ViewportStartIndex < 0 {
-		l.viewport.ViewportStartIndex = 0
-	}
-
-	// Calculate endpoint of visible area (exclusive)
-	viewportEnd := l.viewport.ViewportStartIndex + maxVisibleItems
-	if viewportEnd > l.totalItems {
-		viewportEnd = l.totalItems
-	}
-
-	// Create a new slice to hold visible items
-	l.visibleItems = make([]Data[any], 0, viewportEnd-l.viewport.ViewportStartIndex)
-
-	// Fill the visible items slice with actual data - ENSURE CHUNKS ARE LOADED!
-	for i := l.viewport.ViewportStartIndex; i < viewportEnd; i++ {
-		// Get the chunk that contains this item
-		chunkStartIndex := (i / l.config.ViewportConfig.ChunkSize) * l.config.ViewportConfig.ChunkSize
-		chunk, ok := l.chunks[chunkStartIndex]
-
-		// If chunk isn't loaded, load it immediately - NO WAITING!
-		if !ok {
-			l.ensureChunkLoadedImmediate(chunkStartIndex)
-			// Try to get the chunk again after loading
-			chunk, ok = l.chunks[chunkStartIndex]
-		}
-
-		// If we still don't have the chunk, something is wrong - create a placeholder
-		if !ok {
-			l.visibleItems = append(l.visibleItems, Data[any]{
-				ID:   fmt.Sprintf("loading-%d", i),
-				Item: fmt.Sprintf("Loading item %d...", i),
-			})
-			continue
-		}
-
-		// Calculate item index within the chunk
-		itemIndex := i - chunk.StartIndex
-
-		// Only add the item if it's within the chunk's bounds
-		if itemIndex >= 0 && itemIndex < len(chunk.Items) {
-			l.visibleItems = append(l.visibleItems, chunk.Items[itemIndex])
-		} else {
-			// Item not in chunk bounds - create placeholder
-			l.visibleItems = append(l.visibleItems, Data[any]{
-				ID:   fmt.Sprintf("missing-%d", i),
-				Item: fmt.Sprintf("Missing item %d", i),
-			})
-		}
-	}
-
-	// Ensure cursor stays within bounds of visible data
-	if l.viewport.CursorViewportIndex >= len(l.visibleItems) {
-		if len(l.visibleItems) > 0 {
-			l.viewport.CursorViewportIndex = len(l.visibleItems) - 1
-		} else {
-			l.viewport.CursorViewportIndex = 0
-		}
-		// Adjust absolute cursor position
-		l.viewport.CursorIndex = l.viewport.ViewportStartIndex + l.viewport.CursorViewportIndex
-	}
+	l.visibleItems = result.Items
+	l.viewport = result.AdjustedViewport
 }
 
 // ================================
 // HELPER METHODS
 // ================================
 
-// ensureChunkLoaded loads the chunk containing the given index if not already loaded
-func (l *List) ensureChunkLoaded(index int) {
-	chunkStartIndex := (index / l.config.ViewportConfig.ChunkSize) * l.config.ViewportConfig.ChunkSize
-	if _, exists := l.chunks[chunkStartIndex]; !exists {
-		// Load this chunk synchronously - no "Loading..." placeholders!
-		if l.dataSource != nil {
-			loadCmd := l.dataSource.LoadChunk(DataRequest{
-				Start: chunkStartIndex,
-				Count: l.config.ViewportConfig.ChunkSize,
-			})
-			// Execute the command immediately to get the data
-			if loadCmd != nil {
-				if msg := loadCmd(); msg != nil {
-					// Process the chunk loaded message immediately
-					if chunkMsg, ok := msg.(DataChunkLoadedMsg); ok {
-						l.handleDataChunkLoaded(chunkMsg)
-					}
-				}
-			}
-		}
-	}
-}
-
 // ensureChunkLoadedImmediate loads the chunk containing the given index immediately
 func (l *List) ensureChunkLoadedImmediate(index int) {
-	chunkStartIndex := (index / l.config.ViewportConfig.ChunkSize) * l.config.ViewportConfig.ChunkSize
+	chunkStartIndex := CalculateChunkStartIndex(index, l.config.ViewportConfig.ChunkSize)
 	if _, exists := l.chunks[chunkStartIndex]; !exists {
 		// Load this chunk immediately - NO WAITING!
 		if l.dataSource != nil {
-			// Calculate actual chunk size (might be smaller at the end)
-			actualChunkSize := l.config.ViewportConfig.ChunkSize
-			if chunkStartIndex+actualChunkSize > l.totalItems {
-				actualChunkSize = l.totalItems - chunkStartIndex
-			}
-
-			request := DataRequest{
-				Start:          chunkStartIndex,
-				Count:          actualChunkSize,
-				SortFields:     l.sortFields,
-				SortDirections: l.sortDirs,
-				Filters:        l.filters,
-			}
+			request := CreateChunkRequest(
+				chunkStartIndex,
+				l.config.ViewportConfig.ChunkSize,
+				l.totalItems,
+				l.sortFields,
+				l.sortDirs,
+				l.filters,
+			)
 
 			// Check if the data source supports immediate loading
 			if immediateLoader, ok := l.dataSource.(interface {
@@ -1862,300 +1274,6 @@ func (l *List) ensureChunkLoadedImmediate(index int) {
 	}
 }
 
-// ================================
-// NAVIGATION METHODS (Direct state manipulation)
-// ================================
-
-// MoveUp moves the cursor up one position
-func (l *List) MoveUp() {
-	if l.totalItems <= 0 || l.viewport.CursorIndex <= 0 {
-		return
-	}
-
-	previousState := l.viewport
-	l.viewport.CursorIndex--
-
-	topThreshold := l.config.ViewportConfig.TopThreshold
-
-	// Handle top threshold logic (only if thresholds are enabled)
-	if previousState.IsAtTopThreshold && !l.viewport.AtDatasetStart && topThreshold >= 0 {
-		// Cursor was at the top threshold, scroll viewport up while keeping cursor at threshold
-		l.viewport.ViewportStartIndex--
-		l.viewport.CursorViewportIndex = topThreshold // LOCK cursor at threshold
-		// Update absolute cursor position based on new viewport
-		l.viewport.CursorIndex = l.viewport.ViewportStartIndex + l.viewport.CursorViewportIndex
-	} else if topThreshold < 0 {
-		// Thresholds disabled - use pure edge-based scrolling
-		l.viewport.CursorIndex-- // Move cursor normally
-		// Move cursor within viewport if possible, otherwise scroll
-		if previousState.CursorViewportIndex > 0 {
-			// Cursor can move within viewport
-			l.viewport.CursorViewportIndex--
-		} else {
-			// Cursor is at top edge of viewport - scroll if possible
-			if l.viewport.ViewportStartIndex > 0 {
-				l.viewport.ViewportStartIndex--
-				l.viewport.CursorViewportIndex = 0
-			}
-		}
-	} else {
-		// Thresholds enabled - move cursor normally, let viewport follow
-		l.viewport.CursorIndex-- // Move cursor first
-
-		if previousState.CursorViewportIndex > 0 {
-			// Cursor not at threshold, move within viewport
-			l.viewport.CursorViewportIndex--
-		} else {
-			// At viewport top edge, scroll if possible
-			if l.viewport.ViewportStartIndex > 0 {
-				l.viewport.ViewportStartIndex--
-				l.viewport.CursorViewportIndex = 0
-			} else {
-				// Can't scroll, cursor stays at top
-				l.viewport.CursorViewportIndex = 0
-			}
-		}
-	}
-
-	// Final safety check - ensure cursor doesn't go negative
-	if l.viewport.CursorIndex < 0 {
-		l.viewport.CursorIndex = 0
-		l.viewport.CursorViewportIndex = 0
-	}
-
-	l.updateViewportBounds()
-
-	// Update visible items if viewport changed
-	if l.viewport.ViewportStartIndex != previousState.ViewportStartIndex {
-		l.updateVisibleItems()
-		// NOTE: manageBoundingArea() removed - public methods can't handle async commands
-		// Bounding area management happens through the command handlers
-	}
-}
-
-// MoveDown moves the cursor down one position
-func (l *List) MoveDown() {
-	if l.totalItems <= 0 || l.viewport.CursorIndex >= l.totalItems-1 {
-		return
-	}
-
-	previousState := l.viewport
-	l.viewport.CursorIndex++
-
-	bottomThreshold := l.config.ViewportConfig.BottomThreshold
-
-	// Handle bottom threshold logic (only if thresholds are enabled)
-	if previousState.IsAtBottomThreshold && !l.viewport.AtDatasetEnd && bottomThreshold >= 0 {
-		// Cursor was at the bottom threshold, scroll viewport down
-		l.viewport.ViewportStartIndex++
-		l.viewport.CursorViewportIndex = bottomThreshold
-	} else if bottomThreshold < 0 {
-		// Thresholds disabled - use pure edge-based scrolling
-		// Move cursor within viewport if possible, otherwise scroll
-		if previousState.CursorViewportIndex < l.config.ViewportConfig.Height-1 {
-			// Cursor can move within viewport
-			l.viewport.CursorViewportIndex++
-		} else {
-			// Cursor is at bottom edge of viewport - scroll if possible
-			if l.viewport.ViewportStartIndex+l.config.ViewportConfig.Height < l.totalItems {
-				l.viewport.ViewportStartIndex++
-				l.viewport.CursorViewportIndex = l.config.ViewportConfig.Height - 1
-			}
-		}
-	} else {
-		// Thresholds enabled - traditional threshold-based logic
-		if previousState.CursorViewportIndex < l.config.ViewportConfig.Height-1 &&
-			l.viewport.ViewportStartIndex+previousState.CursorViewportIndex+1 < l.totalItems {
-			// Cursor not at threshold, move within viewport
-			l.viewport.CursorViewportIndex++
-		} else {
-			// At viewport bottom edge, scroll if possible
-			if l.viewport.ViewportStartIndex+l.config.ViewportConfig.Height < l.totalItems {
-				l.viewport.ViewportStartIndex++
-			}
-			l.viewport.CursorViewportIndex = l.viewport.CursorIndex - l.viewport.ViewportStartIndex
-		}
-	}
-
-	// Final boundary check - ensure we're not beyond data
-	if l.viewport.CursorIndex >= l.totalItems {
-		l.viewport.CursorIndex = l.totalItems - 1
-		l.viewport.CursorViewportIndex = l.viewport.CursorIndex - l.viewport.ViewportStartIndex
-	}
-
-	// Ensure cursor viewport index is within bounds
-	if l.viewport.CursorViewportIndex < 0 {
-		l.viewport.CursorViewportIndex = 0
-		l.viewport.CursorIndex = l.viewport.ViewportStartIndex
-	}
-
-	l.updateViewportBounds()
-
-	// Update visible items if viewport changed
-	if l.viewport.ViewportStartIndex != previousState.ViewportStartIndex {
-		l.updateVisibleItems()
-		// NOTE: manageBoundingArea() removed - public methods can't handle async commands
-		// Bounding area management happens through the command handlers
-	}
-}
-
-// PageUp moves the cursor up by a page (viewport height)
-func (l *List) PageUp() {
-	if l.viewport.CursorIndex <= 0 {
-		return
-	}
-
-	previousState := l.viewport
-	moveCount := l.config.ViewportConfig.Height
-
-	if moveCount > l.viewport.CursorIndex {
-		moveCount = l.viewport.CursorIndex
-	}
-
-	l.viewport.CursorIndex -= moveCount
-	l.updateViewportPosition()
-
-	// Update visible items if viewport changed
-	if l.viewport.ViewportStartIndex != previousState.ViewportStartIndex {
-		l.updateVisibleItems()
-		// NOTE: manageBoundingArea() removed - public methods can't handle async commands
-	}
-}
-
-// PageDown moves the cursor down by a page (viewport height)
-func (l *List) PageDown() {
-	if l.viewport.CursorIndex >= l.totalItems-1 {
-		return
-	}
-
-	previousState := l.viewport
-	moveCount := l.config.ViewportConfig.Height
-
-	if l.viewport.CursorIndex+moveCount >= l.totalItems {
-		moveCount = l.totalItems - 1 - l.viewport.CursorIndex
-	}
-
-	l.viewport.CursorIndex += moveCount
-	l.updateViewportPosition()
-
-	// Update visible items if viewport changed
-	if l.viewport.ViewportStartIndex != previousState.ViewportStartIndex {
-		l.updateVisibleItems()
-		// NOTE: manageBoundingArea() removed - public methods can't handle async commands
-	}
-}
-
-// JumpToStart jumps to the start of the dataset
-func (l *List) JumpToStart() {
-	if l.totalItems <= 0 {
-		return
-	}
-
-	previousState := l.viewport
-	l.viewport.CursorIndex = 0
-	l.viewport.ViewportStartIndex = 0
-	l.viewport.CursorViewportIndex = 0
-	l.viewport.AtDatasetStart = true
-	l.viewport.AtDatasetEnd = l.totalItems <= l.config.ViewportConfig.Height
-
-	// Update visible items if viewport changed
-	if l.viewport.ViewportStartIndex != previousState.ViewportStartIndex {
-		l.updateVisibleItems()
-		// NOTE: manageBoundingArea() removed - public methods can't handle async commands
-	}
-}
-
-// JumpToEnd jumps to the end of the dataset
-func (l *List) JumpToEnd() {
-	if l.totalItems <= 0 {
-		return
-	}
-
-	previousState := l.viewport
-	l.viewport.CursorIndex = l.totalItems - 1
-
-	if l.totalItems <= l.config.ViewportConfig.Height {
-		l.viewport.ViewportStartIndex = 0
-		l.viewport.CursorViewportIndex = l.totalItems - 1
-	} else {
-		l.viewport.ViewportStartIndex = l.totalItems - l.config.ViewportConfig.Height
-		l.viewport.CursorViewportIndex = l.config.ViewportConfig.Height - 1
-	}
-
-	l.viewport.AtDatasetStart = l.viewport.ViewportStartIndex == 0
-	l.viewport.AtDatasetEnd = true
-
-	// Update visible items if viewport changed
-	if l.viewport.ViewportStartIndex != previousState.ViewportStartIndex {
-		l.updateVisibleItems()
-		// NOTE: manageBoundingArea() removed - public methods can't handle async commands
-	}
-}
-
-// JumpToIndex jumps to a specific index in the dataset
-func (l *List) JumpToIndex(index int) {
-	if l.totalItems == 0 || index < 0 || index >= l.totalItems {
-		return
-	}
-
-	l.viewport.CursorIndex = index
-	l.updateViewportPosition()
-
-	// CRITICAL FIX: Use smart chunk management instead of immediate loading
-	// This respects the bounding area configuration
-	if cmd := l.smartChunkManagement(); cmd != nil {
-		// Execute the chunk management command immediately
-		if msg := cmd(); msg != nil {
-			// Process any resulting messages
-			l.Update(msg)
-		}
-	}
-
-	// Only update visible items after chunk management
-	l.updateVisibleItems()
-}
-
-// ToggleCurrentSelection toggles the selection of the current item
-func (l *List) ToggleCurrentSelection() bool {
-	if l.config.SelectionMode == SelectionNone || l.totalItems == 0 || l.dataSource == nil {
-		return false
-	}
-
-	item, exists := l.getItemAtIndex(l.viewport.CursorIndex)
-	if !exists {
-		return false
-	}
-
-	// Delegate to DataSource and execute command immediately
-	cmd := l.dataSource.SetSelected(l.viewport.CursorIndex, !item.Selected)
-	if cmd != nil {
-		if msg := cmd(); msg != nil {
-			l.Update(msg)
-		}
-	}
-	return true
-}
-
-// SelectAll selects all items via DataSource
-func (l *List) SelectAll() {
-	if l.config.SelectionMode != SelectionMultiple || l.dataSource == nil {
-		return
-	}
-
-	// Delegate to DataSource and execute command immediately
-	cmd := l.dataSource.SelectAll()
-	if cmd != nil {
-		if msg := cmd(); msg != nil {
-			l.Update(msg)
-		}
-	}
-}
-
-// ClearSelection clears all selections
-func (l *List) ClearSelection() {
-	l.clearSelection()
-}
-
 // smartChunkManagement provides intelligent chunk loading with user feedback
 func (l *List) smartChunkManagement() tea.Cmd {
 	if l.dataSource == nil {
@@ -2168,30 +1286,24 @@ func (l *List) smartChunkManagement() tea.Cmd {
 	var cmds []tea.Cmd
 	var newLoadingChunks []int
 
-	// Load all chunks that should be in the bounding area
-	for chunkStart := boundingArea.ChunkStart; chunkStart < boundingArea.ChunkEnd; chunkStart += chunkSize {
-		if chunkStart >= l.totalItems {
-			break // Don't load chunks beyond dataset
-		}
+	// Get chunks that need to be loaded
+	chunksToLoad := CalculateChunksInBoundingArea(boundingArea, chunkSize, l.totalItems)
 
+	// Load chunks that aren't already loaded or loading
+	for _, chunkStart := range chunksToLoad {
 		if !l.isChunkLoaded(chunkStart) && !l.loadingChunks[chunkStart] {
 			// Mark chunk as loading
 			l.loadingChunks[chunkStart] = true
 			newLoadingChunks = append(newLoadingChunks, chunkStart)
 
-			// Calculate actual chunk size (might be smaller at the end)
-			actualChunkSize := chunkSize
-			if chunkStart+chunkSize > l.totalItems {
-				actualChunkSize = l.totalItems - chunkStart
-			}
-
-			request := DataRequest{
-				Start:          chunkStart,
-				Count:          actualChunkSize,
-				SortFields:     l.sortFields,
-				SortDirections: l.sortDirs,
-				Filters:        l.filters,
-			}
+			request := CreateChunkRequest(
+				chunkStart,
+				chunkSize,
+				l.totalItems,
+				l.sortFields,
+				l.sortDirs,
+				l.filters,
+			)
 
 			// Emit chunk loading started message for observability
 			cmds = append(cmds, ChunkLoadingStartedCmd(chunkStart, request))
@@ -2206,20 +1318,12 @@ func (l *List) smartChunkManagement() tea.Cmd {
 		l.canScroll = !l.isLoadingCriticalChunks()
 	}
 
-	// Also unload chunks outside bounding area
-	for chunkStart := range l.chunks {
-		chunkEnd := chunkStart + chunkSize - 1
-
-		// Check if this chunk intersects with the bounding area
-		// A chunk intersects if: chunkStart <= boundingArea.EndIndex AND chunkEnd >= boundingArea.StartIndex
-		doesIntersect := chunkStart <= boundingArea.EndIndex && chunkEnd >= boundingArea.StartIndex
-
-		if !doesIntersect {
-			// This chunk is completely outside the bounding area, unload it
-			delete(l.chunks, chunkStart)
-			delete(l.chunkAccessTime, chunkStart)
-			cmds = append(cmds, ChunkUnloadedCmd(chunkStart))
-		}
+	// Unload chunks outside bounding area
+	chunksToUnload := FindChunksToUnload(l.chunks, boundingArea, chunkSize)
+	for _, chunkStart := range chunksToUnload {
+		delete(l.chunks, chunkStart)
+		delete(l.chunkAccessTime, chunkStart)
+		cmds = append(cmds, ChunkUnloadedCmd(chunkStart))
 	}
 
 	return tea.Batch(cmds...)
@@ -2227,18 +1331,7 @@ func (l *List) smartChunkManagement() tea.Cmd {
 
 // isLoadingCriticalChunks checks if we're loading chunks that affect the current viewport
 func (l *List) isLoadingCriticalChunks() bool {
-	chunkSize := l.config.ViewportConfig.ChunkSize
-	viewportStart := l.viewport.ViewportStartIndex
-	viewportEnd := viewportStart + l.config.ViewportConfig.Height
-
-	for chunkStart := range l.loadingChunks {
-		chunkEnd := chunkStart + chunkSize
-		// Check if this loading chunk overlaps with viewport
-		if !(chunkEnd <= viewportStart || chunkStart >= viewportEnd) {
-			return true
-		}
-	}
-	return false
+	return IsLoadingCriticalChunks(l.viewport, l.config.ViewportConfig, l.loadingChunks)
 }
 
 // refreshChunks reloads existing chunks to get updated selection state
@@ -2251,20 +1344,14 @@ func (l *List) refreshChunks() tea.Cmd {
 
 	// Reload all currently loaded chunks to get updated selection state
 	for chunkStart := range l.chunks {
-		// Calculate actual chunk size (might be smaller at the end)
-		chunkSize := l.config.ViewportConfig.ChunkSize
-		actualChunkSize := chunkSize
-		if chunkStart+chunkSize > l.totalItems {
-			actualChunkSize = l.totalItems - chunkStart
-		}
-
-		request := DataRequest{
-			Start:          chunkStart,
-			Count:          actualChunkSize,
-			SortFields:     l.sortFields,
-			SortDirections: l.sortDirs,
-			Filters:        l.filters,
-		}
+		request := CreateChunkRequest(
+			chunkStart,
+			l.config.ViewportConfig.ChunkSize,
+			l.totalItems,
+			l.sortFields,
+			l.sortDirs,
+			l.filters,
+		)
 
 		// Reload this chunk to get updated selection state
 		cmds = append(cmds, l.dataSource.LoadChunk(request))
