@@ -38,6 +38,9 @@ type JumpToMsg struct {
 // DataRefreshMsg triggers a complete data refresh
 type DataRefreshMsg struct{}
 
+// DataChunksRefreshMsg triggers chunk refresh while preserving cursor position
+type DataChunksRefreshMsg struct{}
+
 // DataChunkLoadedMsg indicates that a chunk of data has been loaded
 type DataChunkLoadedMsg struct {
 	StartIndex int
@@ -54,6 +57,11 @@ type DataChunkErrorMsg struct {
 
 // DataTotalMsg provides the total number of items
 type DataTotalMsg struct {
+	Total int
+}
+
+// DataTotalUpdateMsg updates the total number of items while preserving cursor position
+type DataTotalUpdateMsg struct {
 	Total int
 }
 

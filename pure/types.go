@@ -258,10 +258,16 @@ type RenderContext struct {
 	FocusState  FocusState
 	DeltaTime   time.Duration // Time since last render for smooth animations
 
+	// State indicators (configurable)
+	ErrorIndicator    string
+	LoadingIndicator  string
+	DisabledIndicator string
+	SelectedIndicator string
+
 	// Utility functions
 	Truncate func(string, int) string
 	Wrap     func(string, int) []string
-	Measure  func(string) (int, int)
+	Measure  func(string, int) (int, int)
 
 	// Error handling
 	OnError func(error)

@@ -70,6 +70,13 @@ func DataRefreshCmd() tea.Cmd {
 	}
 }
 
+// DataChunksRefreshCmd returns a command to refresh chunks while preserving cursor position
+func DataChunksRefreshCmd() tea.Cmd {
+	return func() tea.Msg {
+		return DataChunksRefreshMsg{}
+	}
+}
+
 // DataChunkLoadedCmd returns a command indicating a chunk was loaded
 func DataChunkLoadedCmd(startIndex int, items []Data[any], request DataRequest) tea.Cmd {
 	return func() tea.Msg {
@@ -96,6 +103,13 @@ func DataChunkErrorCmd(startIndex int, err error, request DataRequest) tea.Cmd {
 func DataTotalCmd(total int) tea.Cmd {
 	return func() tea.Msg {
 		return DataTotalMsg{Total: total}
+	}
+}
+
+// DataTotalUpdateCmd returns a command with the total number of items while preserving cursor position
+func DataTotalUpdateCmd(total int) tea.Cmd {
+	return func() tea.Msg {
+		return DataTotalUpdateMsg{Total: total}
 	}
 }
 

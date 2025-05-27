@@ -2,7 +2,6 @@ package vtable
 
 import (
 	"fmt"
-	"strings"
 
 	"github.com/charmbracelet/lipgloss"
 )
@@ -84,80 +83,35 @@ func FormatItemContent(
 	case fmt.Stringer:
 		content = v.String()
 	default:
-		// Check if it's a struct with common fields we can format nicely
-		if taskContent := tryFormatAsTask(v); taskContent != "" {
-			content = taskContent
-		} else {
-			// Fallback to default formatting
-			content = fmt.Sprintf("%v", item.Item)
-		}
+		// Use standard Go formatting for any type
+		content = fmt.Sprintf("%v", item.Item)
 	}
 
-	// Add state indicators - show both selection and error/loading/disabled states
+	// Add configurable state indicators using render context
 	var stateIndicator string
 
 	// Add error/loading/disabled indicators
 	switch {
 	case item.Error != nil:
-		stateIndicator += " ❌"
+		if renderContext.ErrorIndicator != "" {
+			stateIndicator += " " + renderContext.ErrorIndicator
+		}
 	case item.Loading:
-		stateIndicator += " ⏳"
+		if renderContext.LoadingIndicator != "" {
+			stateIndicator += " " + renderContext.LoadingIndicator
+		}
 	case item.Disabled:
-		stateIndicator += " 🚫"
+		if renderContext.DisabledIndicator != "" {
+			stateIndicator += " " + renderContext.DisabledIndicator
+		}
 	}
 
 	// Add selection indicator if selected
-	if item.Selected {
-		stateIndicator += " ✅"
+	if item.Selected && renderContext.SelectedIndicator != "" {
+		stateIndicator += " " + renderContext.SelectedIndicator
 	}
 
 	return content + stateIndicator
-}
-
-// tryFormatAsTask attempts to format an item as a task-like structure
-func tryFormatAsTask(item any) string {
-	// Use reflection to check for common task fields
-	// This is a simple approach that works for our Task struct
-	if taskMap, ok := item.(map[string]interface{}); ok {
-		// Handle map-based tasks
-		if title, hasTitle := taskMap["Title"].(string); hasTitle {
-			if priority, hasPriority := taskMap["Priority"].(string); hasPriority {
-				if status, hasStatus := taskMap["Status"].(string); hasStatus {
-					if category, hasCategory := taskMap["Category"].(string); hasCategory {
-						return fmt.Sprintf("%s | %s | %s | %s", title, priority, status, category)
-					}
-				}
-			}
-		}
-	}
-
-	// For our specific Task struct, we can use a type assertion
-	// This is a bit hacky but works for the example
-	taskStr := fmt.Sprintf("%+v", item)
-	if strings.Contains(taskStr, "Title:") && strings.Contains(taskStr, "Priority:") {
-		// Parse the struct string to extract fields
-		// This is not ideal but works for the demo
-		fields := strings.Fields(taskStr)
-		var title, priority, status, category string
-
-		for _, field := range fields {
-			if strings.HasPrefix(field, "Title:") {
-				title = strings.TrimPrefix(field, "Title:")
-			} else if strings.HasPrefix(field, "Priority:") {
-				priority = strings.TrimPrefix(field, "Priority:")
-			} else if strings.HasPrefix(field, "Status:") {
-				status = strings.TrimPrefix(field, "Status:")
-			} else if strings.HasPrefix(field, "Category:") {
-				category = strings.TrimPrefix(field, "Category:")
-			}
-		}
-
-		if title != "" && priority != "" && status != "" && category != "" {
-			return fmt.Sprintf("%s | %s | %s | %s", title, priority, status, category)
-		}
-	}
-
-	return "" // Couldn't format as task
 }
 
 // FormatAnimatedItemContent formats item content using animated formatter

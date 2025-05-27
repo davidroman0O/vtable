@@ -20,6 +20,8 @@ type ListRenderConfig struct {
 	MaxWidth        int
 	WrapText        bool
 	AlignEnumerator bool // Whether to right-align enumerators for consistent spacing
+	CursorIndicator string
+	NormalSpacing   string
 }
 
 // DefaultListRenderConfig returns sensible defaults for list rendering
@@ -32,6 +34,8 @@ func DefaultListRenderConfig() ListRenderConfig {
 		MaxWidth:        80,
 		WrapText:        true,
 		AlignEnumerator: true,
+		CursorIndicator: "► ",
+		NormalSpacing:   "  ",
 	}
 }
 
@@ -49,9 +53,9 @@ func EnhancedListFormatter(config ListRenderConfig) ItemFormatter[any] {
 
 		// Add cursor indicator if this is the cursor line
 		if isCursor {
-			parts = append(parts, "► ")
+			parts = append(parts, config.CursorIndicator)
 		} else {
-			parts = append(parts, "  ") // Add spacing for alignment
+			parts = append(parts, config.NormalSpacing) // Add spacing for alignment
 		}
 
 		// Generate enumerator if enabled
@@ -110,7 +114,12 @@ func AlignedEnumeratorFormatter(config ListRenderConfig, items []Data[any]) Item
 	// Calculate the maximum enumerator width for alignment
 	maxEnumWidth := 0
 	if config.AlignEnumerator && config.ShowEnumerator && config.Enumerator != nil {
-		ctx := RenderContext{} // Basic context for width calculation
+		ctx := RenderContext{
+			ErrorIndicator:    "❌",
+			LoadingIndicator:  "⏳",
+			DisabledIndicator: "🚫",
+			SelectedIndicator: "✅",
+		} // Basic context for width calculation
 		maxEnumWidth = CalculateEnumeratorWidth(items, config.Enumerator, ctx)
 	}
 
@@ -188,10 +197,10 @@ func ConditionalListFormatter() ItemFormatter[any] {
 	conditionalEnum := NewConditionalEnumerator(BulletEnumerator).
 		When(IsSelected, CheckboxEnumerator).
 		When(IsError, func(item Data[any], index int, ctx RenderContext) string {
-			return "✗ "
+			return ctx.ErrorIndicator + " "
 		}).
 		When(IsLoading, func(item Data[any], index int, ctx RenderContext) string {
-			return "⟳ "
+			return ctx.LoadingIndicator + " "
 		})
 
 	config := DefaultListRenderConfig()

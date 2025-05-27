@@ -1188,7 +1188,7 @@ func (t *Table) setupRenderContext() {
 
 			return lines
 		},
-		Measure: func(text string) (int, int) {
+		Measure: func(text string, maxWidth int) (int, int) {
 			lines := strings.Split(text, "\n")
 			width := 0
 			for _, line := range lines {

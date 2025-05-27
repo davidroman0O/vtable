@@ -173,6 +173,15 @@ func (l *List) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmd := l.handleDataRefresh()
 		return l, cmd
 
+	case DataChunksRefreshMsg:
+		// Refresh chunks while preserving cursor position
+		l.chunks = make(map[int]Chunk[any])
+		l.loadingChunks = make(map[int]bool)
+		l.hasLoadingChunks = false
+		l.canScroll = true
+		// Don't reset cursor position - just reload chunks
+		return l, l.smartChunkManagement()
+
 	case DataChunkLoadedMsg:
 		cmd := l.handleDataChunkLoaded(msg)
 		return l, cmd
@@ -190,6 +199,29 @@ func (l *List) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		l.viewport.CursorViewportIndex = l.config.ViewportConfig.InitialIndex
 		// After getting total, load the initial chunks using smart chunk management
 		return l, l.smartChunkManagement()
+
+	case DataTotalUpdateMsg:
+		// Update total while preserving cursor position
+		oldTotal := l.totalItems
+		l.totalItems = msg.Total
+		l.updateViewportBounds()
+
+		// Ensure cursor stays within bounds if total decreased
+		if l.viewport.CursorIndex >= l.totalItems && l.totalItems > 0 {
+			l.viewport.CursorIndex = l.totalItems - 1
+			// Recalculate viewport position based on new cursor
+			l.viewport.CursorViewportIndex = l.viewport.CursorIndex - l.viewport.ViewportStartIndex
+			if l.viewport.CursorViewportIndex < 0 {
+				l.viewport.ViewportStartIndex = l.viewport.CursorIndex
+				l.viewport.CursorViewportIndex = 0
+			}
+		}
+
+		// Only reload chunks if we need to refresh data (not just for cursor preservation)
+		if oldTotal != l.totalItems {
+			return l, l.smartChunkManagement()
+		}
+		return l, nil
 
 	case DataLoadErrorMsg:
 		l.lastError = msg.Error
@@ -434,8 +466,12 @@ func (l *List) View() string {
 		if l.formatter != nil {
 			// Use custom formatter if available
 			ctx := RenderContext{
-				MaxWidth:  l.config.MaxWidth,
-				MaxHeight: 1,
+				MaxWidth:          l.config.MaxWidth,
+				MaxHeight:         1,
+				ErrorIndicator:    "❌",
+				LoadingIndicator:  "⏳",
+				DisabledIndicator: "🚫",
+				SelectedIndicator: "✅",
 			}
 			renderedItem = l.formatter(
 				item,
@@ -520,6 +556,13 @@ func (l *List) setupRenderContext() {
 		UnicodeSupport: true,
 		CurrentTime:    time.Now(),
 		FocusState:     FocusState{HasFocus: l.focused},
+
+		// Default state indicators
+		ErrorIndicator:    "❌",
+		LoadingIndicator:  "⏳",
+		DisabledIndicator: "🚫",
+		SelectedIndicator: "✅",
+
 		Truncate: func(text string, maxWidth int) string {
 			if len(text) <= maxWidth {
 				return text
@@ -556,7 +599,7 @@ func (l *List) setupRenderContext() {
 
 			return lines
 		},
-		Measure: func(text string) (int, int) {
+		Measure: func(text string, maxWidth int) (int, int) {
 			lines := strings.Split(text, "\n")
 			width := 0
 			for _, line := range lines {
@@ -1464,4 +1507,48 @@ func (l *List) SetFormatter(formatter ItemFormatter[any]) ItemFormatter[any] {
 // GetFormatter returns the current formatter
 func (l *List) GetFormatter() ItemFormatter[any] {
 	return l.formatter
+}
+
+// ================================
+// STATE INDICATOR CONFIGURATION
+// ================================
+
+// SetErrorIndicator sets the error state indicator
+func (l *List) SetErrorIndicator(indicator string) {
+	l.renderContext.ErrorIndicator = indicator
+}
+
+// SetLoadingIndicator sets the loading state indicator
+func (l *List) SetLoadingIndicator(indicator string) {
+	l.renderContext.LoadingIndicator = indicator
+}
+
+// SetDisabledIndicator sets the disabled state indicator
+func (l *List) SetDisabledIndicator(indicator string) {
+	l.renderContext.DisabledIndicator = indicator
+}
+
+// SetSelectedIndicator sets the selected state indicator
+func (l *List) SetSelectedIndicator(indicator string) {
+	l.renderContext.SelectedIndicator = indicator
+}
+
+// GetErrorIndicator returns the current error indicator
+func (l *List) GetErrorIndicator() string {
+	return l.renderContext.ErrorIndicator
+}
+
+// GetLoadingIndicator returns the current loading indicator
+func (l *List) GetLoadingIndicator() string {
+	return l.renderContext.LoadingIndicator
+}
+
+// GetDisabledIndicator returns the current disabled indicator
+func (l *List) GetDisabledIndicator() string {
+	return l.renderContext.DisabledIndicator
+}
+
+// GetSelectedIndicator returns the current selected indicator
+func (l *List) GetSelectedIndicator() string {
+	return l.renderContext.SelectedIndicator
 }
