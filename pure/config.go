@@ -16,6 +16,7 @@ func DefaultListConfig() ListConfig {
 	return ListConfig{
 		ViewportConfig:  DefaultViewportConfig(),
 		StyleConfig:     DefaultStyleConfig(),
+		RenderConfig:    DefaultListRenderConfig(),
 		AnimationConfig: DefaultAnimationConfig(),
 		SelectionMode:   SelectionSingle,
 		KeyMap:          DefaultNavigationKeyMap(),

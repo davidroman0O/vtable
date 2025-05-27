@@ -432,9 +432,9 @@ func (l *List) View() string {
 
 		// Always try to render actual data if available, even if chunk is "loading"
 		if l.formatter != nil {
-			// Use formatter if available
+			// Use custom formatter if available
 			ctx := RenderContext{
-				MaxWidth:  80,
+				MaxWidth:  l.config.MaxWidth,
 				MaxHeight: 1,
 			}
 			renderedItem = l.formatter(
@@ -446,18 +446,23 @@ func (l *List) View() string {
 				l.viewport.IsAtBottomThreshold,
 			)
 		} else {
-			// Default formatting
-			prefix := "  "
-			if isCursor {
-				prefix = "> "
-			}
+			// Use enhanced rendering system with enumerators
+			enhancedFormatter := EnhancedListFormatter(l.config.RenderConfig)
+			ctx := l.renderContext
+			ctx.MaxWidth = l.config.RenderConfig.MaxWidth
 
-			if isSelected {
-				prefix = "✓ " + prefix
-			}
-
-			renderedItem = prefix + fmt.Sprintf("%v", item.Item)
+			renderedItem = enhancedFormatter(
+				item,
+				absoluteIndex,
+				ctx,
+				isCursor,
+				l.viewport.IsAtTopThreshold,
+				l.viewport.IsAtBottomThreshold,
+			)
 		}
+
+		// Apply item styling
+		renderedItem = l.applyItemStyle(renderedItem, isCursor, isSelected, item)
 
 		builder.WriteString(renderedItem)
 
@@ -676,9 +681,14 @@ func (l *List) handlePageUp() tea.Cmd {
 		return nil
 	}
 
-	newIndex := CalculatePageMovement(l.viewport.CursorIndex, l.config.ViewportConfig.Height, l.totalItems, -1)
-	l.viewport.CursorIndex = newIndex
-	l.updateViewportPosition()
+	previousState := l.viewport
+	l.viewport = CalculatePageUp(l.viewport, l.config.ViewportConfig, l.totalItems)
+
+	// Update visible items if viewport changed
+	if l.viewport.ViewportStartIndex != previousState.ViewportStartIndex {
+		l.updateVisibleItems()
+	}
+
 	return l.smartChunkManagement()
 }
 
@@ -688,9 +698,13 @@ func (l *List) handlePageDown() tea.Cmd {
 		return nil
 	}
 
-	newIndex := CalculatePageMovement(l.viewport.CursorIndex, l.config.ViewportConfig.Height, l.totalItems, 1)
-	l.viewport.CursorIndex = newIndex
-	l.viewport = UpdateViewportPosition(l.viewport, l.config.ViewportConfig, l.totalItems)
+	previousState := l.viewport
+	l.viewport = CalculatePageDown(l.viewport, l.config.ViewportConfig, l.totalItems)
+
+	// Update visible items if viewport changed
+	if l.viewport.ViewportStartIndex != previousState.ViewportStartIndex {
+		l.updateVisibleItems()
+	}
 
 	return l.smartChunkManagement()
 }
@@ -1358,4 +1372,96 @@ func (l *List) refreshChunks() tea.Cmd {
 	}
 
 	return tea.Batch(cmds...)
+}
+
+// ================================
+// ENHANCED RENDERING METHODS
+// ================================
+
+// SetEnumerator sets the list enumerator
+func (l *List) SetEnumerator(enum ListEnumerator) {
+	l.config.RenderConfig.Enumerator = enum
+}
+
+// SetBulletStyle sets the list to use bullet points
+func (l *List) SetBulletStyle() {
+	l.config.RenderConfig.Enumerator = BulletEnumerator
+}
+
+// SetNumberedStyle sets the list to use numbered items
+func (l *List) SetNumberedStyle() {
+	l.config.RenderConfig.Enumerator = ArabicEnumerator
+	l.config.RenderConfig.AlignEnumerator = true
+}
+
+// SetChecklistStyle sets the list to use checkbox-style items
+func (l *List) SetChecklistStyle() {
+	l.config.RenderConfig.Enumerator = CheckboxEnumerator
+}
+
+// SetAlphabeticalStyle sets the list to use alphabetical enumeration
+func (l *List) SetAlphabeticalStyle() {
+	l.config.RenderConfig.Enumerator = AlphabetEnumerator
+	l.config.RenderConfig.AlignEnumerator = true
+}
+
+// SetDashStyle sets the list to use dash points
+func (l *List) SetDashStyle() {
+	l.config.RenderConfig.Enumerator = DashEnumerator
+}
+
+// SetConditionalStyle sets the list to use conditional formatting
+func (l *List) SetConditionalStyle() {
+	conditionalEnum := NewConditionalEnumerator(BulletEnumerator).
+		When(IsSelected, CheckboxEnumerator).
+		When(IsError, func(item Data[any], index int, ctx RenderContext) string {
+			return "✗ "
+		}).
+		When(IsLoading, func(item Data[any], index int, ctx RenderContext) string {
+			return "⟳ "
+		})
+
+	l.config.RenderConfig.Enumerator = conditionalEnum.Enumerate
+}
+
+// SetCustomEnumerator sets a custom enumerator pattern
+func (l *List) SetCustomEnumerator(pattern string) {
+	l.config.RenderConfig.Enumerator = CustomEnumerator(pattern)
+}
+
+// SetRenderConfig sets the complete render configuration
+func (l *List) SetRenderConfig(config ListRenderConfig) {
+	l.config.RenderConfig = config
+}
+
+// GetRenderConfig returns the current render configuration
+func (l *List) GetRenderConfig() ListRenderConfig {
+	return l.config.RenderConfig
+}
+
+// SetEnumeratorAlignment sets whether enumerators should be aligned
+func (l *List) SetEnumeratorAlignment(align bool) {
+	l.config.RenderConfig.AlignEnumerator = align
+}
+
+// SetTextWrapping sets whether text should be wrapped
+func (l *List) SetTextWrapping(wrap bool) {
+	l.config.RenderConfig.WrapText = wrap
+}
+
+// SetIndentSize sets the indentation size for multi-line content
+func (l *List) SetIndentSize(size int) {
+	l.config.RenderConfig.IndentSize = size
+}
+
+// SetFormatter sets a custom formatter and returns the previous one
+func (l *List) SetFormatter(formatter ItemFormatter[any]) ItemFormatter[any] {
+	previous := l.formatter
+	l.formatter = formatter
+	return previous
+}
+
+// GetFormatter returns the current formatter
+func (l *List) GetFormatter() ItemFormatter[any] {
+	return l.formatter
 }

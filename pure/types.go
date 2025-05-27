@@ -514,6 +514,9 @@ type ListConfig struct {
 	// Styling
 	StyleConfig StyleConfig
 
+	// Enhanced rendering configuration
+	RenderConfig ListRenderConfig
+
 	// Animation configuration
 	AnimationConfig AnimationConfig
 

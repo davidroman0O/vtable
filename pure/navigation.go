@@ -160,6 +160,89 @@ func CalculatePageMovement(currentIndex int, pageSize int, totalItems int, direc
 	return newIndex
 }
 
+// CalculatePageUp calculates viewport state for page up with threshold awareness
+func CalculatePageUp(viewport ViewportState, config ViewportConfig, totalItems int) ViewportState {
+	if totalItems <= 0 || viewport.CursorIndex <= 0 {
+		return viewport
+	}
+
+	result := viewport
+
+	// Move cursor up by a full page
+	newCursorIndex := viewport.CursorIndex - config.Height
+	if newCursorIndex < 0 {
+		newCursorIndex = 0
+	}
+
+	result.CursorIndex = newCursorIndex
+
+	// Position cursor at top threshold if thresholds are enabled
+	if config.TopThreshold >= 0 {
+		// Try to position cursor at top threshold
+		result.ViewportStartIndex = newCursorIndex - config.TopThreshold
+		if result.ViewportStartIndex < 0 {
+			result.ViewportStartIndex = 0
+		}
+		result.CursorViewportIndex = newCursorIndex - result.ViewportStartIndex
+	} else {
+		// No thresholds - position cursor at top of viewport
+		result.ViewportStartIndex = newCursorIndex
+		result.CursorViewportIndex = 0
+	}
+
+	// Update bounds using existing function
+	result = UpdateViewportBounds(result, config, totalItems)
+
+	return result
+}
+
+// CalculatePageDown calculates viewport state for page down with threshold awareness
+func CalculatePageDown(viewport ViewportState, config ViewportConfig, totalItems int) ViewportState {
+	if totalItems <= 0 || viewport.CursorIndex >= totalItems-1 {
+		return viewport
+	}
+
+	result := viewport
+
+	// Move cursor down by a full page
+	newCursorIndex := viewport.CursorIndex + config.Height
+	if newCursorIndex >= totalItems {
+		newCursorIndex = totalItems - 1
+	}
+
+	result.CursorIndex = newCursorIndex
+
+	// Position cursor at bottom threshold if thresholds are enabled
+	if config.BottomThreshold >= 0 {
+		// Try to position cursor at bottom threshold
+		bottomPosition := config.Height - config.BottomThreshold - 1
+		result.ViewportStartIndex = newCursorIndex - bottomPosition
+		if result.ViewportStartIndex < 0 {
+			result.ViewportStartIndex = 0
+		}
+		// Ensure viewport doesn't go beyond data
+		if result.ViewportStartIndex+config.Height > totalItems {
+			result.ViewportStartIndex = totalItems - config.Height
+			if result.ViewportStartIndex < 0 {
+				result.ViewportStartIndex = 0
+			}
+		}
+		result.CursorViewportIndex = newCursorIndex - result.ViewportStartIndex
+	} else {
+		// No thresholds - position cursor at bottom of viewport
+		result.ViewportStartIndex = newCursorIndex - config.Height + 1
+		if result.ViewportStartIndex < 0 {
+			result.ViewportStartIndex = 0
+		}
+		result.CursorViewportIndex = newCursorIndex - result.ViewportStartIndex
+	}
+
+	// Update bounds using existing function
+	result = UpdateViewportBounds(result, config, totalItems)
+
+	return result
+}
+
 // CalculateJumpToEnd calculates viewport state for jumping to the end of the dataset
 func CalculateJumpToEnd(config ViewportConfig, totalItems int) ViewportState {
 	if totalItems <= 0 {
