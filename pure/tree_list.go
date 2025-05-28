@@ -630,8 +630,7 @@ func (tl *TreeList[T]) handleJumpTo(index int) tea.Cmd {
 		return nil
 	}
 
-	tl.viewport.CursorIndex = index
-	tl.updateViewportPosition()
+	tl.viewport = CalculateJumpTo(index, tl.config.ViewportConfig, tl.totalItems)
 	return tl.smartChunkManagement()
 }
 

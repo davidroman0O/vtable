@@ -252,7 +252,7 @@ func main() {
 		},
 		SelectionMode: vtable.SelectionMultiple, // Enable multiple selection
 		KeyMap:        vtable.DefaultNavigationKeyMap(),
-		MaxWidth:      80,
+		MaxWidth:      85,
 	}
 
 	// Create list with formatter - FULLY AUTOMATED!

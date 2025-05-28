@@ -485,7 +485,7 @@ func (l *List) View() string {
 			// Use enhanced rendering system with enumerators
 			enhancedFormatter := EnhancedListFormatter(l.config.RenderConfig)
 			ctx := l.renderContext
-			ctx.MaxWidth = l.config.RenderConfig.MaxWidth
+			ctx.MaxWidth = l.config.RenderConfig.ContentConfig.MaxWidth
 
 			renderedItem = enhancedFormatter(
 				item,
@@ -786,8 +786,7 @@ func (l *List) handleJumpTo(index int) tea.Cmd {
 		return nil
 	}
 
-	l.viewport.CursorIndex = index
-	l.updateViewportPosition()
+	l.viewport = CalculateJumpTo(index, l.config.ViewportConfig, l.totalItems)
 	return l.smartChunkManagement()
 }
 
@@ -1423,34 +1422,34 @@ func (l *List) refreshChunks() tea.Cmd {
 
 // SetEnumerator sets the list enumerator
 func (l *List) SetEnumerator(enum ListEnumerator) {
-	l.config.RenderConfig.Enumerator = enum
+	l.config.RenderConfig.EnumeratorConfig.Enumerator = enum
 }
 
 // SetBulletStyle sets the list to use bullet points
 func (l *List) SetBulletStyle() {
-	l.config.RenderConfig.Enumerator = BulletEnumerator
+	l.config.RenderConfig.EnumeratorConfig.Enumerator = BulletEnumerator
 }
 
 // SetNumberedStyle sets the list to use numbered items
 func (l *List) SetNumberedStyle() {
-	l.config.RenderConfig.Enumerator = ArabicEnumerator
-	l.config.RenderConfig.AlignEnumerator = true
+	l.config.RenderConfig.EnumeratorConfig.Enumerator = ArabicEnumerator
+	l.config.RenderConfig.EnumeratorConfig.Alignment = ListAlignmentRight
 }
 
 // SetChecklistStyle sets the list to use checkbox-style items
 func (l *List) SetChecklistStyle() {
-	l.config.RenderConfig.Enumerator = CheckboxEnumerator
+	l.config.RenderConfig.EnumeratorConfig.Enumerator = CheckboxEnumerator
 }
 
 // SetAlphabeticalStyle sets the list to use alphabetical enumeration
 func (l *List) SetAlphabeticalStyle() {
-	l.config.RenderConfig.Enumerator = AlphabetEnumerator
-	l.config.RenderConfig.AlignEnumerator = true
+	l.config.RenderConfig.EnumeratorConfig.Enumerator = AlphabetEnumerator
+	l.config.RenderConfig.EnumeratorConfig.Alignment = ListAlignmentRight
 }
 
 // SetDashStyle sets the list to use dash points
 func (l *List) SetDashStyle() {
-	l.config.RenderConfig.Enumerator = DashEnumerator
+	l.config.RenderConfig.EnumeratorConfig.Enumerator = DashEnumerator
 }
 
 // SetConditionalStyle sets the list to use conditional formatting
@@ -1464,12 +1463,12 @@ func (l *List) SetConditionalStyle() {
 			return "⟳ "
 		})
 
-	l.config.RenderConfig.Enumerator = conditionalEnum.Enumerate
+	l.config.RenderConfig.EnumeratorConfig.Enumerator = conditionalEnum.Enumerate
 }
 
 // SetCustomEnumerator sets a custom enumerator pattern
 func (l *List) SetCustomEnumerator(pattern string) {
-	l.config.RenderConfig.Enumerator = CustomEnumerator(pattern)
+	l.config.RenderConfig.EnumeratorConfig.Enumerator = CustomEnumerator(pattern)
 }
 
 // SetRenderConfig sets the complete render configuration
@@ -1484,17 +1483,27 @@ func (l *List) GetRenderConfig() ListRenderConfig {
 
 // SetEnumeratorAlignment sets whether enumerators should be aligned
 func (l *List) SetEnumeratorAlignment(align bool) {
-	l.config.RenderConfig.AlignEnumerator = align
+	if align {
+		l.config.RenderConfig.EnumeratorConfig.Alignment = ListAlignmentRight
+		l.config.RenderConfig.EnumeratorConfig.MaxWidth = 4
+	} else {
+		l.config.RenderConfig.EnumeratorConfig.Alignment = ListAlignmentNone
+		l.config.RenderConfig.EnumeratorConfig.MaxWidth = 0
+	}
 }
 
 // SetTextWrapping sets whether text should be wrapped
 func (l *List) SetTextWrapping(wrap bool) {
-	l.config.RenderConfig.WrapText = wrap
+	l.config.RenderConfig.ContentConfig.WrapText = wrap
 }
 
 // SetIndentSize sets the indentation size for multi-line content
 func (l *List) SetIndentSize(size int) {
-	l.config.RenderConfig.IndentSize = size
+	// In the new system, indent size is handled automatically by the content component
+	// based on the width of preceding components, but we can set max width
+	if size > 0 {
+		l.config.RenderConfig.ContentConfig.MaxWidth = 80 - size
+	}
 }
 
 // SetFormatter sets a custom formatter and returns the previous one

@@ -285,3 +285,105 @@ func CalculateJumpToStart(config ViewportConfig, totalItems int) ViewportState {
 
 	return result
 }
+
+// CalculateJumpTo calculates optimal viewport state for jumping to an arbitrary index
+// This function ensures proper threshold positioning and centering when possible
+func CalculateJumpTo(targetIndex int, config ViewportConfig, totalItems int) ViewportState {
+	if totalItems <= 0 {
+		return ViewportState{}
+	}
+
+	// Ensure target index is within bounds
+	if targetIndex < 0 {
+		targetIndex = 0
+	}
+	if targetIndex >= totalItems {
+		targetIndex = totalItems - 1
+	}
+
+	result := ViewportState{
+		CursorIndex: targetIndex,
+	}
+
+	// Strategy: Try to position cursor optimally based on dataset position and thresholds
+
+	// Case 1: Small dataset - show everything from start
+	if totalItems <= config.Height {
+		result.ViewportStartIndex = 0
+		result.CursorViewportIndex = targetIndex
+		result = UpdateViewportBounds(result, config, totalItems)
+		return result
+	}
+
+	// Case 2: Near the beginning - position at start with cursor at top threshold if possible
+	if targetIndex < config.TopThreshold {
+		result.ViewportStartIndex = 0
+		result.CursorViewportIndex = targetIndex
+	} else if targetIndex < config.Height {
+		// Still near beginning but can use threshold positioning
+		result.ViewportStartIndex = 0
+		result.CursorViewportIndex = targetIndex
+	} else {
+		// Case 3: Near the end - position at end with cursor at bottom threshold if possible
+		if targetIndex >= totalItems-config.BottomThreshold {
+			// Very close to end - position viewport at end
+			result.ViewportStartIndex = totalItems - config.Height
+			if result.ViewportStartIndex < 0 {
+				result.ViewportStartIndex = 0
+			}
+			result.CursorViewportIndex = targetIndex - result.ViewportStartIndex
+		} else if targetIndex >= totalItems-config.Height {
+			// Close to end but can use threshold positioning
+			result.ViewportStartIndex = totalItems - config.Height
+			if result.ViewportStartIndex < 0 {
+				result.ViewportStartIndex = 0
+			}
+			result.CursorViewportIndex = targetIndex - result.ViewportStartIndex
+		} else {
+			// Case 4: Middle of dataset - center cursor optimally
+			// Try to position cursor at top threshold for best navigation experience
+			if config.TopThreshold >= 0 && config.TopThreshold < config.Height {
+				result.ViewportStartIndex = targetIndex - config.TopThreshold
+				result.CursorViewportIndex = config.TopThreshold
+			} else {
+				// No thresholds or invalid config - center in viewport
+				result.ViewportStartIndex = targetIndex - config.Height/2
+				result.CursorViewportIndex = config.Height / 2
+			}
+
+			// Ensure viewport doesn't go negative
+			if result.ViewportStartIndex < 0 {
+				result.ViewportStartIndex = 0
+				result.CursorViewportIndex = targetIndex
+			}
+
+			// Ensure viewport doesn't exceed dataset
+			if result.ViewportStartIndex+config.Height > totalItems {
+				result.ViewportStartIndex = totalItems - config.Height
+				if result.ViewportStartIndex < 0 {
+					result.ViewportStartIndex = 0
+				}
+				result.CursorViewportIndex = targetIndex - result.ViewportStartIndex
+			}
+		}
+	}
+
+	// Final safety checks
+	if result.CursorViewportIndex < 0 {
+		result.CursorViewportIndex = 0
+		result.CursorIndex = result.ViewportStartIndex
+	}
+	if result.CursorViewportIndex >= config.Height {
+		result.CursorViewportIndex = config.Height - 1
+		result.CursorIndex = result.ViewportStartIndex + result.CursorViewportIndex
+	}
+	if result.CursorIndex >= totalItems {
+		result.CursorIndex = totalItems - 1
+		result.CursorViewportIndex = result.CursorIndex - result.ViewportStartIndex
+	}
+
+	// Update bounds using existing function
+	result = UpdateViewportBounds(result, config, totalItems)
+
+	return result
+}

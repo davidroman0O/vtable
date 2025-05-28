@@ -6,89 +6,133 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
 )
 
 // ================================
-// TABLE MODEL IMPLEMENTATION
+// TABLE DATA STRUCTURES
 // ================================
 
-// Table represents a pure Tea table component
-type Table struct {
-	// Core state
-	dataSource DataSource[any]
-	chunks     map[int]Chunk[any] // Map of start index to chunk
-	totalItems int
+// TableDataSource provides tabular data
+type TableDataSource[T any] interface {
+	// Standard data source operations
+	LoadChunk(request DataRequest) tea.Cmd
+	LoadChunkImmediate(request DataRequest) DataChunkLoadedMsg
+	GetTotal() tea.Cmd
+	RefreshTotal() tea.Cmd
+	GetItemID(item any) string
 
-	// Viewport state
-	viewport ViewportState
+	// Selection operations
+	SetSelected(index int, selected bool) tea.Cmd
+	SetSelectedByID(id string, selected bool) tea.Cmd
+	SelectAll() tea.Cmd
+	ClearSelection() tea.Cmd
+	SelectRange(startIndex, endIndex int) tea.Cmd
 
-	// Configuration
-	config TableConfig
-
-	// Rendering formatters
-	cellFormatters     map[int]CellFormatter         // Column index to formatter
-	animatedFormatters map[int]CellFormatterAnimated // Column index to animated formatter
-	rowFormatter       RowFormatter
-	headerFormatter    HeaderFormatter
-
-	// Column constraints
-	columnConstraints map[int]CellConstraint
-
-	// Selection state
-	selectedItems map[string]bool
-	selectedOrder []string // Maintain selection order
-
-	// Focus state
-	focused    bool
-	focusedCol int // For cell-level focus (future feature)
-
-	// Animation state
-	animationEngine AnimationEngine
-	cellAnimations  map[string]CellAnimation // Key: "rowID:colIndex"
-	rowAnimations   map[string]RowAnimation
-
-	// Error state
-	lastError error
-
-	// Filtering and sorting
-	filters    map[string]any
-	sortFields []string
-	sortDirs   []string
-
-	// Search state
-	searchQuery   string
-	searchField   string
-	searchResults []int
-
-	// Performance monitoring
-	renderContext RenderContext
+	// Table-specific operations
+	GetColumns() []TableColumn
+	GetCellValue(item T, columnField string) any
+	SortBy(fields []string, directions []string) tea.Cmd
+	FilterBy(filters map[string]any) tea.Cmd
 }
 
 // ================================
-// CONSTRUCTOR
+// TABLE COMPONENT
 // ================================
 
-// NewTable creates a new Table with the given configuration and data source
-func NewTable(config TableConfig, dataSource DataSource[any]) *Table {
-	// Validate and fix config
-	errors := ValidateTableConfig(&config)
+// Table is an independent component that handles tabular data
+type Table[T any] struct {
+	// Core state - same as List but for table data
+	tableDataSource TableDataSource[T]
+	chunks          map[int]Chunk[any] // Reuse same chunk system
+	totalItems      int
+
+	// Viewport state - same as List
+	viewport ViewportState
+
+	// Configuration - reuse List config + table-specific config
+	config      ListConfig
+	tableConfig TableConfig
+
+	// Table-specific state
+	columns       []TableColumn
+	selectedItems map[string]bool
+	sortFields    []string
+	sortDirs      []string
+	filters       map[string]any
+
+	// Rendering
+	formatter     ItemFormatter[any]
+	renderContext RenderContext
+
+	// Focus state
+	focused bool
+
+	// Chunk management - same as List
+	visibleItems     []Data[any]
+	chunkAccessTime  map[int]time.Time
+	loadingChunks    map[int]bool
+	hasLoadingChunks bool
+	canScroll        bool
+
+	// Error handling
+	lastError error
+}
+
+// TableBorderChars defines the characters used for table borders
+type TableBorderChars struct {
+	Horizontal  string
+	Vertical    string
+	TopLeft     string
+	TopRight    string
+	BottomLeft  string
+	BottomRight string
+	Cross       string
+	TopCross    string
+	BottomCross string
+	LeftCross   string
+	RightCross  string
+}
+
+// DefaultTableBorderChars returns default border characters
+func DefaultTableBorderChars() TableBorderChars {
+	return TableBorderChars{
+		Horizontal:  "─",
+		Vertical:    "│",
+		TopLeft:     "┌",
+		TopRight:    "┐",
+		BottomLeft:  "└",
+		BottomRight: "┘",
+		Cross:       "┼",
+		TopCross:    "┬",
+		BottomCross: "┴",
+		LeftCross:   "├",
+		RightCross:  "┤",
+	}
+}
+
+// NewTable creates a new Table component
+func NewTable[T any](config ListConfig, tableConfig TableConfig, dataSource TableDataSource[T]) *Table[T] {
+	// Validate and fix config - reuse List validation
+	errors := ValidateListConfig(&config)
 	if len(errors) > 0 {
-		FixTableConfig(&config)
+		FixListConfig(&config)
 	}
 
-	table := &Table{
-		dataSource:         dataSource,
-		chunks:             make(map[int]Chunk[any]),
-		config:             config,
-		cellFormatters:     make(map[int]CellFormatter),
-		animatedFormatters: make(map[int]CellFormatterAnimated),
-		columnConstraints:  make(map[int]CellConstraint),
-		selectedItems:      make(map[string]bool),
-		selectedOrder:      make([]string, 0),
-		cellAnimations:     make(map[string]CellAnimation),
-		rowAnimations:      make(map[string]RowAnimation),
-		filters:            make(map[string]any),
+	table := &Table[T]{
+		tableDataSource:  dataSource,
+		chunks:           make(map[int]Chunk[any]),
+		config:           config,
+		tableConfig:      tableConfig,
+		columns:          dataSource.GetColumns(),
+		selectedItems:    make(map[string]bool),
+		sortFields:       make([]string, 0),
+		sortDirs:         make([]string, 0),
+		filters:          make(map[string]any),
+		chunkAccessTime:  make(map[int]time.Time),
+		visibleItems:     make([]Data[any], 0),
+		loadingChunks:    make(map[int]bool),
+		hasLoadingChunks: false,
+		canScroll:        true,
 		viewport: ViewportState{
 			ViewportStartIndex:  0,
 			CursorIndex:         config.ViewportConfig.InitialIndex,
@@ -100,59 +144,25 @@ func NewTable(config TableConfig, dataSource DataSource[any]) *Table {
 		},
 	}
 
-	// Initialize column constraints with defaults
-	table.initializeColumnConstraints()
-
-	// Set up render context
+	// Set up render context - reuse List setup
 	table.setupRenderContext()
 
 	return table
 }
 
 // ================================
-// TEA MODEL INTERFACE
+// TEA MODEL INTERFACE - Same as List
 // ================================
 
 // Init initializes the table model
-func (t *Table) Init() tea.Cmd {
-	cmds := []tea.Cmd{
-		InitCmd(),
-	}
-
-	// Load initial data
-	if t.dataSource != nil {
-		cmds = append(cmds, t.dataSource.GetTotal())
-		cmds = append(cmds, t.loadInitialChunk())
-	}
-
-	// Start animation engine if enabled
-	if t.config.AnimationConfig.Enabled && t.animationEngine != nil {
-		cmds = append(cmds, t.animationEngine.StartLoop())
-	}
-
-	return tea.Batch(cmds...)
+func (t *Table[T]) Init() tea.Cmd {
+	return t.loadInitialData()
 }
 
-// Update handles all messages and updates the table state
-func (t *Table) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	var cmds []tea.Cmd
-
+// Update handles all messages - reuse List message handling patterns
+func (t *Table[T]) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
-	// ===== Lifecycle Messages =====
-	case InitMsg:
-		return t, t.Init()
-
-	case DestroyMsg:
-		if t.animationEngine != nil {
-			t.animationEngine.Cleanup()
-		}
-		return t, nil
-
-	case ResetMsg:
-		t.reset()
-		return t, t.Init()
-
-	// ===== Navigation Messages =====
+	// ===== Navigation Messages - Same as List =====
 	case CursorUpMsg:
 		cmd := t.handleCursorUp()
 		return t, cmd
@@ -181,39 +191,56 @@ func (t *Table) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmd := t.handleJumpTo(msg.Index)
 		return t, cmd
 
-	// ===== Data Messages =====
+	// ===== Data Messages - Same as List =====
 	case DataRefreshMsg:
 		cmd := t.handleDataRefresh()
 		return t, cmd
+
+	case DataChunksRefreshMsg:
+		// Refresh chunks while preserving cursor position
+		t.chunks = make(map[int]Chunk[any])
+		t.loadingChunks = make(map[int]bool)
+		t.hasLoadingChunks = false
+		t.canScroll = true
+		return t, t.smartChunkManagement()
 
 	case DataChunkLoadedMsg:
 		cmd := t.handleDataChunkLoaded(msg)
 		return t, cmd
 
-	case DataChunkErrorMsg:
-		t.lastError = msg.Error
-		return t, ErrorCmd(msg.Error, "chunk_load")
-
 	case DataTotalMsg:
 		t.totalItems = msg.Total
 		t.updateViewportBounds()
+		// Reset viewport for initial load
+		t.viewport.ViewportStartIndex = 0
+		t.viewport.CursorIndex = t.config.ViewportConfig.InitialIndex
+		t.viewport.CursorViewportIndex = t.config.ViewportConfig.InitialIndex
+		return t, t.smartChunkManagement()
+
+	case DataTotalUpdateMsg:
+		// Update total while preserving cursor position
+		oldTotal := t.totalItems
+		t.totalItems = msg.Total
+		t.updateViewportBounds()
+
+		// Ensure cursor stays within bounds
+		if t.viewport.CursorIndex >= t.totalItems && t.totalItems > 0 {
+			t.viewport.CursorIndex = t.totalItems - 1
+			t.viewport.CursorViewportIndex = t.viewport.CursorIndex - t.viewport.ViewportStartIndex
+			if t.viewport.CursorViewportIndex < 0 {
+				t.viewport.ViewportStartIndex = t.viewport.CursorIndex
+				t.viewport.CursorViewportIndex = 0
+			}
+		}
+
+		if oldTotal != t.totalItems {
+			return t, t.smartChunkManagement()
+		}
 		return t, nil
 
-	case DataLoadErrorMsg:
-		t.lastError = msg.Error
-		return t, ErrorCmd(msg.Error, "data_load")
-
-	case DataSourceSetMsg:
-		t.dataSource = msg.DataSource
-		return t, t.dataSource.GetTotal()
-
-	// ===== Selection Messages =====
+	// ===== Selection Messages - Same as List =====
 	case SelectCurrentMsg:
 		cmd := t.handleSelectCurrent()
-		return t, cmd
-
-	case SelectToggleMsg:
-		cmd := t.handleSelectToggle(msg.Index)
 		return t, cmd
 
 	case SelectAllMsg:
@@ -221,60 +248,15 @@ func (t *Table) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return t, cmd
 
 	case SelectClearMsg:
-		t.clearSelection()
-		return t, nil
-
-	case SelectRangeMsg:
-		cmd := t.handleSelectRange(msg.StartID, msg.EndID)
+		cmd := t.handleSelectClear()
 		return t, cmd
 
-	case SelectionModeSetMsg:
-		t.config.SelectionMode = msg.Mode
-		if msg.Mode == SelectionNone {
-			t.clearSelection()
-		}
-		return t, nil
-
-	// ===== Filter Messages =====
-	case FilterSetMsg:
-		t.filters[msg.Field] = msg.Value
-		cmd := t.handleFilterChange()
+	case SelectionResponseMsg:
+		// Handle selection response - refresh chunks to get updated selection state
+		cmd := t.refreshChunks()
 		return t, cmd
 
-	case FilterClearMsg:
-		delete(t.filters, msg.Field)
-		cmd := t.handleFilterChange()
-		return t, cmd
-
-	case FiltersClearAllMsg:
-		t.filters = make(map[string]any)
-		cmd := t.handleFilterChange()
-		return t, cmd
-
-	// ===== Sort Messages =====
-	case SortToggleMsg:
-		cmd := t.handleSortToggle(msg.Field)
-		return t, cmd
-
-	case SortSetMsg:
-		cmd := t.handleSortSet(msg.Field, msg.Direction)
-		return t, cmd
-
-	case SortAddMsg:
-		cmd := t.handleSortAdd(msg.Field, msg.Direction)
-		return t, cmd
-
-	case SortRemoveMsg:
-		cmd := t.handleSortRemove(msg.Field)
-		return t, cmd
-
-	case SortsClearAllMsg:
-		t.sortFields = nil
-		t.sortDirs = nil
-		cmd := t.handleFilterChange() // Refresh data
-		return t, cmd
-
-	// ===== Focus Messages =====
+	// ===== Focus Messages - Same as List =====
 	case FocusMsg:
 		t.focused = true
 		return t, nil
@@ -283,141 +265,7 @@ func (t *Table) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		t.focused = false
 		return t, nil
 
-	// ===== Animation Messages =====
-	case GlobalAnimationTickMsg:
-		if t.animationEngine != nil {
-			cmd := t.animationEngine.ProcessGlobalTick(msg)
-			return t, cmd
-		}
-		return t, nil
-
-	case AnimationConfigMsg:
-		t.config.AnimationConfig = msg.Config
-		if t.animationEngine != nil {
-			cmd := t.animationEngine.UpdateConfig(msg.Config)
-			return t, cmd
-		}
-		return t, nil
-
-	case CellAnimationStartMsg:
-		key := fmt.Sprintf("%s:%d", msg.RowID, msg.ColumnIndex)
-		t.cellAnimations[key] = msg.Animation
-		return t, nil
-
-	case CellAnimationStopMsg:
-		key := fmt.Sprintf("%s:%d", msg.RowID, msg.ColumnIndex)
-		delete(t.cellAnimations, key)
-		return t, nil
-
-	case RowAnimationStartMsg:
-		t.rowAnimations[msg.RowID] = msg.Animation
-		return t, nil
-
-	case RowAnimationStopMsg:
-		delete(t.rowAnimations, msg.RowID)
-		return t, nil
-
-	// ===== Table-specific Messages =====
-	case ColumnSetMsg:
-		t.config.Columns = msg.Columns
-		t.initializeColumnConstraints()
-		return t, nil
-
-	case ColumnUpdateMsg:
-		if msg.Index >= 0 && msg.Index < len(t.config.Columns) {
-			t.config.Columns[msg.Index] = msg.Column
-		}
-		return t, nil
-
-	case HeaderVisibilityMsg:
-		t.config.ShowHeader = msg.Visible
-		return t, nil
-
-	case BorderVisibilityMsg:
-		t.config.ShowBorders = msg.Visible
-		return t, nil
-
-	case CellFormatterSetMsg:
-		if msg.ColumnIndex >= 0 {
-			t.cellFormatters[msg.ColumnIndex] = msg.Formatter
-		} else {
-			// Set for all columns
-			for i := range t.config.Columns {
-				t.cellFormatters[i] = msg.Formatter
-			}
-		}
-		return t, nil
-
-	case CellAnimatedFormatterSetMsg:
-		t.animatedFormatters[msg.ColumnIndex] = msg.Formatter
-		return t, nil
-
-	case RowFormatterSetMsg:
-		t.rowFormatter = msg.Formatter
-		return t, nil
-
-	case HeaderFormatterSetMsg:
-		t.headerFormatter = msg.Formatter
-		return t, nil
-
-	case ColumnConstraintsSetMsg:
-		t.columnConstraints[msg.ColumnIndex] = msg.Constraints
-		return t, nil
-
-	case TableThemeSetMsg:
-		t.config.Theme = msg.Theme
-		return t, nil
-
-	// ===== Configuration Messages =====
-	case ViewportConfigMsg:
-		t.config.ViewportConfig = msg.Config
-		t.updateViewportBounds()
-		return t, nil
-
-	case KeyMapSetMsg:
-		t.config.KeyMap = msg.KeyMap
-		return t, nil
-
-	// ===== Search Messages =====
-	case SearchSetMsg:
-		t.searchQuery = msg.Query
-		t.searchField = msg.Field
-		cmd := t.handleSearch()
-		return t, cmd
-
-	case SearchClearMsg:
-		t.searchQuery = ""
-		t.searchField = ""
-		t.searchResults = nil
-		return t, nil
-
-	case SearchResultMsg:
-		t.searchResults = msg.Results
-		return t, nil
-
-	// ===== Error Messages =====
-	case ErrorMsg:
-		t.lastError = msg.Error
-		return t, nil
-
-	// ===== Viewport Messages =====
-	case ViewportResizeMsg:
-		t.config.ViewportConfig.Height = msg.Height
-		t.updateViewportBounds()
-		return t, nil
-
-	// ===== Batch Messages =====
-	case BatchMsg:
-		for _, subMsg := range msg.Messages {
-			var cmd tea.Cmd
-			_, cmd = t.Update(subMsg)
-			if cmd != nil {
-				cmds = append(cmds, cmd)
-			}
-		}
-		return t, tea.Batch(cmds...)
-
-	// ===== Keyboard Input =====
+	// ===== Keyboard Input - Same as List =====
 	case tea.KeyMsg:
 		cmd := t.handleKeyPress(msg)
 		return t, cmd
@@ -426,274 +274,370 @@ func (t *Table) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return t, nil
 }
 
-// View renders the table
-func (t *Table) View() string {
+// View renders the table - similar to List but with table formatting
+func (t *Table[T]) View() string {
+	var builder strings.Builder
+
+	// Special case for empty dataset
 	if t.totalItems == 0 {
-		return t.renderEmpty()
+		return "No data available"
 	}
 
-	var lines []string
+	// Ensure visible items are up to date
+	t.updateVisibleItems()
+
+	// If we have no visible items, chunks are not loaded yet
+	if len(t.visibleItems) == 0 {
+		return "Loading initial data..."
+	}
+
+	// Calculate column widths
+	columnWidths := t.calculateColumnWidths()
 
 	// Render header if enabled
-	if t.config.ShowHeader {
-		header := t.renderHeader()
-		lines = append(lines, header)
+	if t.tableConfig.ShowHeader {
+		header := t.renderHeader(columnWidths)
+		builder.WriteString(header)
+		builder.WriteString("\n")
 
-		// Add separator line if borders are enabled
-		if t.config.ShowBorders {
-			separator := t.renderHeaderSeparator()
-			lines = append(lines, separator)
+		if t.tableConfig.ShowBorders {
+			separator := t.renderHeaderSeparator(columnWidths)
+			builder.WriteString(separator)
+			builder.WriteString("\n")
 		}
 	}
 
-	// Render data rows
-	visibleHeight := t.config.ViewportConfig.Height
-	for i := 0; i < visibleHeight; i++ {
+	// Render each visible row
+	for i, item := range t.visibleItems {
 		absoluteIndex := t.viewport.ViewportStartIndex + i
+
 		if absoluteIndex >= t.totalItems {
 			break
 		}
 
-		rowLine := t.renderRow(absoluteIndex, i)
-		lines = append(lines, rowLine)
-	}
+		isCursor := i == t.viewport.CursorViewportIndex
 
-	// Add bottom border if enabled
-	if t.config.ShowBorders {
-		border := t.renderBottomBorder()
-		lines = append(lines, border)
-	}
+		var renderedRow string
 
-	return strings.Join(lines, "\n")
-}
+		if t.formatter != nil {
+			// Use custom formatter
+			renderedRow = t.formatter(
+				item,
+				absoluteIndex,
+				t.renderContext,
+				isCursor,
+				t.viewport.IsAtTopThreshold,
+				t.viewport.IsAtBottomThreshold,
+			)
+		} else {
+			// Use default table formatter
+			renderedRow = t.formatTableRow(
+				item,
+				absoluteIndex,
+				t.renderContext,
+				isCursor,
+				t.viewport.IsAtTopThreshold,
+				t.viewport.IsAtBottomThreshold,
+				columnWidths,
+			)
+		}
 
-// ================================
-// TABLE MODEL INTERFACE
-// ================================
+		builder.WriteString(renderedRow)
 
-// Focus gives focus to the table
-func (t *Table) Focus() tea.Cmd {
-	return FocusCmd()
-}
-
-// Blur removes focus from the table
-func (t *Table) Blur() tea.Cmd {
-	return BlurCmd()
-}
-
-// IsFocused returns whether the table has focus
-func (t *Table) IsFocused() bool {
-	return t.focused
-}
-
-// GetState returns the current viewport state
-func (t *Table) GetState() ViewportState {
-	return t.viewport
-}
-
-// GetTotalItems returns the total number of items
-func (t *Table) GetTotalItems() int {
-	return t.totalItems
-}
-
-// GetSelectedIndices returns the indices of selected items
-func (t *Table) GetSelectedIndices() []int {
-	var indices []int
-	for id := range t.selectedItems {
-		if index := t.findItemIndex(id); index >= 0 {
-			indices = append(indices, index)
+		if i < len(t.visibleItems)-1 && absoluteIndex < t.totalItems-1 {
+			builder.WriteString("\n")
 		}
 	}
-	return indices
-}
 
-// GetSelectedIDs returns the IDs of selected items
-func (t *Table) GetSelectedIDs() []string {
-	return t.selectedOrder
-}
+	// Render footer border if enabled
+	if t.tableConfig.ShowBorders {
+		builder.WriteString("\n")
+		footer := t.renderFooterBorder(columnWidths)
+		builder.WriteString(footer)
+	}
 
-// GetSelectionCount returns the number of selected items
-func (t *Table) GetSelectionCount() int {
-	return len(t.selectedItems)
-}
-
-// SetColumns sets the table columns
-func (t *Table) SetColumns(columns []TableColumn) tea.Cmd {
-	return ColumnSetCmd(columns)
-}
-
-// SetHeaderVisibility sets header visibility
-func (t *Table) SetHeaderVisibility(visible bool) tea.Cmd {
-	return HeaderVisibilityCmd(visible)
-}
-
-// SetBorderVisibility sets border visibility
-func (t *Table) SetBorderVisibility(visible bool) tea.Cmd {
-	return BorderVisibilityCmd(visible)
-}
-
-// SetCellFormatter sets a cell formatter for a column
-func (t *Table) SetCellFormatter(columnIndex int, formatter CellFormatter) tea.Cmd {
-	return CellFormatterSetCmd(columnIndex, formatter)
-}
-
-// SetCellAnimatedFormatter sets an animated cell formatter for a column
-func (t *Table) SetCellAnimatedFormatter(columnIndex int, formatter CellFormatterAnimated) tea.Cmd {
-	return CellAnimatedFormatterSetCmd(columnIndex, formatter)
-}
-
-// SetRowFormatter sets the row formatter
-func (t *Table) SetRowFormatter(formatter RowFormatter) tea.Cmd {
-	return RowFormatterSetCmd(formatter)
-}
-
-// SetHeaderFormatter sets the header formatter
-func (t *Table) SetHeaderFormatter(formatter HeaderFormatter) tea.Cmd {
-	return HeaderFormatterSetCmd(formatter)
-}
-
-// SetColumnConstraints sets constraints for a column
-func (t *Table) SetColumnConstraints(columnIndex int, constraints CellConstraint) tea.Cmd {
-	return ColumnConstraintsSetCmd(columnIndex, constraints)
-}
-
-// GetCurrentRow returns the row at the cursor position
-func (t *Table) GetCurrentRow() (TableRow, bool) {
-	row, exists := t.getRowAtIndex(t.viewport.CursorIndex)
-	return row, exists
+	return builder.String()
 }
 
 // ================================
-// NAVIGATION HELPERS (reusing List logic with Table-specific adaptations)
+// TABLE OPERATIONS
 // ================================
 
-// loadInitialChunk loads the initial chunk of data
-func (t *Table) loadInitialChunk() tea.Cmd {
-	if t.dataSource == nil {
-		return nil
-	}
-
-	request := DataRequest{
-		Start:          0,
-		Count:          t.config.ViewportConfig.ChunkSize,
-		SortFields:     t.sortFields,
-		SortDirections: t.sortDirs,
-		Filters:        t.filters,
-	}
-
-	return t.dataSource.LoadChunk(request)
+// SortByColumn sorts the table by a specific column
+func (t *Table[T]) SortByColumn(columnField string, direction string) tea.Cmd {
+	t.sortFields = []string{columnField}
+	t.sortDirs = []string{direction}
+	return tea.Batch(
+		t.tableDataSource.SortBy(t.sortFields, t.sortDirs),
+		DataTotalUpdateCmd(t.totalItems),
+		DataChunksRefreshCmd(),
+	)
 }
 
-// Navigation helpers (similar to List but for Table context)
-func (t *Table) handleCursorUp() tea.Cmd {
-	if t.totalItems == 0 {
-		return nil
-	}
-
-	if t.viewport.CursorIndex > 0 {
-		t.viewport.CursorIndex--
-		t.updateViewportPosition()
-		return t.checkAndLoadChunks()
-	}
-
-	return nil
+// AddSort adds a sort field to the existing sort criteria
+func (t *Table[T]) AddSort(columnField string, direction string) tea.Cmd {
+	t.sortFields = append(t.sortFields, columnField)
+	t.sortDirs = append(t.sortDirs, direction)
+	return tea.Batch(
+		t.tableDataSource.SortBy(t.sortFields, t.sortDirs),
+		DataTotalUpdateCmd(t.totalItems),
+		DataChunksRefreshCmd(),
+	)
 }
 
-func (t *Table) handleCursorDown() tea.Cmd {
-	if t.totalItems == 0 {
-		return nil
-	}
-
-	if t.viewport.CursorIndex < t.totalItems-1 {
-		t.viewport.CursorIndex++
-		t.updateViewportPosition()
-		return t.checkAndLoadChunks()
-	}
-
-	return nil
+// ClearSort clears all sorting
+func (t *Table[T]) ClearSort() tea.Cmd {
+	t.sortFields = make([]string, 0)
+	t.sortDirs = make([]string, 0)
+	return tea.Batch(
+		t.tableDataSource.SortBy(t.sortFields, t.sortDirs),
+		DataTotalUpdateCmd(t.totalItems),
+		DataChunksRefreshCmd(),
+	)
 }
 
-func (t *Table) handlePageUp() tea.Cmd {
-	if t.totalItems == 0 {
-		return nil
-	}
-
-	pageSize := t.config.ViewportConfig.Height
-	newIndex := t.viewport.CursorIndex - pageSize
-	if newIndex < 0 {
-		newIndex = 0
-	}
-
-	t.viewport.CursorIndex = newIndex
-	t.updateViewportPosition()
-	return t.checkAndLoadChunks()
+// FilterByColumn filters the table by a specific column
+func (t *Table[T]) FilterByColumn(columnField string, value any) tea.Cmd {
+	t.filters[columnField] = value
+	return tea.Batch(
+		t.tableDataSource.FilterBy(t.filters),
+		DataTotalUpdateCmd(t.totalItems),
+		DataChunksRefreshCmd(),
+	)
 }
 
-func (t *Table) handlePageDown() tea.Cmd {
-	if t.totalItems == 0 {
-		return nil
-	}
-
-	pageSize := t.config.ViewportConfig.Height
-	newIndex := t.viewport.CursorIndex + pageSize
-	if newIndex >= t.totalItems {
-		newIndex = t.totalItems - 1
-	}
-
-	t.viewport.CursorIndex = newIndex
-	t.updateViewportPosition()
-	return t.checkAndLoadChunks()
+// ClearFilter clears a specific filter
+func (t *Table[T]) ClearFilter(columnField string) tea.Cmd {
+	delete(t.filters, columnField)
+	return tea.Batch(
+		t.tableDataSource.FilterBy(t.filters),
+		DataTotalUpdateCmd(t.totalItems),
+		DataChunksRefreshCmd(),
+	)
 }
 
-func (t *Table) handleJumpToStart() tea.Cmd {
-	if t.totalItems == 0 {
-		return nil
-	}
-
-	t.viewport.CursorIndex = 0
-	t.updateViewportPosition()
-	return t.checkAndLoadChunks()
-}
-
-func (t *Table) handleJumpToEnd() tea.Cmd {
-	if t.totalItems == 0 {
-		return nil
-	}
-
-	t.viewport.CursorIndex = t.totalItems - 1
-	t.updateViewportPosition()
-	return t.checkAndLoadChunks()
-}
-
-func (t *Table) handleJumpTo(index int) tea.Cmd {
-	if t.totalItems == 0 || index < 0 || index >= t.totalItems {
-		return nil
-	}
-
-	t.viewport.CursorIndex = index
-	t.updateViewportPosition()
-	return t.checkAndLoadChunks()
+// ClearAllFilters clears all filters
+func (t *Table[T]) ClearAllFilters() tea.Cmd {
+	t.filters = make(map[string]any)
+	return tea.Batch(
+		t.tableDataSource.FilterBy(t.filters),
+		DataTotalUpdateCmd(t.totalItems),
+		DataChunksRefreshCmd(),
+	)
 }
 
 // ================================
-// DATA MANAGEMENT HELPERS
+// CHUNK MANAGEMENT - Reuse List functions
 // ================================
 
-func (t *Table) handleDataRefresh() tea.Cmd {
-	t.chunks = make(map[int]Chunk[any])
+// loadInitialData loads the total count and initial chunk
+func (t *Table[T]) loadInitialData() tea.Cmd {
+	return t.tableDataSource.GetTotal()
+}
 
-	if t.dataSource == nil {
-		return nil
-	}
-
+// smartChunkManagement - reuse List logic
+func (t *Table[T]) smartChunkManagement() tea.Cmd {
+	// Calculate bounding area - reuse List function
+	boundingArea := CalculateBoundingArea(t.viewport, t.config.ViewportConfig, t.totalItems)
+	chunkSize := t.config.ViewportConfig.ChunkSize
 	var cmds []tea.Cmd
-	cmds = append(cmds, t.dataSource.GetTotal())
-	cmds = append(cmds, t.loadInitialChunk())
+
+	// Get chunks that need to be loaded
+	chunksToLoad := CalculateChunksInBoundingArea(boundingArea, chunkSize, t.totalItems)
+
+	// Load chunks that aren't already loaded
+	for _, chunkStart := range chunksToLoad {
+		if !IsChunkLoaded(chunkStart, t.chunks) && !t.loadingChunks[chunkStart] {
+			t.loadingChunks[chunkStart] = true
+
+			// Create data request
+			request := DataRequest{
+				Start: chunkStart,
+				Count: chunkSize,
+			}
+
+			// Send chunk loading started message
+			cmds = append(cmds, ChunkLoadingStartedCmd(chunkStart, request))
+
+			// Load chunk from data source
+			cmd := t.tableDataSource.LoadChunk(request)
+			cmds = append(cmds, cmd)
+		}
+	}
+
+	// Update loading state
+	if len(chunksToLoad) > 0 {
+		t.hasLoadingChunks = true
+		t.canScroll = !IsLoadingCriticalChunks(t.viewport, t.config.ViewportConfig, t.loadingChunks)
+	}
+
+	// Unload chunks outside bounding area
+	chunksToUnload := FindChunksToUnload(t.chunks, boundingArea, chunkSize)
+	for _, chunkStart := range chunksToUnload {
+		delete(t.chunks, chunkStart)
+		delete(t.chunkAccessTime, chunkStart)
+		cmds = append(cmds, ChunkUnloadedCmd(chunkStart))
+	}
 
 	return tea.Batch(cmds...)
 }
 
-func (t *Table) handleDataChunkLoaded(msg DataChunkLoadedMsg) tea.Cmd {
+// ================================
+// NAVIGATION HANDLERS - Reuse List logic
+// ================================
+
+// handleCursorUp - reuse List logic
+func (t *Table[T]) handleCursorUp() tea.Cmd {
+	if t.totalItems == 0 || !t.canScroll || t.viewport.CursorIndex <= 0 {
+		return nil
+	}
+
+	previousState := t.viewport
+	t.viewport = CalculateCursorUp(t.viewport, t.config.ViewportConfig, t.totalItems)
+
+	if t.viewport.ViewportStartIndex != previousState.ViewportStartIndex {
+		t.updateVisibleItems()
+		return t.smartChunkManagement()
+	}
+	return nil
+}
+
+// handleCursorDown - reuse List logic
+func (t *Table[T]) handleCursorDown() tea.Cmd {
+	if t.totalItems == 0 || !t.canScroll || t.viewport.CursorIndex >= t.totalItems-1 {
+		return nil
+	}
+
+	previousState := t.viewport
+	t.viewport = CalculateCursorDown(t.viewport, t.config.ViewportConfig, t.totalItems)
+
+	if t.viewport.ViewportStartIndex != previousState.ViewportStartIndex {
+		t.updateVisibleItems()
+		return t.smartChunkManagement()
+	}
+	return nil
+}
+
+// handlePageUp - reuse List logic
+func (t *Table[T]) handlePageUp() tea.Cmd {
+	if t.totalItems == 0 || !t.canScroll {
+		return nil
+	}
+
+	previousState := t.viewport
+	t.viewport = CalculatePageUp(t.viewport, t.config.ViewportConfig, t.totalItems)
+
+	if t.viewport.ViewportStartIndex != previousState.ViewportStartIndex {
+		t.updateVisibleItems()
+	}
+	return t.smartChunkManagement()
+}
+
+// handlePageDown - reuse List logic
+func (t *Table[T]) handlePageDown() tea.Cmd {
+	if t.viewport.CursorIndex >= t.totalItems-1 {
+		return nil
+	}
+
+	previousState := t.viewport
+	t.viewport = CalculatePageDown(t.viewport, t.config.ViewportConfig, t.totalItems)
+
+	if t.viewport.ViewportStartIndex != previousState.ViewportStartIndex {
+		t.updateVisibleItems()
+	}
+	return t.smartChunkManagement()
+}
+
+// handleJumpToStart - reuse List logic
+func (t *Table[T]) handleJumpToStart() tea.Cmd {
+	if t.totalItems == 0 || !t.canScroll {
+		return nil
+	}
+
+	t.viewport = CalculateJumpToStart(t.config.ViewportConfig, t.totalItems)
+	return t.smartChunkManagement()
+}
+
+// handleJumpToEnd - reuse List logic
+func (t *Table[T]) handleJumpToEnd() tea.Cmd {
+	if t.totalItems <= 0 || !t.canScroll {
+		return nil
+	}
+
+	previousState := t.viewport
+	t.viewport = CalculateJumpToEnd(t.config.ViewportConfig, t.totalItems)
+
+	if t.viewport.ViewportStartIndex != previousState.ViewportStartIndex {
+		t.updateVisibleItems()
+		return t.smartChunkManagement()
+	}
+	return nil
+}
+
+// handleJumpTo - reuse List logic
+func (t *Table[T]) handleJumpTo(index int) tea.Cmd {
+	if t.totalItems == 0 || index < 0 || index >= t.totalItems || !t.canScroll {
+		return nil
+	}
+
+	t.viewport = CalculateJumpTo(index, t.config.ViewportConfig, t.totalItems)
+	return t.smartChunkManagement()
+}
+
+// ================================
+// HELPER METHODS - Reuse List logic
+// ================================
+
+// updateViewportPosition - reuse List logic
+func (t *Table[T]) updateViewportPosition() {
+	t.viewport = UpdateViewportPosition(t.viewport, t.config.ViewportConfig, t.totalItems)
+}
+
+// updateViewportBounds - reuse List logic
+func (t *Table[T]) updateViewportBounds() {
+	t.viewport = UpdateViewportBounds(t.viewport, t.config.ViewportConfig, t.totalItems)
+}
+
+// updateVisibleItems - reuse List logic
+func (t *Table[T]) updateVisibleItems() {
+	result := CalculateVisibleItemsFromChunks(
+		t.viewport,
+		t.config.ViewportConfig,
+		t.totalItems,
+		t.chunks,
+		t.ensureChunkLoadedImmediate,
+	)
+
+	t.visibleItems = result.Items
+	t.viewport = result.AdjustedViewport
+}
+
+// ensureChunkLoadedImmediate - reuse List logic
+func (t *Table[T]) ensureChunkLoadedImmediate(index int) {
+	chunkStartIndex := CalculateChunkStartIndex(index, t.config.ViewportConfig.ChunkSize)
+	if _, exists := t.chunks[chunkStartIndex]; !exists {
+		// Load chunk immediately from data source
+		request := DataRequest{
+			Start: chunkStartIndex,
+			Count: t.config.ViewportConfig.ChunkSize,
+		}
+		msg := t.tableDataSource.LoadChunkImmediate(request)
+		t.handleDataChunkLoaded(msg)
+	}
+}
+
+// ================================
+// REMAINING HANDLERS - Similar to List
+// ================================
+
+// handleDataRefresh refreshes all data
+func (t *Table[T]) handleDataRefresh() tea.Cmd {
+	t.chunks = make(map[int]Chunk[any])
+	return t.tableDataSource.GetTotal()
+}
+
+// handleDataChunkLoaded processes a loaded data chunk
+func (t *Table[T]) handleDataChunkLoaded(msg DataChunkLoadedMsg) tea.Cmd {
 	chunk := Chunk[any]{
 		StartIndex: msg.StartIndex,
 		EndIndex:   msg.StartIndex + len(msg.Items) - 1,
@@ -703,196 +647,106 @@ func (t *Table) handleDataChunkLoaded(msg DataChunkLoadedMsg) tea.Cmd {
 	}
 
 	t.chunks[msg.StartIndex] = chunk
+	delete(t.loadingChunks, msg.StartIndex)
+	t.hasLoadingChunks = len(t.loadingChunks) > 0
+	if !t.hasLoadingChunks {
+		t.canScroll = true
+	} else {
+		t.canScroll = !IsLoadingCriticalChunks(t.viewport, t.config.ViewportConfig, t.loadingChunks)
+	}
+
+	t.updateVisibleItems()
 	t.updateViewportBounds()
 
-	return nil
+	return ChunkLoadingCompletedCmd(msg.StartIndex, len(msg.Items), msg.Request)
 }
 
-// ================================
-// SELECTION HELPERS
-// ================================
-
-func (t *Table) handleSelectCurrent() tea.Cmd {
+// handleSelectCurrent selects the current item
+func (t *Table[T]) handleSelectCurrent() tea.Cmd {
 	if t.config.SelectionMode == SelectionNone || t.totalItems == 0 {
 		return nil
 	}
 
-	item, exists := t.getItemAtIndex(t.viewport.CursorIndex)
-	if !exists {
-		return nil
+	if t.viewport.CursorIndex >= 0 && t.viewport.CursorIndex < t.totalItems {
+		return t.tableDataSource.SetSelected(t.viewport.CursorIndex, !t.selectedItems[fmt.Sprintf("%d", t.viewport.CursorIndex)])
 	}
-
-	return t.toggleItemSelection(item.ID)
+	return nil
 }
 
-func (t *Table) handleSelectToggle(index int) tea.Cmd {
-	if t.config.SelectionMode == SelectionNone || index < 0 || index >= t.totalItems {
-		return nil
-	}
-
-	item, exists := t.getItemAtIndex(index)
-	if !exists {
-		return nil
-	}
-
-	return t.toggleItemSelection(item.ID)
-}
-
-func (t *Table) handleSelectAll() tea.Cmd {
+// handleSelectAll selects all items
+func (t *Table[T]) handleSelectAll() tea.Cmd {
 	if t.config.SelectionMode != SelectionMultiple {
 		return nil
 	}
 
-	for _, chunk := range t.chunks {
-		for _, item := range chunk.Items {
-			if !t.selectedItems[item.ID] {
-				t.selectedItems[item.ID] = true
-				t.selectedOrder = append(t.selectedOrder, item.ID)
-			}
+	return t.tableDataSource.SelectAll()
+}
+
+// handleSelectClear clears all selections
+func (t *Table[T]) handleSelectClear() tea.Cmd {
+	t.selectedItems = make(map[string]bool)
+	return t.tableDataSource.ClearSelection()
+}
+
+// refreshChunks reloads existing chunks to get updated selection state
+func (t *Table[T]) refreshChunks() tea.Cmd {
+	var cmds []tea.Cmd
+
+	// Reload all currently loaded chunks
+	for chunkStart := range t.chunks {
+		request := DataRequest{
+			Start: chunkStart,
+			Count: t.config.ViewportConfig.ChunkSize,
 		}
+		cmd := t.tableDataSource.LoadChunk(request)
+		cmds = append(cmds, cmd)
 	}
 
-	return nil
+	return tea.Batch(cmds...)
 }
 
-func (t *Table) handleSelectRange(startID, endID string) tea.Cmd {
-	if t.config.SelectionMode != SelectionMultiple {
-		return nil
-	}
-
-	startIndex := t.findItemIndex(startID)
-	endIndex := t.findItemIndex(endID)
-
-	if startIndex < 0 || endIndex < 0 {
-		return nil
-	}
-
-	if startIndex > endIndex {
-		startIndex, endIndex = endIndex, startIndex
-	}
-
-	for i := startIndex; i <= endIndex; i++ {
-		item, exists := t.getItemAtIndex(i)
-		if exists && !t.selectedItems[item.ID] {
-			t.selectedItems[item.ID] = true
-			t.selectedOrder = append(t.selectedOrder, item.ID)
-		}
-	}
-
-	return nil
-}
-
-// ================================
-// FILTER AND SORT HELPERS
-// ================================
-
-func (t *Table) handleFilterChange() tea.Cmd {
-	return t.handleDataRefresh()
-}
-
-func (t *Table) handleSortToggle(field string) tea.Cmd {
-	for i, sortField := range t.sortFields {
-		if sortField == field {
-			if t.sortDirs[i] == "asc" {
-				t.sortDirs[i] = "desc"
-			} else {
-				t.sortDirs[i] = "asc"
-			}
-			return t.handleDataRefresh()
-		}
-	}
-
-	t.sortFields = append(t.sortFields, field)
-	t.sortDirs = append(t.sortDirs, "asc")
-	return t.handleDataRefresh()
-}
-
-func (t *Table) handleSortSet(field, direction string) tea.Cmd {
-	t.sortFields = []string{field}
-	t.sortDirs = []string{direction}
-	return t.handleDataRefresh()
-}
-
-func (t *Table) handleSortAdd(field, direction string) tea.Cmd {
-	for i, sortField := range t.sortFields {
-		if sortField == field {
-			t.sortFields = append(t.sortFields[:i], t.sortFields[i+1:]...)
-			t.sortDirs = append(t.sortDirs[:i], t.sortDirs[i+1:]...)
-			break
-		}
-	}
-
-	t.sortFields = append(t.sortFields, field)
-	t.sortDirs = append(t.sortDirs, direction)
-	return t.handleDataRefresh()
-}
-
-func (t *Table) handleSortRemove(field string) tea.Cmd {
-	for i, sortField := range t.sortFields {
-		if sortField == field {
-			t.sortFields = append(t.sortFields[:i], t.sortFields[i+1:]...)
-			t.sortDirs = append(t.sortDirs[:i], t.sortDirs[i+1:]...)
-			return t.handleDataRefresh()
-		}
-	}
-	return nil
-}
-
-// ================================
-// SEARCH HELPERS
-// ================================
-
-func (t *Table) handleSearch() tea.Cmd {
-	if t.dataSource == nil {
-		return nil
-	}
-	return SearchResultCmd([]int{}, t.searchQuery, 0)
-}
-
-// ================================
-// KEYBOARD HANDLING
-// ================================
-
-func (t *Table) handleKeyPress(msg tea.KeyMsg) tea.Cmd {
+// handleKeyPress handles keyboard input - reuse List logic
+func (t *Table[T]) handleKeyPress(msg tea.KeyMsg) tea.Cmd {
 	if !t.focused {
 		return nil
 	}
 
 	key := msg.String()
 
+	// Check navigation keys - reuse List key mapping logic
 	for _, upKey := range t.config.KeyMap.Up {
 		if key == upKey {
-			return CursorUpCmd()
+			return t.handleCursorUp()
 		}
 	}
 
 	for _, downKey := range t.config.KeyMap.Down {
 		if key == downKey {
-			return CursorDownCmd()
+			return t.handleCursorDown()
 		}
 	}
 
 	for _, pageUpKey := range t.config.KeyMap.PageUp {
 		if key == pageUpKey {
-			return PageUpCmd()
+			return t.handlePageUp()
 		}
 	}
 
 	for _, pageDownKey := range t.config.KeyMap.PageDown {
 		if key == pageDownKey {
-			return PageDownCmd()
+			return t.handlePageDown()
 		}
 	}
 
 	for _, homeKey := range t.config.KeyMap.Home {
 		if key == homeKey {
-			return JumpToStartCmd()
+			return t.handleJumpToStart()
 		}
 	}
 
 	for _, endKey := range t.config.KeyMap.End {
 		if key == endKey {
-			return JumpToEndCmd()
+			return t.handleJumpToEnd()
 		}
 	}
 
@@ -908,251 +762,229 @@ func (t *Table) handleKeyPress(msg tea.KeyMsg) tea.Cmd {
 		}
 	}
 
+	for _, filterKey := range t.config.KeyMap.Filter {
+		if key == filterKey {
+			// Return command to start filtering
+			return StatusCmd("Filter mode", StatusInfo)
+		}
+	}
+
+	for _, sortKey := range t.config.KeyMap.Sort {
+		if key == sortKey {
+			// Return command to start sorting
+			return StatusCmd("Sort mode", StatusInfo)
+		}
+	}
+
 	return nil
 }
 
 // ================================
-// RENDERING HELPERS
+// TABLE FORMATTING
 // ================================
 
-func (t *Table) renderEmpty() string {
-	style := t.config.Theme.CellStyle
-	if t.lastError != nil {
-		style = t.config.Theme.ErrorStyle
-		return style.Render("Error: " + t.lastError.Error())
+// calculateColumnWidths calculates the width for each column
+func (t *Table[T]) calculateColumnWidths() []int {
+	widths := make([]int, len(t.columns))
+
+	// Use configured widths or auto-size
+	for i, col := range t.columns {
+		if col.Width > 0 {
+			widths[i] = col.Width
+		} else {
+			// Auto-size based on header and content
+			headerWidth := len(col.Title)
+
+			// Check content width from visible items
+			maxContentWidth := headerWidth
+			for _, item := range t.visibleItems {
+				if cellValue := t.tableDataSource.GetCellValue(item.Item.(T), col.Field); cellValue != nil {
+					contentWidth := len(fmt.Sprintf("%v", cellValue))
+					if contentWidth > maxContentWidth {
+						maxContentWidth = contentWidth
+					}
+				}
+			}
+
+			// Use the larger of header or content width, with minimum of 8
+			width := maxContentWidth
+			if width < 8 {
+				width = 8
+			}
+			widths[i] = width
+		}
 	}
-	return style.Render("No data")
+
+	return widths
 }
 
-func (t *Table) renderHeader() string {
-	if t.headerFormatter != nil {
-		return t.headerFormatter(t.config.Columns, t.renderContext)
-	}
-
+// renderHeader renders the table header
+func (t *Table[T]) renderHeader(columnWidths []int) string {
 	var cells []string
-	for i, col := range t.config.Columns {
-		cellContent := col.Title
 
-		// Apply column width constraint
-		if constraint, exists := t.columnConstraints[i]; exists {
-			cellContent = t.renderContext.Truncate(cellContent, constraint.Width)
+	for i, col := range t.columns {
+		width := columnWidths[i]
+		title := col.Title
+
+		// Apply alignment based on column alignment
+		switch col.Alignment {
+		case AlignCenter:
+			title = t.centerAlign(title, width)
+		case AlignRight:
+			title = t.rightAlign(title, width)
+		default: // AlignLeft
+			title = t.leftAlign(title, width)
 		}
 
-		// Apply header style
-		styled := t.config.Theme.HeaderStyle.Render(cellContent)
-		cells = append(cells, styled)
+		// Apply header styling
+		styledTitle := t.tableConfig.Theme.HeaderStyle.Render(title)
+		cells = append(cells, styledTitle)
 	}
 
-	if t.config.ShowBorders {
-		return "│ " + strings.Join(cells, " │ ") + " │"
+	// Join with borders if enabled
+	if t.tableConfig.ShowBorders {
+		borderChar := t.tableConfig.Theme.BorderChars.Vertical
+		return borderChar + strings.Join(cells, borderChar) + borderChar
 	}
+
 	return strings.Join(cells, " ")
 }
 
-func (t *Table) renderHeaderSeparator() string {
-	var parts []string
+// renderHeaderSeparator renders the separator line below the header
+func (t *Table[T]) renderHeaderSeparator(columnWidths []int) string {
+	var segments []string
 
-	if t.config.ShowBorders {
-		parts = append(parts, "├")
+	for i := range t.columns {
+		width := columnWidths[i]
+		segment := strings.Repeat(t.tableConfig.Theme.BorderChars.Horizontal, width)
+		segments = append(segments, segment)
 	}
 
-	for i, col := range t.config.Columns {
-		width := col.Width
-		if constraint, exists := t.columnConstraints[i]; exists {
-			width = constraint.Width
-		}
+	if t.tableConfig.ShowBorders {
+		left := t.tableConfig.Theme.BorderChars.LeftT
+		right := t.tableConfig.Theme.BorderChars.RightT
+		separator := t.tableConfig.Theme.BorderChars.TopT
 
-		separator := strings.Repeat("─", width)
-		parts = append(parts, separator)
-
-		if i < len(t.config.Columns)-1 && t.config.ShowBorders {
-			parts = append(parts, "┼")
-		}
+		return left + strings.Join(segments, separator) + right
 	}
 
-	if t.config.ShowBorders {
-		parts = append(parts, "┤")
-	}
-
-	return strings.Join(parts, "")
+	return strings.Join(segments, " ")
 }
 
-func (t *Table) renderRow(absoluteIndex, viewportIndex int) string {
-	item, exists := t.getItemAtIndex(absoluteIndex)
-	if !exists {
-		return t.renderLoadingRow()
+// renderFooterBorder renders the bottom border of the table
+func (t *Table[T]) renderFooterBorder(columnWidths []int) string {
+	var segments []string
+
+	for i := range t.columns {
+		width := columnWidths[i]
+		segment := strings.Repeat(t.tableConfig.Theme.BorderChars.Horizontal, width)
+		segments = append(segments, segment)
 	}
 
-	row := t.convertItemToRow(item)
+	if t.tableConfig.ShowBorders {
+		left := t.tableConfig.Theme.BorderChars.BottomLeft
+		right := t.tableConfig.Theme.BorderChars.BottomRight
+		separator := t.tableConfig.Theme.BorderChars.BottomT
 
-	isCursor := absoluteIndex == t.viewport.CursorIndex
-	isSelected := t.selectedItems[item.ID]
-
-	// Use row formatter if available
-	if t.rowFormatter != nil {
-		// First render all cells to get CellRenderResults
-		var cellResults []CellRenderResult
-		for i, col := range t.config.Columns {
-			cellValue := t.getCellValue(row, col.Field)
-			cellResult := t.renderCellWithResult(cellValue, i, item.ID, isCursor, isSelected, absoluteIndex, col)
-			cellResults = append(cellResults, cellResult)
-		}
-		return t.rowFormatter(row, t.config.Columns, cellResults, t.renderContext, isCursor, isSelected)
+		return left + strings.Join(segments, separator) + right
 	}
 
-	// Default row rendering
+	return strings.Join(segments, " ")
+}
+
+// formatTableRow formats a table row with proper column alignment
+func (t *Table[T]) formatTableRow(
+	item Data[any],
+	index int,
+	ctx RenderContext,
+	isCursor, isTopThreshold, isBottomThreshold bool,
+	columnWidths []int,
+) string {
 	var cells []string
-	for i, col := range t.config.Columns {
-		cellValue := t.getCellValue(row, col.Field)
-		cellContent := t.renderCell(cellValue, i, item.ID, isCursor, isSelected, absoluteIndex, col)
+
+	for i, col := range t.columns {
+		width := columnWidths[i]
+
+		// Get cell value
+		var cellValue any
+		if typedItem, ok := item.Item.(T); ok {
+			cellValue = t.tableDataSource.GetCellValue(typedItem, col.Field)
+		}
+
+		// Format cell content
+		cellContent := fmt.Sprintf("%v", cellValue)
+
+		// Apply alignment
+		switch col.Alignment {
+		case AlignCenter:
+			cellContent = t.centerAlign(cellContent, width)
+		case AlignRight:
+			cellContent = t.rightAlign(cellContent, width)
+		default: // AlignLeft
+			cellContent = t.leftAlign(cellContent, width)
+		}
+
+		// Apply styling
+		if isCursor {
+			cellContent = t.tableConfig.Theme.CursorStyle.Render(cellContent)
+		} else if item.Selected {
+			cellContent = t.tableConfig.Theme.SelectedStyle.Render(cellContent)
+		} else {
+			cellContent = t.tableConfig.Theme.CellStyle.Render(cellContent)
+		}
+
 		cells = append(cells, cellContent)
 	}
 
-	if t.config.ShowBorders {
-		return "│ " + strings.Join(cells, " │ ") + " │"
+	// Join with borders if enabled
+	if t.tableConfig.ShowBorders {
+		borderChar := t.tableConfig.Theme.BorderChars.Vertical
+		return borderChar + strings.Join(cells, borderChar) + borderChar
 	}
+
 	return strings.Join(cells, " ")
 }
 
-func (t *Table) renderCell(value any, columnIndex int, rowID string, isCursor, isSelected bool, absoluteIndex int, col TableColumn) string {
-	var content string
-
-	// Convert value to string for formatters
-	stringValue := fmt.Sprintf("%v", value)
-
-	// Use animated formatter if available and animations are enabled
-	if formatter, exists := t.animatedFormatters[columnIndex]; exists && t.config.AnimationConfig.Enabled {
-		key := fmt.Sprintf("%s:%d", rowID, columnIndex)
-		animationState := make(map[string]any)
-		if animation, exists := t.cellAnimations[key]; exists {
-			animationState = animation.State
-		}
-
-		result := formatter(stringValue, absoluteIndex, columnIndex, col, t.renderContext, animationState, isCursor, isSelected, false, false)
-		content = result.Content
-	} else if formatter, exists := t.cellFormatters[columnIndex]; exists {
-		// Use regular cell formatter
-		content = formatter(stringValue, absoluteIndex, columnIndex, col, t.renderContext, isCursor, isSelected)
-	} else {
-		// Default formatting
-		content = stringValue
+// Helper alignment functions
+func (t *Table[T]) leftAlign(text string, width int) string {
+	if len(text) >= width {
+		return text[:width]
 	}
-
-	// Apply constraints
-	if constraint, exists := t.columnConstraints[columnIndex]; exists {
-		content = t.applyCellConstraints(content, constraint)
-	}
-
-	// Apply styling
-	return t.applyCellStyle(content, isCursor, isSelected)
+	return text + strings.Repeat(" ", width-len(text))
 }
 
-func (t *Table) renderCellWithResult(value any, columnIndex int, rowID string, isCursor, isSelected bool, absoluteIndex int, col TableColumn) CellRenderResult {
-	// Convert value to string for formatters
-	stringValue := fmt.Sprintf("%v", value)
-
-	// Use animated formatter if available and animations are enabled
-	if formatter, exists := t.animatedFormatters[columnIndex]; exists && t.config.AnimationConfig.Enabled {
-		key := fmt.Sprintf("%s:%d", rowID, columnIndex)
-		animationState := make(map[string]any)
-		if animation, exists := t.cellAnimations[key]; exists {
-			animationState = animation.State
-		}
-
-		result := formatter(stringValue, absoluteIndex, columnIndex, col, t.renderContext, animationState, isCursor, isSelected, false, false)
-		return CellRenderResult{
-			Content:         result.Content,
-			ActualWidth:     len(result.Content),
-			ActualHeight:    1,
-			Overflow:        false,
-			RefreshTriggers: result.RefreshTriggers,
-			AnimationState:  result.AnimationState,
-			Error:           result.Error,
-			Fallback:        result.Fallback,
-		}
-	} else if formatter, exists := t.cellFormatters[columnIndex]; exists {
-		// Use regular cell formatter
-		content := formatter(stringValue, absoluteIndex, columnIndex, col, t.renderContext, isCursor, isSelected)
-		return CellRenderResult{
-			Content:      content,
-			ActualWidth:  len(content),
-			ActualHeight: 1,
-			Overflow:     false,
-		}
-	} else {
-		// Default formatting
-		return CellRenderResult{
-			Content:      stringValue,
-			ActualWidth:  len(stringValue),
-			ActualHeight: 1,
-			Overflow:     false,
-		}
+func (t *Table[T]) rightAlign(text string, width int) string {
+	if len(text) >= width {
+		return text[:width]
 	}
+	return strings.Repeat(" ", width-len(text)) + text
 }
 
-func (t *Table) renderLoadingRow() string {
-	var cells []string
-	for i := range t.config.Columns {
-		loading := "Loading..."
-		if constraint, exists := t.columnConstraints[i]; exists {
-			loading = t.renderContext.Truncate(loading, constraint.Width)
-		}
-		styled := t.config.Theme.LoadingStyle.Render(loading)
-		cells = append(cells, styled)
+func (t *Table[T]) centerAlign(text string, width int) string {
+	if len(text) >= width {
+		return text[:width]
 	}
-
-	if t.config.ShowBorders {
-		return "│ " + strings.Join(cells, " │ ") + " │"
-	}
-	return strings.Join(cells, " ")
+	padding := width - len(text)
+	leftPad := padding / 2
+	rightPad := padding - leftPad
+	return strings.Repeat(" ", leftPad) + text + strings.Repeat(" ", rightPad)
 }
 
-func (t *Table) renderBottomBorder() string {
-	var parts []string
-
-	parts = append(parts, "└")
-
-	for i, col := range t.config.Columns {
-		width := col.Width
-		if constraint, exists := t.columnConstraints[i]; exists {
-			width = constraint.Width
-		}
-
-		border := strings.Repeat("─", width)
-		parts = append(parts, border)
-
-		if i < len(t.config.Columns)-1 {
-			parts = append(parts, "┴")
-		}
-	}
-
-	parts = append(parts, "┘")
-
-	return strings.Join(parts, "")
-}
-
-// ================================
-// UTILITY HELPERS
-// ================================
-
-func (t *Table) setupRenderContext() {
-	totalWidth := 0
-	for _, col := range t.config.Columns {
-		totalWidth += col.Width
-	}
-	if t.config.ShowBorders {
-		totalWidth += len(t.config.Columns) + 1
-	}
-
+// setupRenderContext - reuse List logic
+func (t *Table[T]) setupRenderContext() {
 	t.renderContext = RenderContext{
-		MaxWidth:       totalWidth,
-		MaxHeight:      1,
-		Theme:          &t.config.Theme,
-		BaseStyle:      t.config.Theme.CellStyle,
-		ColorSupport:   true,
-		UnicodeSupport: true,
-		CurrentTime:    time.Now(),
-		FocusState:     FocusState{HasFocus: t.focused},
+		MaxWidth:          t.config.MaxWidth,
+		MaxHeight:         1,
+		Theme:             &t.tableConfig.Theme,
+		BaseStyle:         t.config.StyleConfig.DefaultStyle,
+		ColorSupport:      true,
+		UnicodeSupport:    true,
+		CurrentTime:       time.Now(),
+		FocusState:        FocusState{HasFocus: t.focused},
+		ErrorIndicator:    "❌",
+		LoadingIndicator:  "⏳",
+		DisabledIndicator: "🚫",
+		SelectedIndicator: "✅",
 		Truncate: func(text string, maxWidth int) string {
 			if len(text) <= maxWidth {
 				return text
@@ -1162,337 +994,62 @@ func (t *Table) setupRenderContext() {
 			}
 			return text[:maxWidth-3] + "..."
 		},
-		Wrap: func(text string, maxWidth int) []string {
-			words := strings.Fields(text)
-			if len(words) == 0 {
-				return []string{""}
-			}
-
-			var lines []string
-			currentLine := ""
-
-			for _, word := range words {
-				if len(currentLine) == 0 {
-					currentLine = word
-				} else if len(currentLine)+1+len(word) <= maxWidth {
-					currentLine += " " + word
-				} else {
-					lines = append(lines, currentLine)
-					currentLine = word
-				}
-			}
-
-			if currentLine != "" {
-				lines = append(lines, currentLine)
-			}
-
-			return lines
-		},
-		Measure: func(text string, maxWidth int) (int, int) {
-			lines := strings.Split(text, "\n")
-			width := 0
-			for _, line := range lines {
-				if len(line) > width {
-					width = len(line)
-				}
-			}
-			return width, len(lines)
-		},
 		OnError: func(err error) {
 			t.lastError = err
 		},
 	}
 }
 
-func (t *Table) initializeColumnConstraints() {
-	for i, col := range t.config.Columns {
-		if _, exists := t.columnConstraints[i]; !exists {
-			t.columnConstraints[i] = CellConstraint{
-				Width:     col.Width,
-				Height:    1,
-				Alignment: col.Alignment,
-				Padding: PaddingConfig{
-					Left:   1,
-					Right:  1,
-					Top:    0,
-					Bottom: 0,
-				},
-				MaxLines: 1,
-			}
-		}
-	}
-}
+// ================================
+// PUBLIC INTERFACE - Same as List
+// ================================
 
-func (t *Table) reset() {
-	t.chunks = make(map[int]Chunk[any])
-	t.totalItems = 0
-	t.clearSelection()
-	t.viewport = ViewportState{
-		ViewportStartIndex:  0,
-		CursorIndex:         t.config.ViewportConfig.InitialIndex,
-		CursorViewportIndex: 0,
-		IsAtTopThreshold:    false,
-		IsAtBottomThreshold: false,
-		AtDatasetStart:      true,
-		AtDatasetEnd:        false,
-	}
-	t.lastError = nil
-	t.filters = make(map[string]any)
-	t.sortFields = nil
-	t.sortDirs = nil
-	t.searchQuery = ""
-	t.searchField = ""
-	t.searchResults = nil
-	t.cellAnimations = make(map[string]CellAnimation)
-	t.rowAnimations = make(map[string]RowAnimation)
-}
-
-func (t *Table) updateViewportPosition() {
-	if t.totalItems == 0 {
-		return
-	}
-
-	height := t.config.ViewportConfig.Height
-
-	t.viewport.CursorViewportIndex = t.viewport.CursorIndex - t.viewport.ViewportStartIndex
-
-	if t.viewport.CursorViewportIndex < 0 {
-		t.viewport.ViewportStartIndex = t.viewport.CursorIndex
-		t.viewport.CursorViewportIndex = 0
-	} else if t.viewport.CursorViewportIndex >= height {
-		t.viewport.ViewportStartIndex = t.viewport.CursorIndex - height + 1
-		t.viewport.CursorViewportIndex = height - 1
-	}
-
-	t.updateViewportBounds()
-}
-
-func (t *Table) updateViewportBounds() {
-	height := t.config.ViewportConfig.Height
-	topThreshold := t.config.ViewportConfig.TopThreshold
-	bottomThreshold := t.config.ViewportConfig.BottomThreshold
-
-	t.viewport.IsAtTopThreshold = t.viewport.CursorViewportIndex <= topThreshold
-	// BottomThreshold is offset from end, so calculate actual position
-	if bottomThreshold >= 0 {
-		bottomPosition := height - bottomThreshold - 1
-		t.viewport.IsAtBottomThreshold = t.viewport.CursorViewportIndex >= bottomPosition
-	} else {
-		t.viewport.IsAtBottomThreshold = false
-	}
-
-	t.viewport.AtDatasetStart = t.viewport.ViewportStartIndex == 0
-	t.viewport.AtDatasetEnd = t.viewport.ViewportStartIndex+height >= t.totalItems
-}
-
-func (t *Table) checkAndLoadChunks() tea.Cmd {
-	if t.dataSource == nil {
-		return nil
-	}
-
-	var cmds []tea.Cmd
-	height := t.config.ViewportConfig.Height
-	chunkSize := t.config.ViewportConfig.ChunkSize
-
-	if t.viewport.IsAtTopThreshold && t.viewport.ViewportStartIndex > 0 {
-		startIndex := t.viewport.ViewportStartIndex - chunkSize
-		if startIndex < 0 {
-			startIndex = 0
-		}
-
-		if !t.isChunkLoaded(startIndex) {
-			request := DataRequest{
-				Start:          startIndex,
-				Count:          chunkSize,
-				SortFields:     t.sortFields,
-				SortDirections: t.sortDirs,
-				Filters:        t.filters,
-			}
-			cmds = append(cmds, t.dataSource.LoadChunk(request))
-		}
-	}
-
-	if t.viewport.IsAtBottomThreshold && t.viewport.ViewportStartIndex+height < t.totalItems {
-		startIndex := t.viewport.ViewportStartIndex + height
-
-		if !t.isChunkLoaded(startIndex) {
-			request := DataRequest{
-				Start:          startIndex,
-				Count:          chunkSize,
-				SortFields:     t.sortFields,
-				SortDirections: t.sortDirs,
-				Filters:        t.filters,
-			}
-			cmds = append(cmds, t.dataSource.LoadChunk(request))
-		}
-	}
-
-	if len(cmds) > 0 {
-		return tea.Batch(cmds...)
-	}
-
+// Focus sets the table as focused
+func (t *Table[T]) Focus() tea.Cmd {
+	t.focused = true
 	return nil
 }
 
-func (t *Table) isChunkLoaded(index int) bool {
-	for _, chunk := range t.chunks {
-		if index >= chunk.StartIndex && index <= chunk.EndIndex {
-			return true
-		}
-	}
-	return false
+// Blur removes focus from the table
+func (t *Table[T]) Blur() {
+	t.focused = false
 }
 
-func (t *Table) getItemAtIndex(index int) (Data[any], bool) {
-	if index < 0 || index >= t.totalItems {
-		return Data[any]{}, false
-	}
-
-	for _, chunk := range t.chunks {
-		if index >= chunk.StartIndex && index <= chunk.EndIndex {
-			chunkIndex := index - chunk.StartIndex
-			if chunkIndex < len(chunk.Items) {
-				return chunk.Items[chunkIndex], true
-			}
-		}
-	}
-
-	return Data[any]{}, false
+// IsFocused returns whether the table has focus
+func (t *Table[T]) IsFocused() bool {
+	return t.focused
 }
 
-func (t *Table) getRowAtIndex(index int) (TableRow, bool) {
-	item, exists := t.getItemAtIndex(index)
-	if !exists {
-		return TableRow{}, false
-	}
-	return t.convertItemToRow(item), true
+// GetState returns the current viewport state
+func (t *Table[T]) GetState() ViewportState {
+	return t.viewport
 }
 
-func (t *Table) findItemIndex(id string) int {
-	for _, chunk := range t.chunks {
-		for i, item := range chunk.Items {
-			if item.ID == id {
-				return chunk.StartIndex + i
-			}
-		}
-	}
-	return -1
+// GetSelectionCount returns the number of selected items
+func (t *Table[T]) GetSelectionCount() int {
+	return len(t.selectedItems)
 }
 
-func (t *Table) toggleItemSelection(id string) tea.Cmd {
-	if t.config.SelectionMode == SelectionNone {
-		return nil
-	}
+// ================================
+// TABLE CONFIGURATION
+// ================================
 
-	if t.selectedItems[id] {
-		delete(t.selectedItems, id)
-		for i, selectedID := range t.selectedOrder {
-			if selectedID == id {
-				t.selectedOrder = append(t.selectedOrder[:i], t.selectedOrder[i+1:]...)
-				break
-			}
-		}
-	} else {
-		if t.config.SelectionMode == SelectionSingle {
-			t.clearSelection()
-		}
-		t.selectedItems[id] = true
-		t.selectedOrder = append(t.selectedOrder, id)
-	}
-
-	return nil
+// SetShowHeader enables or disables the header
+func (t *Table[T]) SetShowHeader(show bool) {
+	t.tableConfig.ShowHeader = show
 }
 
-func (t *Table) clearSelection() {
-	t.selectedItems = make(map[string]bool)
-	t.selectedOrder = make([]string, 0)
+// SetShowBorders enables or disables borders
+func (t *Table[T]) SetShowBorders(show bool) {
+	t.tableConfig.ShowBorders = show
 }
 
-func (t *Table) convertItemToRow(item Data[any]) TableRow {
-	// Convert the generic item to a TableRow
-	// TableRow has Cells as []string, so we need to convert based on columns
-	cells := make([]string, len(t.config.Columns))
-
-	// If item.Item is a map, extract values for each column
-	if itemMap, ok := item.Item.(map[string]any); ok {
-		for i, col := range t.config.Columns {
-			if value, exists := itemMap[col.Field]; exists {
-				cells[i] = fmt.Sprintf("%v", value)
-			} else {
-				cells[i] = ""
-			}
-		}
-	} else {
-		// Otherwise, put the item value in the first cell
-		if len(cells) > 0 {
-			cells[0] = fmt.Sprintf("%v", item.Item)
-		}
-	}
-
-	return TableRow{
-		ID:    item.ID,
-		Cells: cells,
-	}
+// GetColumns returns the current columns
+func (t *Table[T]) GetColumns() []TableColumn {
+	return t.columns
 }
 
-func (t *Table) getCellValue(row TableRow, fieldName string) any {
-	// Find the column index for the field name
-	for i, col := range t.config.Columns {
-		if col.Field == fieldName {
-			if i < len(row.Cells) {
-				return row.Cells[i]
-			}
-			return ""
-		}
-	}
-	return ""
-}
-
-func (t *Table) applyCellConstraints(content string, constraint CellConstraint) string {
-	// Apply width constraint
-	if len(content) > constraint.Width {
-		content = t.renderContext.Truncate(content, constraint.Width)
-	}
-
-	// Apply padding
-	leftPadding := strings.Repeat(" ", constraint.Padding.Left)
-	rightPadding := strings.Repeat(" ", constraint.Padding.Right)
-	content = leftPadding + content + rightPadding
-
-	// Ensure minimum width
-	if len(content) < constraint.Width {
-		switch constraint.Alignment {
-		case AlignCenter:
-			totalPadding := constraint.Width - len(content)
-			leftPad := totalPadding / 2
-			rightPad := totalPadding - leftPad
-			content = strings.Repeat(" ", leftPad) + content + strings.Repeat(" ", rightPad)
-		case AlignRight:
-			padding := constraint.Width - len(content)
-			content = strings.Repeat(" ", padding) + content
-		default: // AlignLeft
-			padding := constraint.Width - len(content)
-			content = content + strings.Repeat(" ", padding)
-		}
-	}
-
-	return content
-}
-
-func (t *Table) applyCellStyle(content string, isCursor, isSelected bool) string {
-	var style lipgloss.Style
-
-	switch {
-	case isCursor && isSelected:
-		style = t.config.Theme.SelectedStyle.Copy().
-			Background(t.config.Theme.CursorStyle.GetBackground())
-	case isCursor:
-		style = t.config.Theme.CursorStyle
-	case isSelected:
-		style = t.config.Theme.SelectedStyle
-	default:
-		style = t.config.Theme.CellStyle
-	}
-
-	return style.Render(content)
+// SetColumns updates the table columns
+func (t *Table[T]) SetColumns(columns []TableColumn) {
+	t.columns = columns
 }

@@ -8,8 +8,57 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	vtable "github.com/davidroman0O/vtable/pure"
 )
+
+// ================================
+// PURE TEA MODEL MESSAGES
+// ================================
+
+// Configuration change messages - PURE TEA MODEL
+type RenderStyleChangeMsg struct {
+	StyleIndex int
+}
+
+type BackgroundModeChangeMsg struct {
+	ModeIndex int
+}
+
+type ComponentOrderChangeMsg struct {
+	OrderIndex int
+}
+
+type CursorIndicatorChangeMsg struct {
+	IndicatorIndex int
+}
+
+type EnumeratorAlignmentToggleMsg struct{}
+
+type TextWrappingToggleMsg struct{}
+
+type ComponentInfoToggleMsg struct{}
+
+type DebugToggleMsg struct{}
+
+type HelpToggleMsg struct{}
+
+type InputModeToggleMsg struct {
+	Enabled bool
+	Prompt  string
+}
+
+type IndexInputMsg struct {
+	Input string
+}
+
+type StatusUpdateMsg struct {
+	Message string
+}
+
+// ================================
+// DATA MODEL
+// ================================
 
 // Task represents our enhanced data model with more variety
 type Task struct {
@@ -276,28 +325,120 @@ func (s *EnhancedDataSource) SelectRange(startIndex, endIndex int) tea.Cmd {
 	return vtable.SelectionResponseCmd(true, -1, "", true, "range", nil, affectedIDs)
 }
 
-// EnhancedAppModel wraps our list with enhanced rendering features
-type EnhancedAppModel struct {
-	list            *vtable.List
-	dataSource      *EnhancedDataSource
-	loadingChunks   map[int]bool
-	chunkHistory    []string
-	showDebug       bool
-	showHelp        bool
-	statusMessage   string
-	indexInput      string
-	inputMode       bool
-	currentStyle    int
-	styleNames      []string
-	showStyleInfo   bool
-	customFormatter vtable.ItemFormatter[any]
+// ================================
+// PURE TEA MODEL
+// ================================
+
+// ComponentDemoModel - PURE TEA MODEL IMPLEMENTATION
+type ComponentDemoModel struct {
+	list          *vtable.List
+	dataSource    *EnhancedDataSource
+	loadingChunks map[int]bool
+	chunkHistory  []string
+	showDebug     bool
+	showHelp      bool
+	statusMessage string
+	indexInput    string
+	inputMode     bool
+
+	// Component rendering demo state - IMMUTABLE
+	currentRenderStyle int
+	renderStyleNames   []string
+	renderConfigs      []vtable.ListRenderConfig
+
+	// Background demo state - IMMUTABLE
+	currentBackgroundMode int
+	backgroundModeNames   []string
+
+	// Component order demo state - IMMUTABLE
+	currentOrderStyle int
+	orderStyleNames   []string
+	componentOrders   [][]vtable.ListComponentType
+
+	// Cursor indicators - IMMUTABLE
+	cursorIndicators    []string
+	currentIndicatorIdx int
+
+	showComponentInfo bool
 }
 
 func main() {
 	// Create enhanced data source with 150 tasks
 	dataSource := NewEnhancedDataSource(150)
 
-	// Create list configuration with enhanced rendering
+	// Create different rendering configurations to showcase component system
+	renderConfigs := []vtable.ListRenderConfig{
+		// 1. Standard bullet list
+		vtable.BulletListConfig(),
+
+		// 2. Numbered list with alignment
+		vtable.NumberedListConfig(),
+
+		// 3. Checklist style
+		vtable.ChecklistConfig(),
+
+		// 4. Minimal (content only)
+		vtable.MinimalListConfig(),
+
+		// 5. Custom enumerator with arrows
+		func() vtable.ListRenderConfig {
+			config := vtable.DefaultListRenderConfig()
+			config.EnumeratorConfig.Enumerator = func(data vtable.Data[any], index int, ctx vtable.RenderContext) string {
+				return "→ "
+			}
+			return config
+		}(),
+
+		// 6. Conditional enumerator (changes based on state)
+		func() vtable.ListRenderConfig {
+			config := vtable.DefaultListRenderConfig()
+			conditionalEnum := vtable.NewConditionalEnumerator(vtable.BulletEnumerator).
+				When(vtable.IsSelected, vtable.CheckboxEnumerator).
+				When(vtable.IsError, func(item vtable.Data[any], index int, ctx vtable.RenderContext) string {
+					return "❌ "
+				}).
+				When(vtable.IsLoading, func(item vtable.Data[any], index int, ctx vtable.RenderContext) string {
+					return "⏳ "
+				})
+			config.EnumeratorConfig.Enumerator = conditionalEnum.Enumerate
+			return config
+		}(),
+	}
+
+	renderStyleNames := []string{
+		"Bullet List", "Numbered List", "Checklist", "Minimal (Content Only)",
+		"Arrow Enumerator", "Conditional Enumerator",
+	}
+
+	// Different component orders to demonstrate flexibility
+	componentOrders := [][]vtable.ListComponentType{
+		// Standard order
+		{vtable.ListComponentCursor, vtable.ListComponentEnumerator, vtable.ListComponentContent},
+		// Content first
+		{vtable.ListComponentContent, vtable.ListComponentEnumerator, vtable.ListComponentCursor},
+		// Enumerator first
+		{vtable.ListComponentEnumerator, vtable.ListComponentCursor, vtable.ListComponentContent},
+		// Content only
+		{vtable.ListComponentContent},
+		// Cursor and content only
+		{vtable.ListComponentCursor, vtable.ListComponentContent},
+		// With spacing
+		{vtable.ListComponentCursor, vtable.ListComponentPreSpacing, vtable.ListComponentEnumerator, vtable.ListComponentContent, vtable.ListComponentPostSpacing},
+	}
+
+	orderStyleNames := []string{
+		"Standard (Cursor→Enum→Content)", "Content First (Content→Enum→Cursor)",
+		"Enum First (Enum→Cursor→Content)", "Content Only", "Cursor+Content Only",
+		"With Spacing (Cursor→Pre→Enum→Content→Post)",
+	}
+
+	backgroundModeNames := []string{
+		"No Background", "Entire Line", "Content Only", "Indicator Only",
+	}
+
+	cursorIndicators := []string{"► ", "→ ", "* ", "• ", "▶ ", ""}
+
+	// Create list configuration
 	config := vtable.ListConfig{
 		ViewportConfig: vtable.ViewportConfig{
 			Height:             10,
@@ -311,38 +452,39 @@ func main() {
 		SelectionMode: vtable.SelectionMultiple,
 		KeyMap:        vtable.DefaultNavigationKeyMap(),
 		MaxWidth:      100,
-		// Enhanced rendering configuration
-		RenderConfig: vtable.ListRenderConfig{
-			Enumerator:      vtable.BulletEnumerator,
-			ShowEnumerator:  true,
-			IndentSize:      2,
-			ItemSpacing:     0,
-			MaxWidth:        90,
-			WrapText:        true,
-			AlignEnumerator: true,
-		},
+		RenderConfig:  renderConfigs[0], // Start with bullet list
 	}
 
-	// Create list WITHOUT a formatter - let enhanced rendering handle everything
+	// Set content formatter for tasks
+	config.RenderConfig.ContentConfig.Formatter = createTaskFormatter()
+
+	// Create list - don't set a custom formatter so it uses the component system
 	list := vtable.NewList(config, dataSource)
 
-	// Create app model
-	app := EnhancedAppModel{
+	// Create app model - PURE TEA MODEL
+	app := ComponentDemoModel{
 		list:          list,
 		dataSource:    dataSource,
 		loadingChunks: make(map[int]bool),
 		chunkHistory:  make([]string, 0),
 		showDebug:     true,
 		showHelp:      true,
-		statusMessage: "🎨 Enhanced List Demo! Press 'e' to cycle enumerator styles, '?' for help",
+		statusMessage: "🎨 Component-Based Rendering Demo! Press keys to explore different rendering modes",
 		indexInput:    "",
 		inputMode:     false,
-		currentStyle:  0,
-		styleNames: []string{
-			"Bullets", "Numbers", "Checkboxes", "Alphabetical", "Dashes",
-			"Arrows", "Conditional", "Custom Pattern", "Roman Numerals", "Custom Formatter",
-		},
-		showStyleInfo: true,
+
+		// Component demo state - IMMUTABLE
+		currentRenderStyle:    0,
+		renderStyleNames:      renderStyleNames,
+		renderConfigs:         renderConfigs,
+		currentBackgroundMode: 0,
+		backgroundModeNames:   backgroundModeNames,
+		currentOrderStyle:     0,
+		orderStyleNames:       orderStyleNames,
+		componentOrders:       componentOrders,
+		cursorIndicators:      cursorIndicators,
+		currentIndicatorIdx:   0,
+		showComponentInfo:     true,
 	}
 
 	// Run the program
@@ -352,14 +494,15 @@ func main() {
 	}
 }
 
-func (m EnhancedAppModel) Init() tea.Cmd {
+func (m ComponentDemoModel) Init() tea.Cmd {
 	return tea.Batch(
 		m.list.Init(),
 		m.list.Focus(),
 	)
 }
 
-func (m EnhancedAppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+// PURE TEA MODEL UPDATE - NO DIRECT MUTATIONS
+func (m ComponentDemoModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		// Handle input mode for JumpToIndex
@@ -369,19 +512,25 @@ func (m EnhancedAppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if index, err := strconv.Atoi(m.indexInput); err == nil && index >= 0 && index < 150 {
 					m.inputMode = false
 					m.indexInput = ""
-					m.statusMessage = fmt.Sprintf("🎯 Jumping to task %d", index)
-					return m, vtable.JumpToCmd(index)
+					return m, tea.Batch(
+						vtable.JumpToCmd(index),
+						func() tea.Msg {
+							return StatusUpdateMsg{Message: fmt.Sprintf("🎯 Jumping to task %d", index)}
+						},
+					)
 				} else {
-					m.statusMessage = "❌ Invalid index! Please enter a number between 0-149"
 					m.inputMode = false
 					m.indexInput = ""
-					return m, nil
+					return m, func() tea.Msg {
+						return StatusUpdateMsg{Message: "❌ Invalid index! Please enter a number between 0-149"}
+					}
 				}
 			case "escape":
 				m.inputMode = false
 				m.indexInput = ""
-				m.statusMessage = "🚫 Jump cancelled"
-				return m, nil
+				return m, func() tea.Msg {
+					return StatusUpdateMsg{Message: "🚫 Jump cancelled"}
+				}
 			case "backspace":
 				if len(m.indexInput) > 0 {
 					m.indexInput = m.indexInput[:len(m.indexInput)-1]
@@ -397,73 +546,74 @@ func (m EnhancedAppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 
-		// Normal key handling
+		// Normal key handling - PURE TEA MODEL
 		switch msg.String() {
 		case "q", "ctrl+c":
 			return m, tea.Quit
 
+		// Component rendering style cycling - PURE TEA MODEL
 		case "e":
-			// Cycle through enumerator styles
-			m.currentStyle = (m.currentStyle + 1) % len(m.styleNames)
-			m.applyCurrentStyle()
-			m.statusMessage = fmt.Sprintf("🎨 Style: %s", m.styleNames[m.currentStyle])
-			return m, nil
+			newStyle := (m.currentRenderStyle + 1) % len(m.renderConfigs)
+			return m, func() tea.Msg {
+				return RenderStyleChangeMsg{StyleIndex: newStyle}
+			}
 
+		// Background mode cycling - PURE TEA MODEL
+		case "b":
+			newMode := (m.currentBackgroundMode + 1) % len(m.backgroundModeNames)
+			return m, func() tea.Msg {
+				return BackgroundModeChangeMsg{ModeIndex: newMode}
+			}
+
+		// Component order cycling - PURE TEA MODEL
+		case "o":
+			newOrder := (m.currentOrderStyle + 1) % len(m.componentOrders)
+			return m, func() tea.Msg {
+				return ComponentOrderChangeMsg{OrderIndex: newOrder}
+			}
+
+		// Toggle component info display - PURE TEA MODEL
 		case "t":
-			// Toggle style info display
-			m.showStyleInfo = !m.showStyleInfo
-			if m.showStyleInfo {
-				m.statusMessage = "📊 Style info visible"
-			} else {
-				m.statusMessage = "📊 Style info hidden"
+			return m, func() tea.Msg {
+				return ComponentInfoToggleMsg{}
 			}
-			return m, nil
 
+		// Cursor indicator cycling - PURE TEA MODEL
 		case "w":
-			// Toggle text wrapping
-			config := m.list.GetRenderConfig()
-			config.WrapText = !config.WrapText
-			m.list.SetRenderConfig(config)
-			if config.WrapText {
-				m.statusMessage = "📝 Text wrapping enabled"
-			} else {
-				m.statusMessage = "📝 Text wrapping disabled"
+			newIndicator := (m.currentIndicatorIdx + 1) % len(m.cursorIndicators)
+			return m, func() tea.Msg {
+				return CursorIndicatorChangeMsg{IndicatorIndex: newIndicator}
 			}
-			return m, nil
 
-		case "i":
-			// Toggle indent size
-			config := m.list.GetRenderConfig()
-			if config.IndentSize == 2 {
-				config.IndentSize = 4
-			} else {
-				config.IndentSize = 2
+		// Toggle enumerator alignment - PURE TEA MODEL
+		case "a":
+			return m, func() tea.Msg {
+				return EnumeratorAlignmentToggleMsg{}
 			}
-			m.list.SetRenderConfig(config)
-			m.statusMessage = fmt.Sprintf("📐 Indent size: %d", config.IndentSize)
-			return m, nil
+
+		// Toggle text wrapping - PURE TEA MODEL
+		case "W":
+			return m, func() tea.Msg {
+				return TextWrappingToggleMsg{}
+			}
 
 		case "r":
-			m.statusMessage = "🔄 Refreshing data..."
-			return m, vtable.DataRefreshCmd()
+			return m, tea.Batch(
+				vtable.DataRefreshCmd(),
+				func() tea.Msg {
+					return StatusUpdateMsg{Message: "🔄 Refreshing data..."}
+				},
+			)
 
 		case "d":
-			m.showDebug = !m.showDebug
-			if m.showDebug {
-				m.statusMessage = "🐛 Debug mode ON"
-			} else {
-				m.statusMessage = "🐛 Debug mode OFF"
+			return m, func() tea.Msg {
+				return DebugToggleMsg{}
 			}
-			return m, nil
 
 		case "?":
-			m.showHelp = !m.showHelp
-			if m.showHelp {
-				m.statusMessage = "❓ Help visible - press ? to hide"
-			} else {
-				m.statusMessage = "❓ Help hidden - press ? to show"
+			return m, func() tea.Msg {
+				return HelpToggleMsg{}
 			}
-			return m, nil
 
 		// Navigation keys
 		case "g":
@@ -471,10 +621,12 @@ func (m EnhancedAppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "G":
 			return m, vtable.JumpToEndCmd()
 		case "J":
-			m.inputMode = true
-			m.indexInput = ""
-			m.statusMessage = "🎯 Enter task index to jump to (0-149): "
-			return m, nil
+			return m, func() tea.Msg {
+				return InputModeToggleMsg{
+					Enabled: true,
+					Prompt:  "🎯 Enter task index to jump to (0-149): ",
+				}
+			}
 		case "h":
 			return m, vtable.PageUpCmd()
 		case "l":
@@ -487,18 +639,21 @@ func (m EnhancedAppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Selection keys
 		case " ":
 			return m, vtable.SelectCurrentCmd()
-		case "a":
+		case "A":
 			return m, vtable.SelectAllCmd()
 		case "c":
 			return m, vtable.SelectClearCmd()
 		case "s":
 			selectionCount := m.list.GetSelectionCount()
 			if selectionCount > 0 {
-				m.statusMessage = fmt.Sprintf("✅ SELECTED: %d tasks total", selectionCount)
+				return m, func() tea.Msg {
+					return StatusUpdateMsg{Message: fmt.Sprintf("✅ SELECTED: %d tasks total", selectionCount)}
+				}
 			} else {
-				m.statusMessage = "📝 No tasks selected - use Space to select"
+				return m, func() tea.Msg {
+					return StatusUpdateMsg{Message: "📝 No tasks selected - use Space to select"}
+				}
 			}
-			return m, nil
 
 		// Quick jump shortcuts
 		case "1":
@@ -516,12 +671,189 @@ func (m EnhancedAppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			var cmd tea.Cmd
 			_, cmd = m.list.Update(msg)
 			state := m.list.GetState()
-			m.statusMessage = fmt.Sprintf("📍 Position: %d/%d (Viewport: %d-%d)",
-				state.CursorIndex+1, 150,
-				state.ViewportStartIndex,
-				state.ViewportStartIndex+9)
-			return m, cmd
+			return m, tea.Batch(
+				cmd,
+				func() tea.Msg {
+					return StatusUpdateMsg{
+						Message: fmt.Sprintf("📍 Position: %d/%d (Viewport: %d-%d)",
+							state.CursorIndex+1, 150,
+							state.ViewportStartIndex,
+							state.ViewportStartIndex+9),
+					}
+				},
+			)
 		}
+
+	// PURE TEA MODEL MESSAGE HANDLING
+	case RenderStyleChangeMsg:
+		m.currentRenderStyle = msg.StyleIndex
+		config := m.renderConfigs[m.currentRenderStyle]
+		// Preserve current background and order settings
+		currentConfig := m.list.GetRenderConfig()
+		config.BackgroundConfig = currentConfig.BackgroundConfig
+		config.ComponentOrder = currentConfig.ComponentOrder
+		config.ContentConfig.Formatter = createTaskFormatter()
+
+		// Clear any custom list formatter so the component system is used
+		m.list.SetFormatter(nil)
+		m.list.SetRenderConfig(config)
+
+		return m, func() tea.Msg {
+			return StatusUpdateMsg{Message: fmt.Sprintf("🎨 Render Style: %s", m.renderStyleNames[m.currentRenderStyle])}
+		}
+
+	case BackgroundModeChangeMsg:
+		m.currentBackgroundMode = msg.ModeIndex
+		config := m.list.GetRenderConfig()
+
+		switch m.currentBackgroundMode {
+		case 0: // No Background
+			config.BackgroundConfig.Enabled = false
+		case 1: // Entire Line
+			config.BackgroundConfig.Enabled = true
+			config.BackgroundConfig.Mode = vtable.ListBackgroundEntireLine
+			config.BackgroundConfig.Style = lipgloss.NewStyle().
+				Background(lipgloss.Color("240")).
+				Foreground(lipgloss.Color("15"))
+		case 2: // Content Only
+			config.BackgroundConfig.Enabled = true
+			config.BackgroundConfig.Mode = vtable.ListBackgroundContentOnly
+			config.BackgroundConfig.Style = lipgloss.NewStyle().
+				Background(lipgloss.Color("33")).
+				Foreground(lipgloss.Color("15"))
+		case 3: // Indicator Only
+			config.BackgroundConfig.Enabled = true
+			config.BackgroundConfig.Mode = vtable.ListBackgroundIndicatorOnly
+			config.BackgroundConfig.Style = lipgloss.NewStyle().
+				Background(lipgloss.Color("196")).
+				Foreground(lipgloss.Color("15"))
+		}
+
+		m.list.SetRenderConfig(config)
+		return m, func() tea.Msg {
+			return StatusUpdateMsg{Message: fmt.Sprintf("🎨 Background Mode: %s", m.backgroundModeNames[m.currentBackgroundMode])}
+		}
+
+	case ComponentOrderChangeMsg:
+		m.currentOrderStyle = msg.OrderIndex
+		config := m.list.GetRenderConfig()
+		config.ComponentOrder = m.componentOrders[m.currentOrderStyle]
+
+		// Enable/disable components based on order
+		config.CursorConfig.Enabled = false
+		config.PreSpacingConfig.Enabled = false
+		config.EnumeratorConfig.Enabled = false
+		config.ContentConfig.Enabled = false
+		config.PostSpacingConfig.Enabled = false
+
+		for _, compType := range config.ComponentOrder {
+			switch compType {
+			case vtable.ListComponentCursor:
+				config.CursorConfig.Enabled = true
+			case vtable.ListComponentPreSpacing:
+				config.PreSpacingConfig.Enabled = true
+				config.PreSpacingConfig.Spacing = "  "
+			case vtable.ListComponentEnumerator:
+				config.EnumeratorConfig.Enabled = true
+			case vtable.ListComponentContent:
+				config.ContentConfig.Enabled = true
+			case vtable.ListComponentPostSpacing:
+				config.PostSpacingConfig.Enabled = true
+				config.PostSpacingConfig.Spacing = " "
+			}
+		}
+
+		m.list.SetRenderConfig(config)
+		return m, func() tea.Msg {
+			return StatusUpdateMsg{Message: fmt.Sprintf("🔄 Component Order: %s", m.orderStyleNames[m.currentOrderStyle])}
+		}
+
+	case CursorIndicatorChangeMsg:
+		m.currentIndicatorIdx = msg.IndicatorIndex
+		config := m.list.GetRenderConfig()
+		indicator := m.cursorIndicators[m.currentIndicatorIdx]
+		config.CursorConfig.CursorIndicator = indicator
+		if indicator == "" {
+			config.CursorConfig.NormalSpacing = ""
+		} else {
+			config.CursorConfig.NormalSpacing = "  "
+		}
+		m.list.SetRenderConfig(config)
+		return m, func() tea.Msg {
+			return StatusUpdateMsg{Message: fmt.Sprintf("🎨 Cursor Indicator: %q", indicator)}
+		}
+
+	case EnumeratorAlignmentToggleMsg:
+		config := m.list.GetRenderConfig()
+		if config.EnumeratorConfig.Alignment == vtable.ListAlignmentNone {
+			config.EnumeratorConfig.Alignment = vtable.ListAlignmentRight
+			config.EnumeratorConfig.MaxWidth = 8
+			m.list.SetRenderConfig(config)
+			return m, func() tea.Msg {
+				return StatusUpdateMsg{Message: "📐 Enumerator alignment: RIGHT (width: 8)"}
+			}
+		} else {
+			config.EnumeratorConfig.Alignment = vtable.ListAlignmentNone
+			config.EnumeratorConfig.MaxWidth = 0
+			m.list.SetRenderConfig(config)
+			return m, func() tea.Msg {
+				return StatusUpdateMsg{Message: "📐 Enumerator alignment: NONE"}
+			}
+		}
+
+	case TextWrappingToggleMsg:
+		config := m.list.GetRenderConfig()
+		config.ContentConfig.WrapText = !config.ContentConfig.WrapText
+		m.list.SetRenderConfig(config)
+		return m, func() tea.Msg {
+			return StatusUpdateMsg{Message: fmt.Sprintf("📝 Text wrapping: %v", config.ContentConfig.WrapText)}
+		}
+
+	case ComponentInfoToggleMsg:
+		m.showComponentInfo = !m.showComponentInfo
+		if m.showComponentInfo {
+			return m, func() tea.Msg {
+				return StatusUpdateMsg{Message: "📊 Component info visible"}
+			}
+		} else {
+			return m, func() tea.Msg {
+				return StatusUpdateMsg{Message: "📊 Component info hidden"}
+			}
+		}
+
+	case DebugToggleMsg:
+		m.showDebug = !m.showDebug
+		if m.showDebug {
+			return m, func() tea.Msg {
+				return StatusUpdateMsg{Message: "🐛 Debug mode ON"}
+			}
+		} else {
+			return m, func() tea.Msg {
+				return StatusUpdateMsg{Message: "🐛 Debug mode OFF"}
+			}
+		}
+
+	case HelpToggleMsg:
+		m.showHelp = !m.showHelp
+		if m.showHelp {
+			return m, func() tea.Msg {
+				return StatusUpdateMsg{Message: "❓ Help visible - press ? to hide"}
+			}
+		} else {
+			return m, func() tea.Msg {
+				return StatusUpdateMsg{Message: "❓ Help hidden - press ? to show"}
+			}
+		}
+
+	case InputModeToggleMsg:
+		m.inputMode = msg.Enabled
+		m.statusMessage = msg.Prompt
+		m.indexInput = ""
+		return m, nil
+
+	case StatusUpdateMsg:
+		m.statusMessage = msg.Message
+		return m, nil
 
 	// Handle chunk loading messages
 	case vtable.ChunkLoadingStartedMsg:
@@ -604,55 +936,7 @@ func (m EnhancedAppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 }
 
-func (m *EnhancedAppModel) applyCurrentStyle() {
-	switch m.currentStyle {
-	case 0: // Bullets
-		m.list.SetFormatter(nil) // Use enhanced rendering system
-		m.list.SetBulletStyle()
-		m.customFormatter = nil
-	case 1: // Numbers
-		m.list.SetFormatter(nil) // Use enhanced rendering system
-		m.list.SetNumberedStyle()
-		m.customFormatter = nil
-	case 2: // Checkboxes
-		m.list.SetFormatter(nil) // Use enhanced rendering system
-		m.list.SetChecklistStyle()
-		m.customFormatter = nil
-	case 3: // Alphabetical
-		m.list.SetFormatter(nil) // Use enhanced rendering system
-		m.list.SetAlphabeticalStyle()
-		m.customFormatter = nil
-	case 4: // Dashes
-		m.list.SetFormatter(nil) // Use enhanced rendering system
-		m.list.SetDashStyle()
-		m.customFormatter = nil
-	case 5: // Arrows
-		m.list.SetFormatter(nil) // Use enhanced rendering system
-		m.list.SetCustomEnumerator("→ ")
-		m.customFormatter = nil
-	case 6: // Conditional
-		m.list.SetFormatter(nil) // Use enhanced rendering system
-		m.list.SetConditionalStyle()
-		m.customFormatter = nil
-	case 7: // Custom Pattern
-		m.list.SetFormatter(nil) // Use enhanced rendering system
-		m.list.SetCustomEnumerator("[{index1}] ")
-		m.customFormatter = nil
-	case 8: // Roman Numerals
-		m.list.SetFormatter(nil) // Use enhanced rendering system
-		m.list.SetEnumerator(vtable.RomanEnumerator)
-		m.customFormatter = nil
-	case 9: // Custom Formatter
-		m.customFormatter = createCustomTaskFormatter()
-		m.list.SetFormatter(m.customFormatter) // Use full custom formatter that handles everything
-		// Reset to no enumerator since custom formatter handles everything
-		config := m.list.GetRenderConfig()
-		config.ShowEnumerator = false
-		m.list.SetRenderConfig(config)
-	}
-}
-
-func (m EnhancedAppModel) View() string {
+func (m ComponentDemoModel) View() string {
 	var view strings.Builder
 
 	// Show help if enabled
@@ -661,9 +945,9 @@ func (m EnhancedAppModel) View() string {
 		view.WriteString("\n")
 	}
 
-	// Show style info if enabled
-	if m.showStyleInfo {
-		view.WriteString(m.renderStyleInfo())
+	// Show component info if enabled
+	if m.showComponentInfo {
+		view.WriteString(m.renderComponentInfo())
 		view.WriteString("\n")
 	}
 
@@ -675,7 +959,7 @@ func (m EnhancedAppModel) View() string {
 	}
 	view.WriteString("\n\n")
 
-	// Show main list content - now always uses a formatter
+	// Show main list content
 	content := m.list.View()
 	view.WriteString(content)
 
@@ -694,30 +978,47 @@ func (m EnhancedAppModel) View() string {
 	return view.String()
 }
 
-func (m EnhancedAppModel) renderHelp() string {
+func (m ComponentDemoModel) renderHelp() string {
 	var help strings.Builder
-	help.WriteString("🎨 === ENHANCED LIST RENDERING DEMO ===\n")
-	help.WriteString("Visual: ► = cursor • Various enumerators based on style • Error/Loading states shown\n")
-	help.WriteString("Styles: e=cycle enumerator styles • t=toggle style info • w=toggle wrapping • i=toggle indent\n")
+	help.WriteString("🎨 === COMPONENT-BASED RENDERING DEMO ===\n")
+	help.WriteString("Rendering: e=cycle render styles • b=cycle background modes • o=cycle component orders\n")
+	help.WriteString("Components: w=cycle cursor indicators • a=toggle enumerator alignment • W=toggle text wrapping\n")
+	help.WriteString("Display: t=toggle component info • d=toggle debug • ?=toggle help\n")
 	help.WriteString("Navigation: j/k or ↑/↓ move • h/l page • g=start • G=end • J=jump • 1-5=quick jumps\n")
-	help.WriteString("Selection: Space=toggle • a=select all • c=clear • s=show selection info\n")
-	help.WriteString("Other: r=refresh • d=debug • ?=help • q=quit")
+	help.WriteString("Selection: Space=toggle • A=select all • c=clear • s=show selection info\n")
+	help.WriteString("Other: r=refresh • q=quit")
 	return help.String()
 }
 
-func (m EnhancedAppModel) renderStyleInfo() string {
+func (m ComponentDemoModel) renderComponentInfo() string {
 	var info strings.Builder
-	info.WriteString(fmt.Sprintf("🎨 Current Style: %s (%d/%d)\n",
-		m.styleNames[m.currentStyle], m.currentStyle+1, len(m.styleNames)))
+	info.WriteString("🎨 === COMPONENT CONFIGURATION ===\n")
 
 	config := m.list.GetRenderConfig()
-	info.WriteString(fmt.Sprintf("📐 Config: Wrapping=%v • Indent=%d • Alignment=%v • MaxWidth=%d",
-		config.WrapText, config.IndentSize, config.AlignEnumerator, config.MaxWidth))
+
+	// Current styles
+	info.WriteString(fmt.Sprintf("🎨 Render Style: %s (%d/%d)\n",
+		m.renderStyleNames[m.currentRenderStyle], m.currentRenderStyle+1, len(m.renderStyleNames)))
+	info.WriteString(fmt.Sprintf("🎨 Background Mode: %s (%d/%d)\n",
+		m.backgroundModeNames[m.currentBackgroundMode], m.currentBackgroundMode+1, len(m.backgroundModeNames)))
+	info.WriteString(fmt.Sprintf("🔄 Component Order: %s (%d/%d)\n",
+		m.orderStyleNames[m.currentOrderStyle], m.currentOrderStyle+1, len(m.orderStyleNames)))
+
+	// Component details
+	info.WriteString(fmt.Sprintf("📐 Components: Order=%v\n", config.ComponentOrder))
+	info.WriteString(fmt.Sprintf("🎯 Cursor: %v (indicator: %q, spacing: %q)\n",
+		config.CursorConfig.Enabled, config.CursorConfig.CursorIndicator, config.CursorConfig.NormalSpacing))
+	info.WriteString(fmt.Sprintf("📝 Enumerator: %v (alignment: %v, maxwidth: %d)\n",
+		config.EnumeratorConfig.Enabled, config.EnumeratorConfig.Alignment, config.EnumeratorConfig.MaxWidth))
+	info.WriteString(fmt.Sprintf("📄 Content: %v (wrap: %v, maxwidth: %d)\n",
+		config.ContentConfig.Enabled, config.ContentConfig.WrapText, config.ContentConfig.MaxWidth))
+	info.WriteString(fmt.Sprintf("🎨 Background: %v (mode: %v)\n",
+		config.BackgroundConfig.Enabled, config.BackgroundConfig.Mode))
 
 	return info.String()
 }
 
-func (m EnhancedAppModel) renderDebugInfo() string {
+func (m ComponentDemoModel) renderDebugInfo() string {
 	var debug strings.Builder
 	debug.WriteString("🐛 === CHUNK LOADING DEBUG ===\n")
 
@@ -751,8 +1052,8 @@ func (m EnhancedAppModel) renderDebugInfo() string {
 	return debug.String()
 }
 
-// createCustomTaskFormatter creates a completely custom formatter that doesn't use enumerators
-func createCustomTaskFormatter() vtable.ItemFormatter[any] {
+// createTaskFormatter creates a formatter for task content
+func createTaskFormatter() vtable.ItemFormatter[any] {
 	return func(
 		item vtable.Data[any],
 		index int,
@@ -763,141 +1064,27 @@ func createCustomTaskFormatter() vtable.ItemFormatter[any] {
 		if !ok {
 			return fmt.Sprintf("❌ Invalid data: %v", item.Item)
 		}
-
-		// Custom prefix based on item state
-		var prefix string
-		var suffix string
-
-		// Handle different states with custom icons
-		switch {
-		case item.Error != nil:
-			if isCursor {
-				prefix = "► 🚨 "
-			} else {
-				prefix = "  🚨 "
-			}
-			suffix = " (ERROR)"
-		case item.Loading:
-			if isCursor {
-				prefix = "► ⏳ "
-			} else {
-				prefix = "  ⏳ "
-			}
-			suffix = " (LOADING)"
-		case item.Disabled:
-			if isCursor {
-				prefix = "► 🚫 "
-			} else {
-				prefix = "  🚫 "
-			}
-			suffix = " (DISABLED)"
-		case item.Selected && isCursor:
-			prefix = "► ✅ "
-			suffix = " ◄ SELECTED"
-		case item.Selected:
-			prefix = "  ✅ "
-			suffix = " ◄ SELECTED"
-		case isCursor:
-			prefix = "► "
-			suffix = ""
-		default:
-			// Use priority-based icons
-			switch task.Priority {
-			case "Critical":
-				prefix = "  🔴 "
-			case "High":
-				prefix = "  🟠 "
-			case "Medium":
-				prefix = "  🟡 "
-			case "Low":
-				prefix = "  🟢 "
-			default:
-				prefix = "  ⚪ "
-			}
-		}
-
-		// Add status icon
-		var statusIcon string
-		switch task.Status {
-		case "Done":
-			statusIcon = "✅"
-		case "In Progress":
-			statusIcon = "🔄"
-		case "Review":
-			statusIcon = "👀"
-		case "Blocked":
-			statusIcon = "🚫"
-		default:
-			statusIcon = "📝"
-		}
-
-		// Format progress bar
-		progressBar := createProgressBar(task.Progress, 10)
-
-		// Add threshold indicators
-		thresholdIndicator := ""
-		if isCursor {
-			if isTopThreshold {
-				thresholdIndicator = " [TOP]"
-			} else if isBottomThreshold {
-				thresholdIndicator = " [BOT]"
-			}
-		}
-
-		// Format the main content with rich information
-		content := fmt.Sprintf("%-30s | %s %s | %s | %s",
-			task.Title, statusIcon, task.Status, progressBar, task.Category)
-
-		return fmt.Sprintf("%s%s%s%s", prefix, content, thresholdIndicator, suffix)
-	}
-}
-
-// createProgressBar creates a visual progress bar
-func createProgressBar(progress, width int) string {
-	if progress < 0 {
-		progress = 0
-	}
-	if progress > 100 {
-		progress = 100
-	}
-
-	filled := (progress * width) / 100
-	empty := width - filled
-
-	bar := strings.Repeat("█", filled) + strings.Repeat("░", empty)
-	return fmt.Sprintf("[%s] %d%%", bar, progress)
-}
-
-// createSimpleTaskFormatter creates a simple formatter that just formats the Task content nicely
-func createSimpleTaskFormatter() vtable.ItemFormatter[any] {
-	return func(
-		item vtable.Data[any],
-		index int,
-		ctx vtable.RenderContext,
-		isCursor, isTopThreshold, isBottomThreshold bool,
-	) string {
-		task, ok := item.Item.(Task)
-		if !ok {
-			return fmt.Sprintf("❌ Invalid data: %v", item.Item)
-		}
-
-		// Format the basic task content without cursor handling
-		// The enhanced rendering system will handle enumerators and cursor styling
-		content := fmt.Sprintf("%s | %s | %s | %s",
-			task.Title, task.Priority, task.Status, task.Category)
 
 		// Add state indicators
 		var stateIndicator string
-		switch {
-		case item.Error != nil:
-			stateIndicator = " ❌"
-		case item.Loading:
-			stateIndicator = " ⏳"
-		case item.Disabled:
-			stateIndicator = " 🚫"
-		case item.Selected:
-			stateIndicator = " ✅"
+
+		// Add error/loading/disabled indicators
+		if item.Error != nil {
+			stateIndicator += " ❌"
+		} else if item.Loading {
+			stateIndicator += " ⏳"
+		} else if item.Disabled {
+			stateIndicator += " 🚫"
 		}
+
+		// Add selection indicator (independent of state)
+		if item.Selected {
+			stateIndicator += " ✅"
+		}
+
+		// Format the basic task content
+		content := fmt.Sprintf("%s | %s | %s | %s",
+			task.Title, task.Priority, task.Status, task.Category)
 
 		return content + stateIndicator
 	}
