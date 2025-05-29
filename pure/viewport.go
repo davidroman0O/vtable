@@ -1,6 +1,18 @@
 package vtable
 
 // ================================
+// VIEWPORT TYPES
+// ================================
+
+// BoundingArea represents the area around the viewport where chunks should be loaded
+type BoundingArea struct {
+	StartIndex int // Absolute start index of bounding area
+	EndIndex   int // Absolute end index of bounding area (inclusive)
+	ChunkStart int // First chunk index in bounding area
+	ChunkEnd   int // Last chunk index in bounding area
+}
+
+// ================================
 // VIEWPORT CALCULATION FUNCTIONS
 // ================================
 

@@ -46,12 +46,27 @@ type TreeDataSource[T any] interface {
 
 // FlatTreeItem represents a tree item in flattened form
 type FlatTreeItem[T any] struct {
-	ID          string
-	Item        T
-	Depth       int
-	HasChildren bool
-	Expanded    bool
-	ParentID    string
+	ID            string
+	Item          T
+	Depth         int
+	HasChildNodes bool // Renamed to avoid conflict
+	Expanded      bool
+	ParentID      string
+}
+
+// GetDepth returns the depth of this tree item
+func (f FlatTreeItem[T]) GetDepth() int {
+	return f.Depth
+}
+
+// HasChildren returns whether this item has children
+func (f FlatTreeItem[T]) HasChildren() bool {
+	return f.HasChildNodes
+}
+
+// IsExpanded returns whether this item is expanded
+func (f FlatTreeItem[T]) IsExpanded() bool {
+	return f.Expanded
 }
 
 // ================================
@@ -77,14 +92,15 @@ type TreeList[T any] struct {
 	selectedNodes map[string]bool
 	flattenedView []FlatTreeItem[T] // Cached flattened view
 
-	// Rendering
-	formatter     ItemFormatter[any]
-	renderContext RenderContext
+	// Rendering - ENHANCED with component system
+	formatter         ItemFormatter[any]
+	animatedFormatter ItemFormatterAnimated[any]
+	renderContext     RenderContext
 
 	// Focus state
 	focused bool
 
-	// Tree configuration
+	// Tree configuration - SIMPLIFIED (component system handles most rendering)
 	treeConfig TreeConfig
 
 	// Chunk management - same as List
@@ -100,32 +116,45 @@ type TreeList[T any] struct {
 
 // TreeConfig contains tree-specific configuration
 type TreeConfig struct {
-	// Tree symbols
+	// Component-based rendering configuration
+	RenderConfig TreeRenderConfig // Use tree-specific component system
+
+	// Tree-specific behavior
+	CascadingSelection bool // When true, selecting a parent also selects all children
+	AutoExpand         bool // When true, automatically expand nodes when navigating to them
+	ShowRoot           bool // When true, show root nodes with special styling
+
+	// Tree navigation behavior
+	ExpandOnSelect bool // When true, selecting a node also expands it
+
+	// Tree symbols (legacy - component system handles these now)
 	Enumerator tree.Enumerator
 	Indenter   tree.Indenter
 
-	// Styling
+	// Styling (legacy - component system handles these now)
 	RootStyle       lipgloss.Style
 	ItemStyle       lipgloss.Style
 	EnumeratorStyle lipgloss.Style
 
-	// Cursor and spacing configuration
-	CursorIndicator string
-	CursorSpacing   string
-	NormalSpacing   string
-	ShowCursor      bool
-
-	// Cursor styling for when ShowCursor is false
-	CursorBackgroundStyle lipgloss.Style // Style applied to cursor line background
-	EnableCursorStyling   bool           // Whether to apply background styling to cursor line
-
-	// Selection behavior
-	CascadingSelection bool // When true, selecting a parent also selects all children
+	// Cursor and styling configuration (legacy - component system handles these now)
+	CursorIndicator       string
+	CursorSpacing         string
+	NormalSpacing         string
+	ShowCursor            bool
+	EnableCursorStyling   bool
+	CursorBackgroundStyle lipgloss.Style
 }
 
 // DefaultTreeConfig returns sensible defaults for tree configuration
 func DefaultTreeConfig() TreeConfig {
+	config := DefaultTreeRenderConfig()
+
 	return TreeConfig{
+		RenderConfig:          config,
+		CascadingSelection:    true,
+		AutoExpand:            true,
+		ShowRoot:              true,
+		ExpandOnSelect:        true,
 		Enumerator:            tree.DefaultEnumerator,
 		Indenter:              tree.DefaultIndenter,
 		RootStyle:             lipgloss.NewStyle(),
@@ -135,9 +164,8 @@ func DefaultTreeConfig() TreeConfig {
 		CursorSpacing:         "  ",
 		NormalSpacing:         "  ",
 		ShowCursor:            true,
+		EnableCursorStyling:   true,
 		CursorBackgroundStyle: lipgloss.NewStyle().Background(lipgloss.Color("240")).Foreground(lipgloss.Color("15")),
-		EnableCursorStyling:   true, // Enable cursor background styling by default
-		CascadingSelection:    true, // Enable cascading selection by default
 	}
 }
 
@@ -318,12 +346,13 @@ func (tl *TreeList[T]) View() string {
 	// Ensure visible items are up to date
 	tl.updateVisibleItems()
 
-	// If we have no visible items, chunks are not loaded yet
+	// If we have no visible items, render empty or continue
 	if len(tl.visibleItems) == 0 {
-		return "Loading initial data..."
+		// Don't show "Loading..." - let chunk loading happen silently
+		// The data will appear automatically when chunks load
 	}
 
-	// Render each visible item with tree formatting
+	// Render each visible item using component-based system
 	for i, item := range tl.visibleItems {
 		absoluteIndex := tl.viewport.ViewportStartIndex + i
 
@@ -346,15 +375,37 @@ func (tl *TreeList[T]) View() string {
 				tl.viewport.IsAtBottomThreshold,
 			)
 		} else {
-			// Use default tree formatter
-			renderedItem = tl.formatTreeItem(
-				item,
-				absoluteIndex,
-				tl.renderContext,
-				isCursor,
-				tl.viewport.IsAtTopThreshold,
-				tl.viewport.IsAtBottomThreshold,
-			)
+			// Use component-based tree rendering system for full customization
+			enhancedFormatter := EnhancedTreeFormatter(tl.treeConfig.RenderConfig)
+			ctx := tl.renderContext
+			ctx.MaxWidth = tl.treeConfig.RenderConfig.ContentConfig.MaxWidth
+
+			// Extract tree-specific data from the flattened item
+			flatItem, ok := item.Item.(FlatTreeItem[T])
+			if !ok {
+				// Fallback to simple tree formatter if type assertion fails
+				renderedItem = tl.formatTreeItem(
+					item,
+					absoluteIndex,
+					tl.renderContext,
+					isCursor,
+					tl.viewport.IsAtTopThreshold,
+					tl.viewport.IsAtBottomThreshold,
+				)
+			} else {
+				// Use component-based rendering with tree-specific data
+				renderedItem = enhancedFormatter(
+					item,
+					absoluteIndex,
+					flatItem.Depth,
+					flatItem.HasChildren(),
+					flatItem.IsExpanded(),
+					ctx,
+					isCursor,
+					tl.viewport.IsAtTopThreshold,
+					tl.viewport.IsAtBottomThreshold,
+				)
+			}
 		}
 
 		builder.WriteString(renderedItem)
@@ -365,6 +416,91 @@ func (tl *TreeList[T]) View() string {
 	}
 
 	return builder.String()
+}
+
+// ================================
+// TREE FORMATTING
+// ================================
+
+// formatTreeItem formats a tree item with proper tree structure
+func (tl *TreeList[T]) formatTreeItem(
+	item Data[any],
+	index int,
+	ctx RenderContext,
+	isCursor, isTopThreshold, isBottomThreshold bool,
+) string {
+	// Type assert to FlatTreeItem
+	flatItem, ok := item.Item.(FlatTreeItem[T])
+	if !ok {
+		return fmt.Sprintf("%s Invalid tree item: %v", ctx.ErrorIndicator, item.Item)
+	}
+
+	var prefix strings.Builder
+
+	// Add cursor indicator or spacing
+	if tl.treeConfig.ShowCursor && isCursor {
+		prefix.WriteString(tl.treeConfig.CursorIndicator)
+	} else {
+		prefix.WriteString(tl.treeConfig.NormalSpacing)
+	}
+
+	// Add indentation based on depth
+	for i := 0; i < flatItem.Depth; i++ {
+		prefix.WriteString("  ")
+	}
+
+	// Add tree connector
+	if flatItem.HasChildNodes {
+		if flatItem.Expanded {
+			prefix.WriteString("▼ ")
+		} else {
+			prefix.WriteString("▶ ")
+		}
+	} else {
+		prefix.WriteString("• ")
+	}
+
+	// Format the item content
+	content := tl.formatItemContent(flatItem.Item)
+
+	// Build the complete line content
+	fullContent := prefix.String() + content
+
+	// Apply cursor styling if enabled and this is the cursor line
+	if isCursor && tl.treeConfig.EnableCursorStyling {
+		if !tl.treeConfig.ShowCursor {
+			// No cursor indicator - apply background style to entire line
+			fullContent = tl.treeConfig.CursorBackgroundStyle.Render(fullContent)
+		} else {
+			// Has cursor indicator - apply background style to content part only
+			styledContent := tl.treeConfig.CursorBackgroundStyle.Render(content)
+			// Rebuild with styled content, preserving the prefix structure
+			prefixWithoutIndicator := prefix.String()[len(tl.treeConfig.CursorIndicator):]
+			fullContent = tl.treeConfig.CursorIndicator + prefixWithoutIndicator + styledContent
+		}
+	} else if item.Selected && !isCursor {
+		// Apply selection styling only if not cursor (cursor styling takes precedence)
+		styledContent := lipgloss.NewStyle().
+			Background(lipgloss.Color("240")).
+			Foreground(lipgloss.Color("15")).
+			Render(content)
+		fullContent = prefix.String() + styledContent
+	}
+
+	// Add selection indicator if selected
+	if item.Selected {
+		fullContent += " " + ctx.SelectedIndicator
+	}
+
+	return fullContent
+}
+
+// formatItemContent formats the content of a tree item
+func (tl *TreeList[T]) formatItemContent(item T) string {
+	if stringer, ok := any(item).(fmt.Stringer); ok {
+		return stringer.String()
+	}
+	return fmt.Sprintf("%v", item)
 }
 
 // ================================
@@ -405,7 +541,7 @@ func (tl *TreeList[T]) ToggleNode(id string) tea.Cmd {
 func (tl *TreeList[T]) ToggleCurrentNode() tea.Cmd {
 	if tl.viewport.CursorIndex >= 0 && tl.viewport.CursorIndex < len(tl.flattenedView) {
 		currentItem := tl.flattenedView[tl.viewport.CursorIndex]
-		if currentItem.HasChildren {
+		if currentItem.HasChildren() {
 			return tl.ToggleNode(currentItem.ID)
 		}
 	}
@@ -428,12 +564,12 @@ func (tl *TreeList[T]) flattenNodes(nodes []TreeData[T], parentID string, depth 
 	for _, node := range nodes {
 		// Add the node itself
 		tl.flattenedView = append(tl.flattenedView, FlatTreeItem[T]{
-			ID:          node.ID,
-			Item:        node.Item,
-			Depth:       depth,
-			HasChildren: len(node.Children) > 0,
-			Expanded:    tl.expandedNodes[node.ID],
-			ParentID:    parentID,
+			ID:            node.ID,
+			Item:          node.Item,
+			Depth:         depth,
+			HasChildNodes: len(node.Children) > 0,
+			Expanded:      tl.expandedNodes[node.ID],
+			ParentID:      parentID,
 		})
 
 		// Add children if expanded
@@ -726,7 +862,7 @@ func (tl *TreeList[T]) handleSelectCurrent() tea.Cmd {
 		tl.selectedNodes[currentItem.ID] = newSelectionState
 
 		// If cascading selection is enabled and this item has children, cascade the selection
-		if tl.treeConfig.CascadingSelection && currentItem.HasChildren {
+		if tl.treeConfig.CascadingSelection && currentItem.HasChildren() {
 			tl.cascadeSelection(currentItem.ID, newSelectionState)
 		}
 
@@ -834,88 +970,71 @@ func (tl *TreeList[T]) handleKeyPress(msg tea.KeyMsg) tea.Cmd {
 }
 
 // ================================
-// TREE FORMATTING
+// TREE CONFIGURATION - Component-based
 // ================================
 
-// formatTreeItem formats a tree item with proper tree structure
-func (tl *TreeList[T]) formatTreeItem(
-	item Data[any],
-	index int,
-	ctx RenderContext,
-	isCursor, isTopThreshold, isBottomThreshold bool,
-) string {
-	// Type assert to FlatTreeItem
-	flatItem, ok := item.Item.(FlatTreeItem[T])
-	if !ok {
-		return fmt.Sprintf("%s Invalid tree item: %v", ctx.ErrorIndicator, item.Item)
+// SetTreeEnumerator sets the tree to use tree-style enumeration
+func (tl *TreeList[T]) SetTreeEnumerator() {
+	// Create a wrapper function that matches TreeEnumeratorFunc signature
+	tl.treeConfig.RenderConfig.EnumeratorConfig.Enumerator = func(item Data[any], index int, depth int, hasChildren, isExpanded bool, ctx RenderContext) string {
+		return TreeEnumerator(item, index, ctx)
 	}
-
-	var prefix strings.Builder
-
-	// Add cursor indicator or spacing
-	if tl.treeConfig.ShowCursor && isCursor {
-		prefix.WriteString(tl.treeConfig.CursorIndicator)
-	} else {
-		prefix.WriteString(tl.treeConfig.NormalSpacing)
-	}
-
-	// Add indentation based on depth
-	for i := 0; i < flatItem.Depth; i++ {
-		prefix.WriteString("  ")
-	}
-
-	// Add tree connector
-	if flatItem.HasChildren {
-		if flatItem.Expanded {
-			prefix.WriteString("▼ ")
-		} else {
-			prefix.WriteString("▶ ")
-		}
-	} else {
-		prefix.WriteString("• ")
-	}
-
-	// Format the item content
-	content := tl.formatItemContent(flatItem.Item)
-
-	// Build the complete line content
-	fullContent := prefix.String() + content
-
-	// Apply cursor styling if enabled and this is the cursor line
-	if isCursor && tl.treeConfig.EnableCursorStyling {
-		if !tl.treeConfig.ShowCursor {
-			// No cursor indicator - apply background style to entire line
-			fullContent = tl.treeConfig.CursorBackgroundStyle.Render(fullContent)
-		} else {
-			// Has cursor indicator - apply background style to content part only
-			styledContent := tl.treeConfig.CursorBackgroundStyle.Render(content)
-			// Rebuild with styled content, preserving the prefix structure
-			prefixWithoutIndicator := prefix.String()[len(tl.treeConfig.CursorIndicator):]
-			fullContent = tl.treeConfig.CursorIndicator + prefixWithoutIndicator + styledContent
-		}
-	} else if item.Selected && !isCursor {
-		// Apply selection styling only if not cursor (cursor styling takes precedence)
-		styledContent := lipgloss.NewStyle().
-			Background(lipgloss.Color("240")).
-			Foreground(lipgloss.Color("15")).
-			Render(content)
-		fullContent = prefix.String() + styledContent
-	}
-
-	// Add selection indicator if selected
-	if item.Selected {
-		fullContent += " " + ctx.SelectedIndicator
-	}
-
-	return fullContent
 }
 
-// formatItemContent formats the content of a tree item
-func (tl *TreeList[T]) formatItemContent(item T) string {
-	if stringer, ok := any(item).(fmt.Stringer); ok {
-		return stringer.String()
+// SetTreeExpandedEnumerator sets the tree to use expanded tree-style enumeration
+func (tl *TreeList[T]) SetTreeExpandedEnumerator() {
+	// Create a wrapper function that matches TreeEnumeratorFunc signature
+	tl.treeConfig.RenderConfig.EnumeratorConfig.Enumerator = func(item Data[any], index int, depth int, hasChildren, isExpanded bool, ctx RenderContext) string {
+		return TreeExpandedEnumerator(item, index, ctx)
 	}
-	return fmt.Sprintf("%v", item)
+}
+
+// SetTreeMinimalEnumerator sets the tree to use minimal tree-style enumeration
+func (tl *TreeList[T]) SetTreeMinimalEnumerator() {
+	// Create a wrapper function that matches TreeEnumeratorFunc signature
+	tl.treeConfig.RenderConfig.EnumeratorConfig.Enumerator = func(item Data[any], index int, depth int, hasChildren, isExpanded bool, ctx RenderContext) string {
+		return TreeMinimalEnumerator(item, index, ctx)
+	}
+}
+
+// SetCascadingSelection enables or disables cascading selection
+func (tl *TreeList[T]) SetCascadingSelection(enabled bool) {
+	tl.treeConfig.CascadingSelection = enabled
+}
+
+// GetCascadingSelection returns whether cascading selection is enabled
+func (tl *TreeList[T]) GetCascadingSelection() bool {
+	return tl.treeConfig.CascadingSelection
+}
+
+// SetRenderConfig sets the complete render configuration
+func (tl *TreeList[T]) SetRenderConfig(config TreeRenderConfig) {
+	tl.treeConfig.RenderConfig = config
+}
+
+// GetRenderConfig returns the current render configuration
+func (tl *TreeList[T]) GetRenderConfig() TreeRenderConfig {
+	return tl.treeConfig.RenderConfig
+}
+
+// SetAutoExpand enables or disables auto-expansion of nodes
+func (tl *TreeList[T]) SetAutoExpand(enabled bool) {
+	tl.treeConfig.AutoExpand = enabled
+}
+
+// GetAutoExpand returns whether auto-expansion is enabled
+func (tl *TreeList[T]) GetAutoExpand() bool {
+	return tl.treeConfig.AutoExpand
+}
+
+// SetExpandOnSelect enables or disables expanding nodes when selected
+func (tl *TreeList[T]) SetExpandOnSelect(enabled bool) {
+	tl.treeConfig.ExpandOnSelect = enabled
+}
+
+// GetExpandOnSelect returns whether expand-on-select is enabled
+func (tl *TreeList[T]) GetExpandOnSelect() bool {
+	return tl.treeConfig.ExpandOnSelect
 }
 
 // setupRenderContext - reuse List logic
@@ -979,8 +1098,13 @@ func (tl *TreeList[T]) GetSelectionCount() int {
 }
 
 // ================================
-// TREE CONFIGURATION
+// CURSOR AND STYLING METHODS
 // ================================
+
+// SetEnumerator sets the tree enumerator function
+func (tl *TreeList[T]) SetEnumerator(enum tree.Enumerator) {
+	tl.treeConfig.Enumerator = enum
+}
 
 // SetCursorIndicator sets the cursor indicator string
 func (tl *TreeList[T]) SetCursorIndicator(indicator string) {
@@ -1000,31 +1124,6 @@ func (tl *TreeList[T]) SetNormalSpacing(spacing string) {
 // SetShowCursor enables or disables cursor indicators
 func (tl *TreeList[T]) SetShowCursor(show bool) {
 	tl.treeConfig.ShowCursor = show
-}
-
-// SetEnumerator sets the tree enumerator
-func (tl *TreeList[T]) SetEnumerator(enum tree.Enumerator) {
-	tl.treeConfig.Enumerator = enum
-}
-
-// SetCascadingSelection enables or disables cascading selection
-func (tl *TreeList[T]) SetCascadingSelection(enabled bool) {
-	tl.treeConfig.CascadingSelection = enabled
-}
-
-// GetCascadingSelection returns whether cascading selection is enabled
-func (tl *TreeList[T]) GetCascadingSelection() bool {
-	return tl.treeConfig.CascadingSelection
-}
-
-// SetCursorBackgroundStyle sets the background style for cursor lines
-func (tl *TreeList[T]) SetCursorBackgroundStyle(style lipgloss.Style) {
-	tl.treeConfig.CursorBackgroundStyle = style
-}
-
-// GetCursorBackgroundStyle returns the current cursor background style
-func (tl *TreeList[T]) GetCursorBackgroundStyle() lipgloss.Style {
-	return tl.treeConfig.CursorBackgroundStyle
 }
 
 // SetEnableCursorStyling enables or disables cursor background styling

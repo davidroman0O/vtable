@@ -75,6 +75,8 @@ type CellFormatter func(
 	ctx RenderContext,
 	isCursor bool,
 	isSelected bool,
+	isTopThreshold bool,
+	isBottomThreshold bool,
 ) string
 
 // CellFormatterAnimated formats a table cell with animation support
@@ -104,6 +106,21 @@ type RowFormatter func(
 // HeaderFormatter formats the table header
 type HeaderFormatter func(
 	columns []TableColumn,
+	ctx RenderContext,
+) string
+
+// LoadingRowFormatter formats loading placeholder rows in tables
+type LoadingRowFormatter func(
+	index int,
+	columns []TableColumn,
+	ctx RenderContext,
+	isCursor bool,
+) string
+
+// HeaderCellFormatter formats individual header cells in tables
+type HeaderCellFormatter func(
+	column TableColumn,
+	columnIndex int,
 	ctx RenderContext,
 ) string
 

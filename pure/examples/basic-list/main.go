@@ -279,7 +279,7 @@ func main() {
 }
 
 func (m AppModel) Init() tea.Cmd {
-	// FULLY AUTOMATED - just init and focus!
+	// just init and focus!
 	return tea.Batch(
 		m.list.Init(), // Automatically calls GetTotal() and loads initial chunk
 		m.list.Focus(),

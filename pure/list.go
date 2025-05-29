@@ -443,9 +443,10 @@ func (l *List) View() string {
 	// Ensure visible items are up to date
 	l.updateVisibleItems()
 
-	// If we have no visible items, it means chunks are not loaded yet
+	// If we have no visible items, render empty or continue
 	if len(l.visibleItems) == 0 {
-		return "Loading initial data..."
+		// Don't show "Loading..." - let chunk loading happen silently
+		// The data will appear automatically when chunks load
 	}
 
 	// Render each visible item
@@ -1158,14 +1159,6 @@ func (l *List) updateViewportBounds() {
 // BOUNDING CHUNK MANAGEMENT SYSTEM
 // ================================
 
-// BoundingArea represents the area around the viewport where chunks should be loaded
-type BoundingArea struct {
-	StartIndex int // Absolute start index of bounding area
-	EndIndex   int // Absolute end index of bounding area (inclusive)
-	ChunkStart int // First chunk index in bounding area
-	ChunkEnd   int // Last chunk index in bounding area
-}
-
 // calculateBoundingArea calculates the bounding area around the current viewport automatically
 func (l *List) calculateBoundingArea() BoundingArea {
 	return CalculateBoundingArea(l.viewport, l.config.ViewportConfig, l.totalItems)
@@ -1260,6 +1253,7 @@ func (l *List) unloadOldChunks() tea.Cmd {
 		if ShouldUnloadChunk(startIndex, keepLowerBound, keepUpperBound) {
 			delete(l.chunks, startIndex)
 			delete(l.chunkAccessTime, startIndex)
+			unloadedChunks = append(unloadedChunks, startIndex)
 		}
 	}
 

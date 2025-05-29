@@ -201,3 +201,105 @@ func IsCursor(item Data[any], index int, ctx RenderContext) bool {
 	// This would need to be passed in the context
 	return false // Placeholder - would need viewport state
 }
+
+// ================================
+// TREE-SPECIFIC ENUMERATORS
+// ================================
+
+// TreeEnumerator creates tree-style enumeration with proper indentation and tree symbols
+func TreeEnumerator(item Data[any], index int, ctx RenderContext) string {
+	// Type assert to check if this is a tree item
+	if flatItem, ok := item.Item.(interface {
+		GetDepth() int
+		HasChildren() bool
+		IsExpanded() bool
+	}); ok {
+		var prefix strings.Builder
+
+		// Add indentation based on depth
+		depth := flatItem.GetDepth()
+		for i := 0; i < depth; i++ {
+			prefix.WriteString("  ")
+		}
+
+		// Add tree connector
+		if flatItem.HasChildren() {
+			if flatItem.IsExpanded() {
+				prefix.WriteString("▼ ")
+			} else {
+				prefix.WriteString("▶ ")
+			}
+		} else {
+			prefix.WriteString("• ")
+		}
+
+		return prefix.String()
+	}
+
+	// Fallback to bullet for non-tree items
+	return "• "
+}
+
+// TreeExpandedEnumerator shows different symbols for expanded/collapsed nodes
+func TreeExpandedEnumerator(item Data[any], index int, ctx RenderContext) string {
+	if flatItem, ok := item.Item.(interface {
+		GetDepth() int
+		HasChildren() bool
+		IsExpanded() bool
+	}); ok {
+		var prefix strings.Builder
+
+		// Add indentation
+		depth := flatItem.GetDepth()
+		for i := 0; i < depth; i++ {
+			prefix.WriteString("│ ")
+		}
+
+		// Add tree connector with box drawing characters
+		if flatItem.HasChildren() {
+			if flatItem.IsExpanded() {
+				prefix.WriteString("├─")
+			} else {
+				prefix.WriteString("├+")
+			}
+		} else {
+			prefix.WriteString("└─")
+		}
+
+		return prefix.String()
+	}
+
+	return "• "
+}
+
+// TreeMinimalEnumerator provides minimal tree visualization
+func TreeMinimalEnumerator(item Data[any], index int, ctx RenderContext) string {
+	if flatItem, ok := item.Item.(interface {
+		GetDepth() int
+		HasChildren() bool
+		IsExpanded() bool
+	}); ok {
+		var prefix strings.Builder
+
+		// Add simple indentation
+		depth := flatItem.GetDepth()
+		for i := 0; i < depth; i++ {
+			prefix.WriteString("  ")
+		}
+
+		// Simple symbols
+		if flatItem.HasChildren() {
+			if flatItem.IsExpanded() {
+				prefix.WriteString("- ")
+			} else {
+				prefix.WriteString("+ ")
+			}
+		} else {
+			prefix.WriteString("  ")
+		}
+
+		return prefix.String()
+	}
+
+	return ""
+}

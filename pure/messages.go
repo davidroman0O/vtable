@@ -303,6 +303,16 @@ type HeaderFormatterSetMsg struct {
 	Formatter HeaderFormatter
 }
 
+// LoadingFormatterSetMsg sets the loading row formatter
+type LoadingFormatterSetMsg struct {
+	Formatter LoadingRowFormatter
+}
+
+// HeaderCellFormatterSetMsg sets the header cell formatter
+type HeaderCellFormatterSetMsg struct {
+	Formatter HeaderCellFormatter
+}
+
 // ===== Constraint Messages =====
 
 // ColumnConstraintsSetMsg sets constraints for a column

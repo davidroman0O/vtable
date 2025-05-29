@@ -6,7 +6,7 @@ import (
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss/tree"
+	"github.com/charmbracelet/lipgloss"
 	vtable "github.com/davidroman0O/vtable/pure"
 )
 
@@ -277,13 +277,16 @@ func main() {
 		MaxWidth:      120,
 	}
 
-	// Create tree configuration
+	// Create tree configuration with component-based rendering
 	treeConfig := vtable.DefaultTreeConfig()
+
+	// Set up a custom tree formatter that enhances task display
+	treeConfig.RenderConfig.ContentConfig.Formatter = createTaskTreeFormatter()
 
 	// Create tree list
 	treeList := vtable.NewTreeList(config, treeConfig, dataSource)
 
-	// Define cursor style options
+	// Define cursor style options (updated for component system)
 	cursorStyles := []CursorStyleConfig{
 		{
 			Name: "Arrow", CursorIndicator: "► ", CursorSpacing: "  ", NormalSpacing: "  ",
@@ -342,7 +345,7 @@ func main() {
 		showHelp:      true,
 		statusMessage: "🌳 Large Tree Demo! Navigate with j/k, expand/collapse with Enter. Watch chunk loading!",
 		currentStyle:  0,
-		styleNames:    []string{"Default", "Rounded"},
+		styleNames:    []string{"Default", "Standard", "Minimal", "Enumerated"},
 		cursorStyle:   0,
 		cursorStyles:  cursorStyles,
 	}
@@ -351,6 +354,80 @@ func main() {
 	p := tea.NewProgram(app, tea.WithAltScreen())
 	if _, err := p.Run(); err != nil {
 		log.Fatal(err)
+	}
+}
+
+// createTaskTreeFormatter creates a custom tree formatter for tasks
+func createTaskTreeFormatter() vtable.TreeItemFormatter {
+	return func(
+		item vtable.Data[any],
+		index int,
+		depth int,
+		hasChildren, isExpanded bool,
+		ctx vtable.RenderContext,
+		isCursor, isTopThreshold, isBottomThreshold bool,
+	) string {
+		// Type assert to our Task type
+		flatItem, ok := item.Item.(vtable.FlatTreeItem[Task])
+		if !ok {
+			return fmt.Sprintf("Invalid item: %v", item.Item)
+		}
+
+		task := flatItem.Item
+
+		// Just the task title - no selection indicators here
+		var content strings.Builder
+		content.WriteString(task.Title)
+
+		// Add status indicator for tasks (not projects/modules)
+		if !strings.Contains(task.Title, "📁") && !strings.Contains(task.Title, "📦") {
+			switch task.Status {
+			case "Done":
+				content.WriteString(" ✅")
+			case "In Progress":
+				content.WriteString(" 🔄")
+			case "Blocked":
+				content.WriteString(" ❌")
+			case "Review":
+				content.WriteString(" 👀")
+			case "Todo":
+				content.WriteString(" 📝")
+			}
+
+			// Add priority indicator for high/critical tasks
+			if task.Priority == "High" {
+				content.WriteString(" 🔥")
+			} else if task.Priority == "Critical" {
+				content.WriteString(" 🚨")
+			}
+
+			// Add progress for in-progress tasks
+			if task.Status == "In Progress" && task.Progress > 0 {
+				content.WriteString(fmt.Sprintf(" (%d%%)", task.Progress))
+			}
+		}
+
+		// Add assignee for leaf tasks
+		if !hasChildren && task.Assignee != "" && task.Assignee != task.Title {
+			content.WriteString(fmt.Sprintf(" [@%s]", task.Assignee))
+		}
+
+		// Add selection indicator AT THE END - simple and clean
+		if item.Selected {
+			content.WriteString(" ✅")
+		}
+
+		result := content.String()
+
+		// Apply background styling for selected items
+		if item.Selected {
+			style := lipgloss.NewStyle().
+				Background(lipgloss.Color("240")).
+				Foreground(lipgloss.Color("15"))
+			result = style.Render(result)
+		}
+
+		return result
 	}
 }
 
@@ -405,8 +482,10 @@ func (m TreeAppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		case "b":
 			// Toggle background cursor styling
-			currentStyling := m.treeList.GetEnableCursorStyling()
-			m.treeList.SetEnableCursorStyling(!currentStyling)
+			config := m.treeList.GetRenderConfig()
+			currentStyling := config.BackgroundConfig.Enabled
+			config.BackgroundConfig.Enabled = !currentStyling
+			m.treeList.SetRenderConfig(config)
 			if !currentStyling {
 				m.statusMessage = "🎨 Background Cursor Styling: ON - cursor line has background color"
 			} else {
@@ -573,24 +652,57 @@ func (m TreeAppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m *TreeAppModel) applyCurrentStyle() {
 	switch m.currentStyle {
 	case 0: // Default
-		m.treeList.SetEnumerator(tree.DefaultEnumerator)
-	case 1: // Rounded
-		m.treeList.SetEnumerator(tree.RoundedEnumerator)
+		// Use default tree configuration
+		config := vtable.DefaultTreeRenderConfig()
+		config.ContentConfig.Formatter = createTaskTreeFormatter()
+		m.treeList.SetRenderConfig(config)
+	case 1: // Standard (with box-drawing connectors)
+		config := vtable.StandardTreeConfig()
+		config.ContentConfig.Formatter = createTaskTreeFormatter()
+		m.treeList.SetRenderConfig(config)
+	case 2: // Minimal (no tree symbols, just indentation)
+		config := vtable.MinimalTreeConfig()
+		config.ContentConfig.Formatter = createTaskTreeFormatter()
+		m.treeList.SetRenderConfig(config)
+	case 3: // Enumerated (with bullet enumeration)
+		bulletEnum := func(item vtable.Data[any], index int, depth int, hasChildren, isExpanded bool, ctx vtable.RenderContext) string {
+			return "• "
+		}
+		config := vtable.EnumeratedTreeConfig(bulletEnum)
+		config.ContentConfig.Formatter = createTaskTreeFormatter()
+		m.treeList.SetRenderConfig(config)
 	}
 }
 
 func (m *TreeAppModel) applyCursorStyle() {
 	style := m.cursorStyles[m.cursorStyle]
-	m.treeList.SetCursorIndicator(style.CursorIndicator)
-	m.treeList.SetCursorSpacing(style.CursorSpacing)
-	m.treeList.SetNormalSpacing(style.NormalSpacing)
-	m.treeList.SetShowCursor(style.ShowCursor)
-	m.treeList.SetEnableCursorStyling(style.EnableStyling)
 
-	// Set background styling if enabled
-	if style.EnableStyling && style.BackgroundColor != "" && style.ForegroundColor != "" {
-		m.treeList.SetCursorStyle(style.ShowCursor, style.BackgroundColor, style.ForegroundColor)
+	// Get current render config and update cursor settings
+	config := m.treeList.GetRenderConfig()
+
+	// Configure cursor indicators that show selection state
+	if style.ShowCursor {
+		config.CursorConfig.CursorIndicator = style.CursorIndicator
+		config.CursorConfig.NormalSpacing = style.NormalSpacing
+		config.CursorConfig.Enabled = true
+	} else {
+		config.CursorConfig.Enabled = false
+		config.CursorConfig.CursorIndicator = ""
+		config.CursorConfig.NormalSpacing = ""
 	}
+
+	// Apply background styling that differentiates selected vs unselected items
+	if style.EnableStyling && style.BackgroundColor != "" && style.ForegroundColor != "" {
+		config.BackgroundConfig.Enabled = true
+		config.BackgroundConfig.Style = lipgloss.NewStyle().
+			Background(lipgloss.Color(style.BackgroundColor)).
+			Foreground(lipgloss.Color(style.ForegroundColor))
+		config.BackgroundConfig.Mode = vtable.TreeBackgroundEntireLine
+	} else {
+		config.BackgroundConfig.Enabled = false
+	}
+
+	m.treeList.SetRenderConfig(config)
 }
 
 func (m TreeAppModel) View() string {
@@ -627,16 +739,18 @@ func (m TreeAppModel) View() string {
 
 func (m TreeAppModel) renderHelp() string {
 	var help strings.Builder
-	help.WriteString("🌳 === LARGE TREE DEMO WITH CHUNKING ===\n")
+	help.WriteString("🌳 === LARGE TREE DEMO WITH COMPONENT-BASED RENDERING ===\n")
 	help.WriteString("Dataset: 10 projects × 5-8 modules × 8-15 tasks = ~500-1200 items total\n")
-	help.WriteString("Visual: ► = cursor • ✅ = selected • Watch chunk loading in debug!\n")
-	help.WriteString("Tree: Enter=expand/collapse • e=cycle tree styles • c=cycle cursor styles (9 options) • C=toggle cascading selection\n")
+	help.WriteString("Visual: ► = cursor • Background = selected • 🔄 = in progress • 🔥 = high priority\n")
+	help.WriteString("Selection: Selected items have background styling - no text indicators!\n")
+	help.WriteString("Tree: Enter=expand/collapse • e=cycle tree styles (4 options) • c=cycle cursor styles (9 options)\n")
+	help.WriteString("Tree Styles: Default, Standard (box connectors), Minimal, Enumerated\n")
 	help.WriteString("Cursor Styles: Arrow, Pointer, Star, Bullet, Bracket, Background Only, Subtle, Bright, None\n")
-	help.WriteString("Styling: b=toggle background cursor styling on/off\n")
+	help.WriteString("Component: C=toggle cascading selection • b=toggle background cursor styling\n")
 	help.WriteString("Navigation: j/k or ↑/↓ move • h/l page • g=start • G=end\n")
 	help.WriteString("Selection: Space=toggle • a=select all • x=clear • s=show selection info\n")
 	help.WriteString("Cascading: When ON, selecting a parent automatically selects all children\n")
-	help.WriteString("Other: r=refresh • d=debug • ?=help • q=quit")
+	help.WriteString("Other: r=refresh • d=debug (shows component config) • ?=help • q=quit")
 	return help.String()
 }
 
@@ -657,15 +771,26 @@ func (m TreeAppModel) renderDebugInfo() string {
 	debug.WriteString(fmt.Sprintf("🌳 Tree Style: %s\n", m.styleNames[m.currentStyle]))
 	currentCursorStyle := m.cursorStyles[m.cursorStyle]
 	debug.WriteString(fmt.Sprintf("🎯 Cursor Style: %s (%s)\n", currentCursorStyle.Name, currentCursorStyle.Description))
-	debug.WriteString(fmt.Sprintf("   ShowCursor: %v, EnableStyling: %v\n", currentCursorStyle.ShowCursor, m.treeList.GetEnableCursorStyling()))
-	if m.treeList.GetEnableCursorStyling() && currentCursorStyle.BackgroundColor != "" {
-		debug.WriteString(fmt.Sprintf("   Background: %s, Foreground: %s\n", currentCursorStyle.BackgroundColor, currentCursorStyle.ForegroundColor))
+
+	// Show component-based configuration
+	config := m.treeList.GetRenderConfig()
+	debug.WriteString(fmt.Sprintf("   ShowCursor: %v, EnableBackground: %v\n",
+		config.CursorConfig.Enabled, config.BackgroundConfig.Enabled))
+	debug.WriteString(fmt.Sprintf("   CursorIndicator: %q, NormalSpacing: %q\n",
+		config.CursorConfig.CursorIndicator, config.CursorConfig.NormalSpacing))
+
+	if config.BackgroundConfig.Enabled {
+		debug.WriteString(fmt.Sprintf("   Background Mode: %v\n", config.BackgroundConfig.Mode))
 	}
+
 	cascadingState := "OFF"
 	if m.treeList.GetCascadingSelection() {
 		cascadingState = "ON"
 	}
 	debug.WriteString(fmt.Sprintf("🔗 Cascading Selection: %s\n", cascadingState))
+
+	// Show component order
+	debug.WriteString(fmt.Sprintf("🧩 Component Order: %v\n", config.ComponentOrder))
 
 	// Show currently loading chunks
 	if len(m.loadingChunks) > 0 {

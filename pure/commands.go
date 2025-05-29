@@ -489,6 +489,20 @@ func HeaderFormatterSetCmd(formatter HeaderFormatter) tea.Cmd {
 	}
 }
 
+// LoadingFormatterSetCmd returns a command to set a loading row formatter
+func LoadingFormatterSetCmd(formatter LoadingRowFormatter) tea.Cmd {
+	return func() tea.Msg {
+		return LoadingFormatterSetMsg{Formatter: formatter}
+	}
+}
+
+// HeaderCellFormatterSetCmd returns a command to set a header cell formatter
+func HeaderCellFormatterSetCmd(formatter HeaderCellFormatter) tea.Cmd {
+	return func() tea.Msg {
+		return HeaderCellFormatterSetMsg{Formatter: formatter}
+	}
+}
+
 // ColumnConstraintsSetCmd returns a command to set column constraints
 func ColumnConstraintsSetCmd(columnIndex int, constraints CellConstraint) tea.Cmd {
 	return func() tea.Msg {

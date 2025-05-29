@@ -27,11 +27,15 @@ type TableColumn struct {
 	// Width is the column width in characters
 	Width int
 
-	// Alignment defines how text is aligned in the column (left, right, center)
+	// Alignment defines how text is aligned in the column cells (left, right, center)
 	Alignment int
 
 	// Field is the identifier used for sorting/filtering operations
 	Field string
+
+	// Header configuration (independent from cell alignment)
+	HeaderAlignment  int            // Alignment for the header text (can be different from Alignment)
+	HeaderConstraint CellConstraint // Constraints for header cell formatting
 }
 
 // Data wraps an item with its state and metadata for rendering
