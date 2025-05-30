@@ -66,7 +66,25 @@ type ItemFormatterAnimated[T any] func(
 	isBottomThreshold bool,
 ) RenderResult
 
-// CellFormatter formats a single table cell
+// SimpleCellFormatter formats a table cell with automatic truncation
+// This is the new simplified interface that automatically handles width constraints
+type SimpleCellFormatter func(
+	cellValue string,
+	rowIndex int,
+	column TableColumn,
+	ctx RenderContext,
+	isCursor bool,
+	isSelected bool,
+) string
+
+// SimpleHeaderFormatter formats a header cell with automatic truncation
+// This is the new simplified interface that automatically handles width constraints
+type SimpleHeaderFormatter func(
+	column TableColumn,
+	ctx RenderContext,
+) string
+
+// CellFormatter formats a single table cell (DEPRECATED - use SimpleCellFormatter)
 type CellFormatter func(
 	cellValue string,
 	rowIndex int,
@@ -117,7 +135,7 @@ type LoadingRowFormatter func(
 	isCursor bool,
 ) string
 
-// HeaderCellFormatter formats individual header cells in tables
+// HeaderCellFormatter formats individual header cells in tables (DEPRECATED - use SimpleHeaderFormatter)
 type HeaderCellFormatter func(
 	column TableColumn,
 	columnIndex int,

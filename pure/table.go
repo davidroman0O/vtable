@@ -6,6 +6,8 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
+	"github.com/mattn/go-runewidth"
 )
 
 // ================================
@@ -26,15 +28,13 @@ type Table struct {
 	config TableConfig
 
 	// Table-specific configuration
-	columns []TableColumn
-
-	// Rendering
-	cellFormatters      map[int]CellFormatter // Column index -> formatter
-	rowFormatter        RowFormatter
-	headerFormatter     HeaderFormatter
-	headerCellFormatter HeaderCellFormatter
-	loadingFormatter    LoadingRowFormatter
-	renderContext       RenderContext
+	columns              []TableColumn
+	cellFormatters       map[int]SimpleCellFormatter // Column index -> simplified formatter
+	rowFormatter         RowFormatter
+	headerFormatter      HeaderFormatter
+	headerCellFormatters map[int]SimpleHeaderFormatter // Column index -> header formatter
+	loadingFormatter     LoadingRowFormatter
+	renderContext        RenderContext
 
 	// Selection state
 	selectedItems map[string]bool
@@ -65,6 +65,113 @@ type Table struct {
 	loadingChunks    map[int]bool
 	hasLoadingChunks bool
 	canScroll        bool
+
+	// Component-based rendering system
+	componentRenderer *TableComponentRenderer // Optional component-based renderer
+}
+
+// ================================
+// TABLE LAYOUT AND RENDERING SYSTEM
+// ================================
+
+// TableLayout handles proper column width calculation and cell alignment
+type TableLayout struct {
+	columns      []TableColumn
+	totalWidth   int
+	columnWidths []int
+	borderWidth  int
+}
+
+// NewTableLayout creates a new table layout calculator
+func NewTableLayout(columns []TableColumn, showBorders bool) *TableLayout {
+	borderWidth := 0
+	if showBorders {
+		// Account for left border + column separators + right border
+		borderWidth = 1 + (len(columns) - 1) + 1
+	}
+
+	layout := &TableLayout{
+		columns:      columns,
+		borderWidth:  borderWidth,
+		columnWidths: make([]int, len(columns)),
+	}
+
+	// Calculate initial column widths
+	layout.calculateColumnWidths()
+
+	return layout
+}
+
+// calculateColumnWidths calculates the actual column widths
+func (tl *TableLayout) calculateColumnWidths() {
+	// Use the defined column widths directly
+	for i, col := range tl.columns {
+		tl.columnWidths[i] = col.Width
+	}
+
+	// Calculate total table width
+	tl.totalWidth = tl.borderWidth
+	for _, width := range tl.columnWidths {
+		tl.totalWidth += width
+	}
+}
+
+// RenderCell renders a cell with proper width and alignment constraints
+func (tl *TableLayout) RenderCell(content string, columnIndex int, style lipgloss.Style) string {
+	if columnIndex >= len(tl.columns) {
+		return content
+	}
+
+	col := tl.columns[columnIndex]
+	width := tl.columnWidths[columnIndex]
+
+	// Apply width and alignment constraints
+	constrainedContent := tl.applyColumnConstraints(content, width, col.Alignment)
+
+	// Apply the style to the constrained content
+	return style.Render(constrainedContent)
+}
+
+// applyColumnConstraints applies width and alignment constraints to content
+func (tl *TableLayout) applyColumnConstraints(content string, width int, alignment int) string {
+	// Clean up content (remove newlines, collapse spaces)
+	content = strings.ReplaceAll(content, "\n", " ")
+	content = strings.ReplaceAll(content, "\r", " ")
+	content = strings.ReplaceAll(content, "\t", " ")
+	for strings.Contains(content, "  ") {
+		content = strings.ReplaceAll(content, "  ", " ")
+	}
+	content = strings.TrimSpace(content)
+
+	// Measure actual display width
+	actualWidth := MeasureText(content)
+
+	// Truncate if too long
+	if actualWidth > width {
+		if width <= 0 {
+			return ""
+		}
+		if width <= 3 {
+			return strings.Repeat(".", width)
+		}
+
+		// Use ellipsis for truncation
+		content = TruncateText(content, width)
+		actualWidth = MeasureText(content)
+	}
+
+	// Apply alignment and padding
+	return PadText(content, width, alignment)
+}
+
+// GetColumnWidths returns the calculated column widths
+func (tl *TableLayout) GetColumnWidths() []int {
+	return tl.columnWidths
+}
+
+// GetTotalWidth returns the total table width
+func (tl *TableLayout) GetTotalWidth() int {
+	return tl.totalWidth
 }
 
 // ================================
@@ -80,19 +187,21 @@ func NewTable(config TableConfig, dataSource DataSource[any]) *Table {
 	}
 
 	table := &Table{
-		dataSource:       dataSource,
-		chunks:           make(map[int]Chunk[any]),
-		config:           config,
-		columns:          config.Columns,
-		cellFormatters:   make(map[int]CellFormatter),
-		selectedItems:    make(map[string]bool),
-		selectedOrder:    make([]string, 0),
-		filters:          make(map[string]any),
-		chunkAccessTime:  make(map[int]time.Time),
-		visibleItems:     make([]Data[any], 0),
-		loadingChunks:    make(map[int]bool),
-		hasLoadingChunks: false,
-		canScroll:        true,
+		dataSource:           dataSource,
+		chunks:               make(map[int]Chunk[any]),
+		config:               config,
+		columns:              config.Columns,
+		cellFormatters:       make(map[int]SimpleCellFormatter),
+		headerCellFormatters: make(map[int]SimpleHeaderFormatter),
+		selectedItems:        make(map[string]bool),
+		selectedOrder:        make([]string, 0),
+		filters:              make(map[string]any),
+		chunkAccessTime:      make(map[int]time.Time),
+		visibleItems:         make([]Data[any], 0),
+		loadingChunks:        make(map[int]bool),
+		hasLoadingChunks:     false,
+		canScroll:            true,
+		componentRenderer:    nil, // Component renderer is optional - can be enabled later
 		viewport: ViewportState{
 			ViewportStartIndex:  0,
 			CursorIndex:         config.ViewportConfig.InitialIndex,
@@ -291,11 +400,11 @@ func (t *Table) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return t, nil
 
 	case RowFormatterSetMsg:
-		t.rowFormatter = msg.Formatter
+		t.loadingFormatter = msg.Formatter
 		return t, nil
 
 	case HeaderFormatterSetMsg:
-		t.headerFormatter = msg.Formatter
+		t.headerCellFormatters[msg.ColumnIndex] = msg.Formatter
 		return t, nil
 
 	case LoadingFormatterSetMsg:
@@ -303,11 +412,23 @@ func (t *Table) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return t, nil
 
 	case HeaderCellFormatterSetMsg:
-		t.headerCellFormatter = msg.Formatter
+		// Convert old HeaderCellFormatter to SimpleHeaderFormatter
+		oldFormatter := msg.Formatter
+		t.headerCellFormatters[0] = func(column TableColumn, ctx RenderContext) string {
+			return oldFormatter(column, 0, ctx) // Pass 0 as columnIndex
+		}
 		return t, nil
 
 	case TableThemeSetMsg:
 		t.config.Theme = msg.Theme
+		return t, nil
+
+	case FullRowHighlightToggleMsg:
+		t.config.FullRowHighlighting = !t.config.FullRowHighlighting
+		return t, nil
+
+	case FullRowHighlightEnableMsg:
+		t.config.FullRowHighlighting = msg.Enabled
 		return t, nil
 
 	// ===== Configuration Messages =====
@@ -437,12 +558,6 @@ func (t *Table) View() string {
 	// Ensure visible items are up to date
 	t.updateVisibleItems()
 
-	// If we have no visible items, render empty rows or placeholders
-	if len(t.visibleItems) == 0 {
-		// Don't show "Loading..." - just render empty table structure
-		// The chunk loading will happen automatically through smartChunkManagement
-	}
-
 	// Render each visible row
 	for i, item := range t.visibleItems {
 		absoluteIndex := t.viewport.ViewportStartIndex + i
@@ -460,6 +575,12 @@ func (t *Table) View() string {
 		if i < len(t.visibleItems)-1 && absoluteIndex < t.totalItems-1 {
 			builder.WriteString("\n")
 		}
+	}
+
+	// Add bottom border if enabled
+	if t.config.ShowBorders {
+		builder.WriteString("\n")
+		builder.WriteString(t.constructBottomBorder())
 	}
 
 	return builder.String()
@@ -1035,12 +1156,61 @@ func (t *Table) renderHeader() string {
 
 	// Default header rendering with cell-by-cell formatting
 	var parts []string
+
+	// Add indicator column header if component renderer is enabled
+	if t.componentRenderer != nil {
+		indicatorWidth := 4
+		indicatorHeader := "●" // Use a dot/bullet as indicator
+
+		// Create constraint for indicator header
+		indicatorConstraint := CellConstraint{
+			Width:     indicatorWidth,
+			Height:    1,
+			Alignment: AlignCenter,
+		}
+
+		styledIndicatorHeader := t.applyCellConstraints(indicatorHeader, indicatorConstraint)
+		styledIndicatorHeader = t.config.Theme.HeaderStyle.Render(styledIndicatorHeader)
+		parts = append(parts, styledIndicatorHeader)
+	}
+
 	for i, col := range t.columns {
 		var headerText string
 
-		// Use HeaderCellFormatter if available
-		if t.headerCellFormatter != nil {
-			headerText = t.headerCellFormatter(col, i, t.renderContext)
+		// Use HeaderCellFormatter if available for this specific column
+		// IMPORTANT: Use the original column index i, NOT shifted by indicator column
+		if formatter, exists := t.headerCellFormatters[i]; exists {
+			// Get the formatted header content
+			formattedHeader := formatter(col, t.renderContext)
+
+			// Determine which alignment and constraint to use
+			headerAlignment := col.HeaderAlignment
+			if headerAlignment == 0 {
+				headerAlignment = col.Alignment // Fall back to column alignment if not specified
+			}
+
+			// Use header constraint if specified, otherwise create default constraint
+			var constraint CellConstraint
+			if col.HeaderConstraint.Width > 0 || col.HeaderConstraint.Alignment > 0 {
+				constraint = col.HeaderConstraint
+				// Override alignment if HeaderAlignment is specified
+				if headerAlignment != 0 {
+					constraint.Alignment = headerAlignment
+				}
+			} else {
+				// Create default constraint with header alignment
+				constraint = CellConstraint{
+					Width:     col.Width,
+					Height:    1,
+					Alignment: headerAlignment,
+				}
+			}
+
+			// CRITICAL: Apply constraints to the formatted header to ensure exact column width
+			constrainedHeader := t.applyCellConstraints(formattedHeader, constraint)
+
+			// Apply header styling to the constrained content
+			headerText = t.config.Theme.HeaderStyle.Render(constrainedHeader)
 		} else {
 			// Default header cell rendering
 			headerText = col.Title
@@ -1099,7 +1269,7 @@ func (t *Table) renderHeader() string {
 	return result
 }
 
-// renderRow renders a single table row
+// renderRow renders a single table row using proper table layout
 func (t *Table) renderRow(item Data[any], absoluteIndex int, isCursor bool) string {
 	// Handle loading placeholders with custom formatter
 	if strings.HasPrefix(item.ID, "loading-") || strings.HasPrefix(item.ID, "missing-") {
@@ -1109,17 +1279,6 @@ func (t *Table) renderRow(item Data[any], absoluteIndex int, isCursor bool) stri
 		// Default loading behavior - show empty cells with proper column widths
 		return t.renderDefaultLoadingRow(absoluteIndex, isCursor)
 	}
-
-	if t.rowFormatter != nil {
-		// Convert item to TableRow for row formatter
-		if row, ok := item.Item.(TableRow); ok {
-			cellResults := t.renderCellsForRow(row, absoluteIndex, isCursor, item.Selected)
-			return t.rowFormatter(row, t.columns, cellResults, t.renderContext, isCursor, item.Selected)
-		}
-	}
-
-	// Default row rendering
-	var parts []string
 
 	// Convert item to TableRow
 	var row TableRow
@@ -1133,6 +1292,106 @@ func (t *Table) renderRow(item Data[any], absoluteIndex int, isCursor bool) stri
 		}
 	}
 
+	// TRY COMPONENT RENDERER FIRST if enabled
+	if t.componentRenderer != nil {
+		// Component rendering with SEPARATE indicator column
+		// This way indicators don't contaminate the actual cell content
+
+		var parts []string
+
+		// FIRST: Add a separate indicator column for cursor/selection
+		indicatorWidth := 4 // Width for "► ✓ "
+		var indicatorContent string
+
+		// Build indicators separately from content
+		if isCursor && item.Selected {
+			indicatorContent = "►✓"
+		} else if isCursor {
+			indicatorContent = "► "
+		} else if item.Selected {
+			indicatorContent = " ✓"
+		} else {
+			indicatorContent = "  "
+		}
+
+		// Apply constraint to indicator column
+		indicatorConstraint := CellConstraint{
+			Width:     indicatorWidth,
+			Height:    1,
+			Alignment: AlignCenter,
+		}
+		constrainedIndicator := t.applyCellConstraints(indicatorContent, indicatorConstraint)
+
+		// Style the indicator column
+		var styledIndicator string
+		if isCursor {
+			styledIndicator = t.config.Theme.CursorStyle.Render(constrainedIndicator)
+		} else if item.Selected {
+			styledIndicator = t.config.Theme.SelectedStyle.Render(constrainedIndicator)
+		} else {
+			styledIndicator = t.config.Theme.CellStyle.Render(constrainedIndicator)
+		}
+
+		parts = append(parts, styledIndicator)
+
+		// THEN: Render each actual data cell WITHOUT contamination
+		for i, col := range t.columns {
+			var cellValue string
+			if i < len(row.Cells) {
+				cellValue = row.Cells[i]
+			}
+
+			// Apply cell formatter to original content (NO prefix contamination!)
+			var formattedContent string
+			if formatter, exists := t.cellFormatters[i]; exists {
+				formattedContent = formatter(cellValue, absoluteIndex, col, t.renderContext, isCursor, item.Selected)
+			} else {
+				formattedContent = cellValue
+			}
+
+			// Apply cell constraints to maintain column width
+			constraint := CellConstraint{
+				Width:     col.Width,
+				Height:    1,
+				Alignment: col.Alignment,
+			}
+
+			constrainedContent := t.applyCellConstraints(formattedContent, constraint)
+
+			// POST-PROCESSING: Apply full row highlighting if enabled (overrides all other styling)
+			var styledCell string
+			if t.config.FullRowHighlighting && isCursor {
+				// Full row highlighting takes over - strip existing styling and apply uniform background
+				plainContent := stripANSI(constrainedContent)
+				fullRowStyle := t.config.Theme.FullRowCursorStyle
+				styledCell = fullRowStyle.Render(plainContent)
+			} else {
+				// Use the formatted and constrained content as-is
+				styledCell = constrainedContent
+			}
+
+			parts = append(parts, styledCell)
+		}
+
+		result := strings.Join(parts, t.getBorderChar())
+
+		if t.config.ShowBorders {
+			result = t.getBorderChar() + result + t.getBorderChar()
+		}
+
+		return result
+	}
+
+	// FALLBACK TO TRADITIONAL RENDERING
+	if t.rowFormatter != nil {
+		// Convert item to TableRow for row formatter
+		cellResults := t.renderCellsForRow(row, absoluteIndex, isCursor, item.Selected)
+		return t.rowFormatter(row, t.columns, cellResults, t.renderContext, isCursor, item.Selected)
+	}
+
+	// Default row rendering
+	var parts []string
+
 	// Render each cell
 	for i, col := range t.columns {
 		var cellValue string
@@ -1144,11 +1403,27 @@ func (t *Table) renderRow(item Data[any], absoluteIndex int, isCursor bool) stri
 
 		// Use regular formatter or default
 		if formatter, exists := t.cellFormatters[i]; exists {
-			// Calculate threshold flags for the current cursor position
-			isTopThreshold := isCursor && t.viewport.IsAtTopThreshold
-			isBottomThreshold := isCursor && t.viewport.IsAtBottomThreshold
+			// Apply formatter first
+			formattedContent := formatter(cellValue, absoluteIndex, col, t.renderContext, isCursor, item.Selected)
 
-			styledCell = formatter(cellValue, absoluteIndex, i, col, t.renderContext, isCursor, item.Selected, isTopThreshold, isBottomThreshold)
+			// CRITICAL: Apply width constraints to the formatted content
+			constraint := CellConstraint{
+				Width:     col.Width,
+				Height:    1,
+				Alignment: col.Alignment,
+			}
+			constrainedContent := t.applyCellConstraints(formattedContent, constraint)
+
+			// Apply full row highlighting if enabled (overrides formatter styling)
+			if t.config.FullRowHighlighting && isCursor {
+				// Full row highlighting takes over - strip existing styling and apply uniform background
+				plainContent := stripANSI(constrainedContent)
+				fullRowStyle := t.config.Theme.FullRowCursorStyle
+				styledCell = fullRowStyle.Render(plainContent)
+			} else {
+				// Use the formatted and constrained content as-is
+				styledCell = constrainedContent
+			}
 		} else {
 			// No formatter - apply default styling
 			constraint := CellConstraint{
@@ -1157,15 +1432,19 @@ func (t *Table) renderRow(item Data[any], absoluteIndex int, isCursor bool) stri
 				Alignment: col.Alignment,
 			}
 
-			styledCell = t.applyCellConstraints(cellValue, constraint)
+			constrainedContent := t.applyCellConstraints(cellValue, constraint)
 
-			// Apply default row styling only when no formatter is present
-			if isCursor {
-				styledCell = t.config.Theme.CursorStyle.Render(styledCell)
+			// Apply full row highlighting if enabled, otherwise apply default row styling
+			if t.config.FullRowHighlighting && isCursor {
+				// Full row highlighting takes over
+				fullRowStyle := t.config.Theme.FullRowCursorStyle
+				styledCell = fullRowStyle.Render(constrainedContent)
+			} else if isCursor {
+				styledCell = t.config.Theme.CursorStyle.Render(constrainedContent)
 			} else if item.Selected {
-				styledCell = t.config.Theme.SelectedStyle.Render(styledCell)
+				styledCell = t.config.Theme.SelectedStyle.Render(constrainedContent)
 			} else {
-				styledCell = t.config.Theme.CellStyle.Render(styledCell)
+				styledCell = t.config.Theme.CellStyle.Render(constrainedContent)
 			}
 		}
 
@@ -1192,20 +1471,35 @@ func (t *Table) renderCellsForRow(row TableRow, absoluteIndex int, isCursor, isS
 		}
 
 		// Use regular formatter or default
+		var finalCellValue string
 		if formatter, exists := t.cellFormatters[i]; exists {
-			// Calculate threshold flags for the current cursor position
-			isTopThreshold := isCursor && t.viewport.IsAtTopThreshold
-			isBottomThreshold := isCursor && t.viewport.IsAtBottomThreshold
+			formattedValue := formatter(cellValue, absoluteIndex, col, t.renderContext, isCursor, isSelected)
 
-			cellValue = formatter(cellValue, absoluteIndex, i, col, t.renderContext, isCursor, isSelected, isTopThreshold, isBottomThreshold)
+			// Apply full row highlighting if enabled (overrides formatter styling)
+			if t.config.FullRowHighlighting && isCursor {
+				// Full row highlighting takes over - strip existing styling and apply uniform background
+				plainContent := stripANSI(formattedValue)
+				fullRowStyle := t.config.Theme.FullRowCursorStyle
+				finalCellValue = fullRowStyle.Render(plainContent)
+			} else {
+				finalCellValue = formattedValue
+			}
+		} else {
+			// Apply full row highlighting if enabled, otherwise use plain value
+			if t.config.FullRowHighlighting && isCursor {
+				fullRowStyle := t.config.Theme.FullRowCursorStyle
+				finalCellValue = fullRowStyle.Render(cellValue)
+			} else {
+				finalCellValue = cellValue
+			}
 		}
 
 		result := CellRenderResult{
-			Content:         cellValue,
+			Content:         finalCellValue,
 			RefreshTriggers: nil,
 			AnimationState:  nil,
 			Error:           nil,
-			Fallback:        cellValue,
+			Fallback:        finalCellValue,
 		}
 
 		results = append(results, result)
@@ -1232,13 +1526,18 @@ func (t *Table) renderDefaultLoadingRow(absoluteIndex int, isCursor bool) string
 			loadingText = "Loading..."
 		}
 
-		styledCell := t.applyCellConstraints(loadingText, constraint)
+		constrainedContent := t.applyCellConstraints(loadingText, constraint)
 
-		// Apply cursor styling if this is the cursor row
-		if isCursor {
-			styledCell = t.config.Theme.CursorStyle.Render(styledCell)
+		// Apply styling - full row highlighting takes precedence
+		var styledCell string
+		if t.config.FullRowHighlighting && isCursor {
+			// Apply full row highlighting to loading rows too
+			fullRowStyle := t.config.Theme.FullRowCursorStyle
+			styledCell = fullRowStyle.Render(constrainedContent)
+		} else if isCursor {
+			styledCell = t.config.Theme.CursorStyle.Render(constrainedContent)
 		} else {
-			styledCell = t.config.Theme.CellStyle.Render(styledCell)
+			styledCell = t.config.Theme.CellStyle.Render(constrainedContent)
 		}
 
 		parts = append(parts, styledCell)
@@ -1251,6 +1550,341 @@ func (t *Table) renderDefaultLoadingRow(absoluteIndex int, isCursor bool) string
 	}
 
 	return result
+}
+
+// applyCellConstraints applies width and alignment constraints to cell content
+func (t *Table) applyCellConstraints(text string, constraint CellConstraint) string {
+	width := constraint.Width
+
+	// Detect if text contains ANSI escape codes (styling)
+	hasANSI := strings.Contains(text, "\x1b")
+
+	// Choose appropriate width measurement function
+	var measureWidth func(string) int
+	var truncateFunc func(string, int, string) string
+
+	if hasANSI {
+		// For styled text: use lipgloss for ANSI-aware width measurement
+		measureWidth = lipgloss.Width
+		truncateFunc = ansiTruncate
+	} else {
+		// For plain text: use runewidth for proper Unicode handling
+		measureWidth = runewidth.StringWidth
+		truncateFunc = ansiTruncateWithRunewidth
+	}
+
+	// First, truncate the text if it's too long
+	if measureWidth(text) > width {
+		text = truncateFunc(text, width, "...")
+	}
+
+	// Then apply alignment and padding to exact width
+	actualWidth := measureWidth(text)
+	if actualWidth < width {
+		padding := width - actualWidth
+
+		if hasANSI {
+			// For styled text, we need to extend the styling to cover padding
+			paddingSpaces := strings.Repeat(" ", padding)
+
+			// Extract background color from the styled text to apply to padding
+			backgroundStyle := extractBackgroundStyle(text)
+			var styledPadding string
+			if backgroundStyle != "" {
+				// Apply same background to padding spaces
+				styledPadding = "\x1b[" + backgroundStyle + "m" + paddingSpaces + "\x1b[0m"
+			} else {
+				styledPadding = paddingSpaces
+			}
+
+			switch constraint.Alignment {
+			case AlignRight:
+				text = styledPadding + text
+			case AlignCenter:
+				leftPad := padding / 2
+				rightPad := padding - leftPad
+				leftPaddingSpaces := strings.Repeat(" ", leftPad)
+				rightPaddingSpaces := strings.Repeat(" ", rightPad)
+
+				var leftStyledPadding, rightStyledPadding string
+				if backgroundStyle != "" {
+					leftStyledPadding = "\x1b[" + backgroundStyle + "m" + leftPaddingSpaces + "\x1b[0m"
+					rightStyledPadding = "\x1b[" + backgroundStyle + "m" + rightPaddingSpaces + "\x1b[0m"
+				} else {
+					leftStyledPadding = leftPaddingSpaces
+					rightStyledPadding = rightPaddingSpaces
+				}
+
+				text = leftStyledPadding + text + rightStyledPadding
+			default: // AlignLeft
+				text = text + styledPadding
+			}
+		} else {
+			// For plain text, use regular padding
+			switch constraint.Alignment {
+			case AlignRight:
+				text = strings.Repeat(" ", padding) + text
+			case AlignCenter:
+				leftPad := padding / 2
+				rightPad := padding - leftPad
+				text = strings.Repeat(" ", leftPad) + text + strings.Repeat(" ", rightPad)
+			default: // AlignLeft
+				text = text + strings.Repeat(" ", padding)
+			}
+		}
+	}
+
+	return text
+}
+
+// extractBackgroundStyle extracts background color codes from ANSI styled text
+func extractBackgroundStyle(text string) string {
+	// Look for background color patterns: 48;5;{color}, 48;2;{r};{g};{b}, or standard codes like 40-47
+
+	// Find ANSI escape sequences
+	start := strings.Index(text, "\x1b[")
+	if start == -1 {
+		return ""
+	}
+
+	end := strings.Index(text[start:], "m")
+	if end == -1 {
+		return ""
+	}
+
+	// Extract the style codes between \x1b[ and m
+	codes := text[start+2 : start+end]
+
+	// Split by semicolon to find background codes
+	parts := strings.Split(codes, ";")
+
+	for i, part := range parts {
+		if part == "48" {
+			// Found background color start
+			if i+1 < len(parts) && parts[i+1] == "5" && i+2 < len(parts) {
+				// 256-color background: 48;5;{color}
+				return "48;5;" + parts[i+2]
+			} else if i+1 < len(parts) && parts[i+1] == "2" && i+4 < len(parts) {
+				// RGB background: 48;2;{r};{g};{b}
+				return "48;2;" + parts[i+2] + ";" + parts[i+3] + ";" + parts[i+4]
+			}
+		} else if strings.HasPrefix(part, "4") && len(part) == 2 {
+			// Standard background colors: 40-47
+			return part
+		} else if strings.HasPrefix(part, "10") && len(part) == 3 {
+			// Bright background colors: 100-107
+			return part
+		}
+	}
+
+	return ""
+}
+
+// ansiTruncate truncates text accounting for ANSI escape codes (like lipgloss ansi.Truncate)
+func ansiTruncate(text string, maxWidth int, suffix string) string {
+	if maxWidth <= 0 {
+		return ""
+	}
+
+	textWidth := lipgloss.Width(text)
+	if textWidth <= maxWidth {
+		return text
+	}
+
+	suffixWidth := lipgloss.Width(suffix)
+	if maxWidth <= suffixWidth {
+		// If there's no room for content, just return dots
+		return strings.Repeat(".", maxWidth)
+	}
+
+	// We need to truncate - account for ANSI codes
+	targetWidth := maxWidth - suffixWidth
+	var result strings.Builder
+	var currentWidth int
+	inAnsi := false
+
+	for _, r := range text {
+		if r == '\x1b' {
+			inAnsi = true
+			result.WriteRune(r)
+			continue
+		}
+
+		if inAnsi {
+			result.WriteRune(r)
+			if r == 'm' {
+				inAnsi = false
+			}
+			continue
+		}
+
+		charWidth := lipgloss.Width(string(r))
+		if currentWidth+charWidth > targetWidth {
+			break
+		}
+
+		result.WriteRune(r)
+		currentWidth += charWidth
+	}
+
+	result.WriteString(suffix)
+	return result.String()
+}
+
+// ansiTruncateWithRunewidth truncates text accounting for ANSI escape codes (like lipgloss ansi.Truncate)
+func ansiTruncateWithRunewidth(text string, maxWidth int, suffix string) string {
+	if maxWidth <= 0 {
+		return ""
+	}
+
+	textWidth := runewidth.StringWidth(text)
+	if textWidth <= maxWidth {
+		return text
+	}
+
+	suffixWidth := runewidth.StringWidth(suffix)
+	if maxWidth <= suffixWidth {
+		// If there's no room for content, just return dots
+		return strings.Repeat(".", maxWidth)
+	}
+
+	// We need to truncate - account for ANSI codes
+	targetWidth := maxWidth - suffixWidth
+	var result strings.Builder
+	var currentWidth int
+	inAnsi := false
+
+	for _, r := range text {
+		if r == '\x1b' {
+			inAnsi = true
+			result.WriteRune(r)
+			continue
+		}
+
+		if inAnsi {
+			result.WriteRune(r)
+			if r == 'm' {
+				inAnsi = false
+			}
+			continue
+		}
+
+		charWidth := runewidth.StringWidth(string(r))
+		if currentWidth+charWidth > targetWidth {
+			break
+		}
+
+		result.WriteRune(r)
+		currentWidth += charWidth
+	}
+
+	result.WriteString(suffix)
+	return result.String()
+}
+
+// ================================
+// TABLE-SPECIFIC UTILITIES
+// ================================
+
+// getBorderChar returns the appropriate border character
+func (t *Table) getBorderChar() string {
+	if t.config.ShowBorders {
+		return t.config.Theme.BorderChars.Vertical
+	}
+	return " "
+}
+
+// applyAutomaticTruncation applies automatic truncation with ellipsis using proper Unicode width calculation
+func (t *Table) applyAutomaticTruncation(text string, maxWidth int) string {
+	// Use the shared rendering utility for proper Unicode width handling
+	return TruncateText(text, maxWidth)
+}
+
+// ================================
+// PUBLIC CONFIGURATION METHODS
+// ================================
+
+// SetColumns sets the table columns
+func (t *Table) SetColumns(columns []TableColumn) tea.Cmd {
+	return ColumnSetCmd(columns)
+}
+
+// SetHeaderVisibility sets header visibility
+func (t *Table) SetHeaderVisibility(visible bool) tea.Cmd {
+	return HeaderVisibilityCmd(visible)
+}
+
+// SetBorderVisibility sets border visibility
+func (t *Table) SetBorderVisibility(visible bool) tea.Cmd {
+	return BorderVisibilityCmd(visible)
+}
+
+// SetCellFormatter sets a cell formatter for a specific column
+func (t *Table) SetCellFormatter(columnIndex int, formatter SimpleCellFormatter) tea.Cmd {
+	return CellFormatterSetCmd(columnIndex, formatter)
+}
+
+// SetRowFormatter sets the row formatter
+func (t *Table) SetRowFormatter(formatter LoadingRowFormatter) tea.Cmd {
+	return RowFormatterSetCmd(formatter)
+}
+
+// SetHeaderFormatter sets the header formatter
+func (t *Table) SetHeaderFormatter(columnIndex int, formatter SimpleHeaderFormatter) tea.Cmd {
+	return HeaderFormatterSetCmd(columnIndex, formatter)
+}
+
+// SetTheme sets the table theme
+func (t *Table) SetTheme(theme Theme) tea.Cmd {
+	return TableThemeSetCmd(theme)
+}
+
+// ================================
+// SIMPLIFIED FORMATTER HELPERS
+// ================================
+
+// SetColumnFormatter sets a formatter for a specific column with automatic truncation
+func (t *Table) SetColumnFormatter(columnIndex int, formatter SimpleCellFormatter) tea.Cmd {
+	return t.SetCellFormatter(columnIndex, formatter)
+}
+
+// SetHeaderFormatterForColumn sets a header formatter for a specific column with automatic truncation
+func (t *Table) SetHeaderFormatterForColumn(columnIndex int, formatter SimpleHeaderFormatter) tea.Cmd {
+	return t.SetHeaderFormatter(columnIndex, formatter)
+}
+
+// CreateSimpleCellFormatter creates a SimpleCellFormatter from a basic formatting function
+// This is a helper to make it easier to create formatters that just need to transform the cell value
+func CreateSimpleCellFormatter(formatFunc func(cellValue string) string) SimpleCellFormatter {
+	return func(cellValue string, rowIndex int, column TableColumn, ctx RenderContext, isCursor bool, isSelected bool) string {
+		// Apply the basic formatting
+		formatted := formatFunc(cellValue)
+
+		// Apply default styling based on row state
+		var style lipgloss.Style
+		if isCursor && isSelected {
+			style = ctx.Theme.CursorStyle.Copy().Background(ctx.Theme.SelectedStyle.GetBackground())
+		} else if isCursor {
+			style = ctx.Theme.CursorStyle
+		} else if isSelected {
+			style = ctx.Theme.SelectedStyle
+		} else {
+			style = ctx.Theme.CellStyle
+		}
+
+		return style.Render(formatted)
+	}
+}
+
+// CreateSimpleHeaderFormatter creates a SimpleHeaderFormatter from a basic formatting function
+func CreateSimpleHeaderFormatter(formatFunc func(columnTitle string) string) SimpleHeaderFormatter {
+	return func(column TableColumn, ctx RenderContext) string {
+		// Apply the basic formatting
+		formatted := formatFunc(column.Title)
+
+		// Apply header styling
+		return formatted
+	}
 }
 
 // ================================
@@ -1488,80 +2122,100 @@ func (t *Table) refreshChunks() tea.Cmd {
 	return tea.Batch(cmds...)
 }
 
-// ================================
-// TABLE-SPECIFIC UTILITIES
-// ================================
+// constructBottomBorder constructs the bottom border like lipgloss table
+func (t *Table) constructBottomBorder() string {
+	var parts []string
+	borderStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(t.config.Theme.BorderColor))
 
-// applyCellConstraints applies width and alignment constraints to cell content
-func (t *Table) applyCellConstraints(text string, constraint CellConstraint) string {
-	// Use the shared rendering utility
-	options := CellRenderOptions{
-		Width:     constraint.Width,
-		Height:    constraint.Height,
-		Alignment: constraint.Alignment,
-		Padding:   PaddingConfig{Left: 0, Right: 0, Top: 0, Bottom: 0},
-		Style:     t.config.Theme.CellStyle,
-		Truncate:  true,
-		Wrap:      false,
+	// Left corner
+	parts = append(parts, borderStyle.Render(t.config.Theme.BorderChars.BottomLeft))
+
+	// Add indicator column border if component renderer is enabled
+	if t.componentRenderer != nil {
+		indicatorWidth := 4
+		// Horizontal line for indicator column width
+		parts = append(parts, borderStyle.Render(strings.Repeat(t.config.Theme.BorderChars.Horizontal, indicatorWidth)))
+		// Column separator
+		parts = append(parts, borderStyle.Render(t.config.Theme.BorderChars.BottomT))
 	}
 
-	result := RenderInCell(text, options)
-	return result.Content
-}
+	// Column borders
+	for i, col := range t.columns {
+		// Horizontal line for column width
+		parts = append(parts, borderStyle.Render(strings.Repeat(t.config.Theme.BorderChars.Horizontal, col.Width)))
 
-// getBorderChar returns the appropriate border character
-func (t *Table) getBorderChar() string {
-	if t.config.ShowBorders {
-		return t.config.Theme.BorderChars.Vertical
+		// Column separator or right corner
+		if i < len(t.columns)-1 {
+			parts = append(parts, borderStyle.Render(t.config.Theme.BorderChars.BottomT))
+		} else {
+			parts = append(parts, borderStyle.Render(t.config.Theme.BorderChars.BottomRight))
+		}
 	}
-	return " "
+
+	return strings.Join(parts, "")
 }
 
 // ================================
-// PUBLIC CONFIGURATION METHODS
+// COMPONENT-BASED RENDERING METHODS
 // ================================
 
-// SetColumns sets the table columns
-func (t *Table) SetColumns(columns []TableColumn) tea.Cmd {
-	return ColumnSetCmd(columns)
+// EnableComponentRenderer enables the component-based rendering system with default config
+func (t *Table) EnableComponentRenderer() tea.Cmd {
+	config := DefaultComponentTableRenderConfig()
+	t.componentRenderer = NewTableComponentRenderer(config)
+	return nil
 }
 
-// SetHeaderVisibility sets header visibility
-func (t *Table) SetHeaderVisibility(visible bool) tea.Cmd {
-	return HeaderVisibilityCmd(visible)
+// EnableComponentRendererWithConfig enables the component-based rendering system with custom config
+func (t *Table) EnableComponentRendererWithConfig(config ComponentTableRenderConfig) tea.Cmd {
+	t.componentRenderer = NewTableComponentRenderer(config)
+	return nil
 }
 
-// SetBorderVisibility sets border visibility
-func (t *Table) SetBorderVisibility(visible bool) tea.Cmd {
-	return BorderVisibilityCmd(visible)
+// DisableComponentRenderer disables the component-based rendering system
+func (t *Table) DisableComponentRenderer() tea.Cmd {
+	t.componentRenderer = nil
+	return nil
 }
 
-// SetCellFormatter sets a cell formatter for a specific column
-func (t *Table) SetCellFormatter(columnIndex int, formatter CellFormatter) tea.Cmd {
-	return CellFormatterSetCmd(columnIndex, formatter)
+// UpdateComponentConfig updates the component renderer configuration
+func (t *Table) UpdateComponentConfig(config ComponentTableRenderConfig) tea.Cmd {
+	if t.componentRenderer != nil {
+		t.componentRenderer.UpdateConfig(config)
+	}
+	return nil
 }
 
-// SetRowFormatter sets the row formatter
-func (t *Table) SetRowFormatter(formatter RowFormatter) tea.Cmd {
-	return RowFormatterSetCmd(formatter)
+// GetComponentRenderer returns the component renderer (may be nil)
+func (t *Table) GetComponentRenderer() *TableComponentRenderer {
+	return t.componentRenderer
 }
 
-// SetHeaderFormatter sets the header formatter
-func (t *Table) SetHeaderFormatter(formatter HeaderFormatter) tea.Cmd {
-	return HeaderFormatterSetCmd(formatter)
+// IsComponentRenderingEnabled returns whether component rendering is enabled
+func (t *Table) IsComponentRenderingEnabled() bool {
+	return t.componentRenderer != nil
 }
 
-// SetLoadingFormatter sets the loading formatter
-func (t *Table) SetLoadingFormatter(formatter LoadingRowFormatter) tea.Cmd {
-	return LoadingFormatterSetCmd(formatter)
-}
+// ================================
+// UTILITY FUNCTIONS
+// ================================
 
-// SetHeaderCellFormatter sets the header cell formatter
-func (t *Table) SetHeaderCellFormatter(formatter HeaderCellFormatter) tea.Cmd {
-	return HeaderCellFormatterSetCmd(formatter)
-}
-
-// SetTheme sets the table theme
-func (t *Table) SetTheme(theme Theme) tea.Cmd {
-	return TableThemeSetCmd(theme)
+// stripANSI removes ANSI escape codes from a string
+func stripANSI(s string) string {
+	result := ""
+	inEscape := false
+	for _, r := range s {
+		if r == '\x1b' {
+			inEscape = true
+			continue
+		}
+		if inEscape {
+			if r == 'm' {
+				inEscape = false
+			}
+			continue
+		}
+		result += string(r)
+	}
+	return result
 }

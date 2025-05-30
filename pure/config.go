@@ -65,17 +65,18 @@ func DefaultStyleConfig() StyleConfig {
 // DefaultTheme returns a sensible default theme for tables
 func DefaultTheme() Theme {
 	return Theme{
-		HeaderStyle:       lipgloss.NewStyle().Foreground(lipgloss.Color("99")).Bold(true),
-		CellStyle:         lipgloss.NewStyle().Foreground(lipgloss.Color("252")),
-		CursorStyle:       lipgloss.NewStyle().Foreground(lipgloss.Color("205")).Bold(true),
-		SelectedStyle:     lipgloss.NewStyle().Background(lipgloss.Color("57")).Foreground(lipgloss.Color("230")),
-		BorderChars:       DefaultBorderChars(),
-		BorderColor:       "241",
-		HeaderColor:       "99",
-		AlternateRowStyle: lipgloss.NewStyle().Background(lipgloss.Color("235")),
-		DisabledStyle:     lipgloss.NewStyle().Foreground(lipgloss.Color("243")),
-		LoadingStyle:      lipgloss.NewStyle().Foreground(lipgloss.Color("69")).Italic(true),
-		ErrorStyle:        lipgloss.NewStyle().Foreground(lipgloss.Color("196")).Bold(true),
+		HeaderStyle:        lipgloss.NewStyle().Foreground(lipgloss.Color("99")).Bold(true),
+		CellStyle:          lipgloss.NewStyle().Foreground(lipgloss.Color("252")),
+		CursorStyle:        lipgloss.NewStyle().Foreground(lipgloss.Color("205")).Bold(true),
+		SelectedStyle:      lipgloss.NewStyle().Background(lipgloss.Color("57")).Foreground(lipgloss.Color("230")),
+		FullRowCursorStyle: lipgloss.NewStyle().Background(lipgloss.Color("12")).Foreground(lipgloss.Color("15")).Bold(true),
+		BorderChars:        DefaultBorderChars(),
+		BorderColor:        "241",
+		HeaderColor:        "99",
+		AlternateRowStyle:  lipgloss.NewStyle().Background(lipgloss.Color("235")),
+		DisabledStyle:      lipgloss.NewStyle().Foreground(lipgloss.Color("243")),
+		LoadingStyle:       lipgloss.NewStyle().Foreground(lipgloss.Color("69")).Italic(true),
+		ErrorStyle:         lipgloss.NewStyle().Foreground(lipgloss.Color("196")).Bold(true),
 	}
 }
 

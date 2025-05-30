@@ -2,13 +2,13 @@ package main
 
 import (
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/mattn/go-runewidth"
 
 	vtable "github.com/davidroman0O/vtable/pure"
 )
@@ -23,6 +23,12 @@ type ExampleTableDataSource struct {
 	data           []vtable.TableRow
 	selectedItems  map[string]bool // Actually store selection state!
 	recentActivity []string        // Track recent selection activity
+	// Add sorting and filtering state
+	sortFields    []string
+	sortDirs      []string
+	filters       map[string]any
+	filteredData  []vtable.TableRow // Cached filtered/sorted data
+	filteredTotal int               // Total after filtering
 }
 
 // NewExampleTableDataSource creates a data source with sample table data
@@ -45,13 +51,18 @@ func NewExampleTableDataSource(totalItems int) *ExampleTableDataSource {
 		data:           data,
 		selectedItems:  make(map[string]bool), // Initialize selection state
 		recentActivity: make([]string, 0),     // Initialize activity log
+		sortFields:     []string{},
+		sortDirs:       []string{},
+		filters:        make(map[string]any),
+		filteredData:   data, // Start with all data
+		filteredTotal:  totalItems,
 	}
 }
 
 // GetTotal returns the total number of items
 func (ds *ExampleTableDataSource) GetTotal() tea.Cmd {
 	return func() tea.Msg {
-		return vtable.DataTotalMsg{Total: ds.totalItems}
+		return vtable.DataTotalMsg{Total: ds.filteredTotal}
 	}
 }
 
@@ -63,22 +74,35 @@ func (ds *ExampleTableDataSource) RefreshTotal() tea.Cmd {
 // LoadChunk loads a chunk of data
 func (ds *ExampleTableDataSource) LoadChunk(request vtable.DataRequest) tea.Cmd {
 	return func() tea.Msg {
+		// Update sorting and filtering if changed in request
+		if len(request.SortFields) > 0 || len(request.Filters) > 0 {
+			// Apply new sort/filter settings
+			if len(request.SortFields) > 0 {
+				ds.sortFields = request.SortFields
+				ds.sortDirs = request.SortDirections
+			}
+			if len(request.Filters) > 0 {
+				ds.filters = request.Filters
+			}
+			ds.rebuildFilteredData()
+		}
+
 		// Simulate loading delay
 		time.Sleep(10 * time.Millisecond)
 
 		start := request.Start
 		end := start + request.Count
-		if end > ds.totalItems {
-			end = ds.totalItems
+		if end > ds.filteredTotal {
+			end = ds.filteredTotal
 		}
 
 		var items []vtable.Data[any]
 		for i := start; i < end; i++ {
-			if i < len(ds.data) {
+			if i < len(ds.filteredData) {
 				items = append(items, vtable.Data[any]{
-					ID:       ds.data[i].ID,
-					Item:     ds.data[i],
-					Selected: ds.selectedItems[ds.data[i].ID],
+					ID:       ds.filteredData[i].ID,
+					Item:     ds.filteredData[i],
+					Selected: ds.selectedItems[ds.filteredData[i].ID],
 					Metadata: vtable.NewTypedMetadata(),
 				})
 			}
@@ -269,77 +293,165 @@ func (ds *ExampleTableDataSource) GetSelectionCount() int {
 }
 
 // ================================
-// EXAMPLE TABLE SETUP
+// SORTING AND FILTERING METHODS
 // ================================
 
-// CreateExampleTable creates a table with sample configuration
-func CreateExampleTable() *vtable.Table {
-	// Define columns
-	columns := []vtable.TableColumn{
-		{Title: "Name", Field: "name", Width: 20, Alignment: vtable.AlignLeft},
-		{Title: "Value", Field: "value", Width: 10, Alignment: vtable.AlignRight},
-		{Title: "Status", Field: "status", Width: 12, Alignment: vtable.AlignCenter},
-		{Title: "Category", Field: "category", Width: 10, Alignment: vtable.AlignCenter},
+// SetSort sets the sorting fields and directions and rebuilds the data cache
+func (ds *ExampleTableDataSource) SetSort(fields []string, directions []string) {
+	ds.sortFields = fields
+	ds.sortDirs = directions
+	ds.rebuildFilteredData()
+}
+
+// SetFilter sets a filter and rebuilds the data cache
+func (ds *ExampleTableDataSource) SetFilter(field string, value any) {
+	ds.filters[field] = value
+	ds.rebuildFilteredData()
+}
+
+// ClearFilter removes a filter and rebuilds the data cache
+func (ds *ExampleTableDataSource) ClearFilter(field string) {
+	delete(ds.filters, field)
+	ds.rebuildFilteredData()
+}
+
+// ClearAllFilters removes all filters and rebuilds the data cache
+func (ds *ExampleTableDataSource) ClearAllFilters() {
+	ds.filters = make(map[string]any)
+	ds.rebuildFilteredData()
+}
+
+// rebuildFilteredData applies current filters and sorting to rebuild the data cache
+func (ds *ExampleTableDataSource) rebuildFilteredData() {
+	// Start with all data
+	result := make([]vtable.TableRow, 0, len(ds.data))
+
+	// Apply filters
+	for _, row := range ds.data {
+		include := true
+
+		for field, filterValue := range ds.filters {
+			switch field {
+			case "category":
+				if filterStr, ok := filterValue.(string); ok {
+					if len(row.Cells) > 3 && row.Cells[3] != filterStr {
+						include = false
+						break
+					}
+				}
+			case "value":
+				if filterStr, ok := filterValue.(string); ok && filterStr == "high" {
+					// Filter for high values (>50)
+					if len(row.Cells) > 1 {
+						if valueStr := strings.TrimPrefix(row.Cells[1], "Value "); valueStr != row.Cells[1] {
+							if value, err := strconv.Atoi(valueStr); err == nil && value <= 50 {
+								include = false
+								break
+							}
+						}
+					}
+				}
+			case "status":
+				if filterStr, ok := filterValue.(string); ok && filterStr == "active" {
+					// Filter for active status (Status 0)
+					if len(row.Cells) > 2 && row.Cells[2] != "Status 0" {
+						include = false
+						break
+					}
+				}
+			}
+		}
+
+		if include {
+			result = append(result, row)
+		}
 	}
 
-	// Create table configuration
-	config := vtable.TableConfig{
-		Columns:     columns,
-		ShowHeader:  true,
-		ShowBorders: true,
-		ViewportConfig: vtable.ViewportConfig{
-			Height:             10,
-			TopThreshold:       2,
-			BottomThreshold:    2,
-			ChunkSize:          50,
-			InitialIndex:       0,
-			BoundingAreaBefore: 25,
-			BoundingAreaAfter:  25,
-		},
-		Theme: vtable.Theme{
-			HeaderStyle:   lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("15")).Background(lipgloss.Color("8")),
-			CellStyle:     lipgloss.NewStyle().Foreground(lipgloss.Color("15")),
-			CursorStyle:   lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("0")).Background(lipgloss.Color("12")),
-			SelectedStyle: lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("0")).Background(lipgloss.Color("10")),
-			BorderChars: vtable.BorderChars{
-				Horizontal:  "─",
-				Vertical:    "│",
-				TopLeft:     "┌",
-				TopRight:    "┐",
-				BottomLeft:  "└",
-				BottomRight: "┘",
-				TopT:        "┬",
-				BottomT:     "┴",
-				LeftT:       "├",
-				RightT:      "┤",
-				Cross:       "┼",
-			},
-			BorderColor: "8",
-			HeaderColor: "15",
-		},
-		SelectionMode: vtable.SelectionMultiple,
-		KeyMap: vtable.NavigationKeyMap{
-			Up:        []string{"up", "k"},
-			Down:      []string{"down", "j"},
-			PageUp:    []string{"pgup", "ctrl+u"},
-			PageDown:  []string{"pgdown", "ctrl+d"},
-			Home:      []string{"home", "g"},
-			End:       []string{"end", "G"},
-			Select:    []string{"enter", " "},
-			SelectAll: []string{"ctrl+a"},
-			Filter:    []string{"/"},
-			Sort:      []string{"s"},
-			Quit:      []string{"q", "esc"},
-		},
+	// Apply sorting
+	if len(ds.sortFields) > 0 {
+		sort.Slice(result, func(i, j int) bool {
+			for idx, field := range ds.sortFields {
+				dir := "asc"
+				if idx < len(ds.sortDirs) {
+					dir = ds.sortDirs[idx]
+				}
+
+				var cellI, cellJ string
+				switch field {
+				case "name":
+					if len(result[i].Cells) > 0 {
+						cellI = result[i].Cells[0]
+					}
+					if len(result[j].Cells) > 0 {
+						cellJ = result[j].Cells[0]
+					}
+				case "value":
+					if len(result[i].Cells) > 1 {
+						cellI = result[i].Cells[1]
+					}
+					if len(result[j].Cells) > 1 {
+						cellJ = result[j].Cells[1]
+					}
+				case "status":
+					if len(result[i].Cells) > 2 {
+						cellI = result[i].Cells[2]
+					}
+					if len(result[j].Cells) > 2 {
+						cellJ = result[j].Cells[2]
+					}
+				case "category":
+					if len(result[i].Cells) > 3 {
+						cellI = result[i].Cells[3]
+					}
+					if len(result[j].Cells) > 3 {
+						cellJ = result[j].Cells[3]
+					}
+				}
+
+				var cmp int
+				// For value field, do numeric comparison
+				if field == "value" {
+					valueI := extractValueNumber(cellI)
+					valueJ := extractValueNumber(cellJ)
+					if valueI < valueJ {
+						cmp = -1
+					} else if valueI > valueJ {
+						cmp = 1
+					}
+				} else {
+					// String comparison for other fields
+					if cellI < cellJ {
+						cmp = -1
+					} else if cellI > cellJ {
+						cmp = 1
+					}
+				}
+
+				if cmp != 0 {
+					if dir == "desc" {
+						return cmp > 0
+					}
+					return cmp < 0
+				}
+			}
+			return false
+		})
 	}
 
-	// Create data source with 1000 items
-	dataSource := NewExampleTableDataSource(1000)
+	ds.filteredData = result
+	ds.filteredTotal = len(result)
+}
 
-	// Create table
-	table := vtable.NewTable(config, dataSource)
-
-	return table
+// extractValueNumber extracts the numeric value from "Value X" strings
+func extractValueNumber(valueStr string) int {
+	if strings.HasPrefix(valueStr, "Value ") {
+		if numStr := strings.TrimPrefix(valueStr, "Value "); numStr != valueStr {
+			if num, err := strconv.Atoi(numStr); err == nil {
+				return num
+			}
+		}
+	}
+	return 0
 }
 
 // ================================
@@ -378,7 +490,7 @@ var (
 		Name:          "Default",
 		Description:   "Clean blue and white theme",
 		CursorBg:      "12", // Blue
-		SelectionBg:   "57", // Purple-blue
+		SelectionBg:   "10", // Green
 		HeaderBg:      "8",  // Gray
 		BorderColor:   "8",  // Gray
 		PrimaryText:   "15", // White
@@ -433,17 +545,17 @@ var (
 
 	NeonTheme = TableTheme{
 		Name:          "Neon",
-		Description:   "Bright neon cyberpunk theme",
-		CursorBg:      "201", // Bright magenta
-		SelectionBg:   "57",  // Purple
+		Description:   "Smooth cyberpunk neon theme",
+		CursorBg:      "201", // Bright magenta cursor
+		SelectionBg:   "235", // Dark gray for subtle selection (instead of jarring purple)
 		HeaderBg:      "0",   // Black
-		BorderColor:   "14",  // Cyan
+		BorderColor:   "14",  // Cyan borders
 		PrimaryText:   "15",  // White
-		SecondaryText: "14",  // Cyan
-		AccentText:    "201", // Bright magenta
-		ErrorText:     "196", // Bright red
-		WarningText:   "226", // Bright yellow
-		SuccessText:   "46",  // Bright green
+		SecondaryText: "8",   // Muted gray (instead of bright cyan)
+		AccentText:    "13",  // Magenta (less bright than 201)
+		ErrorText:     "9",   // Standard red (instead of ultra-bright 196)
+		WarningText:   "11",  // Standard yellow (instead of ultra-bright 226)
+		SuccessText:   "10",  // Standard green (instead of ultra-bright 46)
 		ActiveIcon:    "◆",
 		WarningIcon:   "▲",
 		ErrorIcon:     "◼",
@@ -459,466 +571,361 @@ func SetTheme(theme TableTheme) {
 	currentTheme = theme
 }
 
+// convertToVTableTheme converts demo TableTheme to vtable.Theme
+func convertToVTableTheme(theme TableTheme) vtable.Theme {
+	return vtable.Theme{
+		HeaderStyle:        lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(theme.PrimaryText)).Background(lipgloss.Color(theme.HeaderBg)),
+		CellStyle:          lipgloss.NewStyle().Foreground(lipgloss.Color(theme.PrimaryText)),
+		CursorStyle:        lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(theme.PrimaryText)).Background(lipgloss.Color(theme.CursorBg)),
+		SelectedStyle:      lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("15")).Background(lipgloss.Color(theme.SelectionBg)), // White text on selection
+		FullRowCursorStyle: lipgloss.NewStyle().Background(lipgloss.Color(theme.CursorBg)).Foreground(lipgloss.Color(theme.PrimaryText)).Bold(true),
+		BorderChars: vtable.BorderChars{
+			Horizontal:  "─",
+			Vertical:    "│",
+			TopLeft:     "┌",
+			TopRight:    "┐",
+			BottomLeft:  "└",
+			BottomRight: "┘",
+			TopT:        "┬",
+			BottomT:     "┴",
+			LeftT:       "├",
+			RightT:      "┤",
+			Cross:       "┼",
+		},
+		BorderColor: theme.BorderColor,
+		HeaderColor: theme.PrimaryText,
+	}
+}
+
 // ================================
 // ENHANCED CELL FORMATTERS
 // ================================
 
-// NameCellFormatter formats the first column with selection indicators (following old codebase concepts)
-func NameCellFormatter(cellValue string, rowIndex, columnIndex int, column vtable.TableColumn, ctx vtable.RenderContext, isCursor, isSelected, isTopThreshold, isBottomThreshold bool) string {
-	// Add selection indicators to the cell content (like the old codebase)
-	value := cellValue
+// NameCellFormatter formats the first column with proper selection/cursor handling
+func NameCellFormatter(cellValue string, rowIndex int, column vtable.TableColumn, ctx vtable.RenderContext, isCursor, isSelected bool) string {
+	style := lipgloss.NewStyle().Foreground(lipgloss.Color(currentTheme.PrimaryText))
+
+	// Apply selection background if selected (and not overridden by cursor full row mode)
 	if isSelected {
-		if isCursor {
-			value = "✓>" + value // Both selected and cursor
-		} else {
-			value = "✓ " + value // Just selected
-		}
+		style = style.Background(lipgloss.Color(currentTheme.SelectionBg)).Foreground(lipgloss.Color("15")) // White text on selection bg
 	}
 
-	// Apply cell constraints to ensure content fits within column boundaries
-	constraint := CellConstraint{
-		Width:     column.Width,
-		Height:    1,
-		Alignment: vtable.AlignLeft, // Name column: left aligned
-	}
-	constrainedValue := enforceCellConstraints(value, constraint)
+	return style.Render(cellValue)
+}
 
-	// Apply row-level styling (not cell-level indicators)
+// ValueCellFormatter formats value cells with colors and selection handling
+func ValueCellFormatter(cellValue string, rowIndex int, column vtable.TableColumn, ctx vtable.RenderContext, isCursor, isSelected bool) string {
+	// Parse value for color coding
 	var style lipgloss.Style
-	if isCursor && isSelected {
-		// Both cursor and selected: bold selected style
-		style = lipgloss.NewStyle().
-			Background(lipgloss.Color(currentTheme.SelectionBg)).
-			Foreground(lipgloss.Color(currentTheme.PrimaryText)).
-			Bold(true)
-	} else if isCursor {
-		// Just cursor: cursor row style
-		style = lipgloss.NewStyle().
-			Background(lipgloss.Color(currentTheme.CursorBg)).
-			Foreground(lipgloss.Color(currentTheme.PrimaryText)).
-			Bold(true)
-	} else if isSelected {
-		// Just selected: selection style
-		style = lipgloss.NewStyle().
-			Background(lipgloss.Color(currentTheme.SelectionBg)).
-			Foreground(lipgloss.Color(currentTheme.PrimaryText))
-	} else {
-		// Normal row
-		style = lipgloss.NewStyle().
-			Foreground(lipgloss.Color(currentTheme.PrimaryText))
-	}
-
-	return style.Render(constrainedValue)
-}
-
-// CellConstraint represents the constraints for a cell (from old codebase concepts)
-type CellConstraint struct {
-	Width     int
-	Height    int // Currently only supports Height=1
-	Alignment int // Use alignment constants
-}
-
-// properDisplayWidth calculates the correct display width of a string (from old codebase)
-// This function combines lipgloss (for ANSI code handling) and go-runewidth (for proper Unicode width)
-func properDisplayWidth(text string) int {
-	// First, let lipgloss strip ANSI escape codes
-	stripped := lipgloss.NewStyle().Render(text)
-	// Then use go-runewidth for proper Unicode character width calculation
-	return runewidth.StringWidth(stripped)
-}
-
-// enforceCellConstraints ensures text fits exactly within cell constraints (from old codebase)
-func enforceCellConstraints(text string, constraint CellConstraint) string {
-	// Handle multi-line content by converting to single line
-	text = strings.ReplaceAll(text, "\n", " ")
-	text = strings.ReplaceAll(text, "\r", " ")
-	// Collapse multiple spaces
-	for strings.Contains(text, "  ") {
-		text = strings.ReplaceAll(text, "  ", " ")
-	}
-	text = strings.TrimSpace(text)
-
-	// Get actual display width using proper Unicode calculation
-	actualWidth := properDisplayWidth(text)
-	targetWidth := constraint.Width
-
-	// If text is too long, truncate it
-	if actualWidth > targetWidth {
-		if targetWidth <= 0 {
-			return ""
-		}
-
-		if targetWidth <= 3 {
-			// For very small widths, just return dots
-			return strings.Repeat(".", targetWidth)
-		}
-
-		// Calculate how much we need to remove
-		excessWidth := actualWidth - targetWidth
-
-		// For small overflows (1-2 characters) or short target widths, use simple truncation
-		// For longer text that would benefit from ellipsis indication, use ellipsis
-		useEllipsis := targetWidth >= 6 && excessWidth >= 3
-
-		if useEllipsis {
-			// Try to fit with ellipsis
-			truncated := text
-			for properDisplayWidth(truncated+"...") > targetWidth && len(truncated) > 0 {
-				runes := []rune(truncated)
-				if len(runes) > 0 {
-					truncated = string(runes[:len(runes)-1])
-				} else {
-					break
-				}
-			}
-
-			if len(truncated) > 0 && properDisplayWidth(truncated+"...") <= targetWidth {
-				text = truncated + "..."
-			} else {
-				// Fallback to simple truncation
-				text = text
-				for properDisplayWidth(text) > targetWidth && len(text) > 0 {
-					runes := []rune(text)
-					if len(runes) > 0 {
-						text = string(runes[:len(runes)-1])
-					} else {
-						break
-					}
-				}
-			}
-		} else {
-			// Simple truncation - just remove characters until we fit
-			for properDisplayWidth(text) > targetWidth && len(text) > 0 {
-				runes := []rune(text)
-				if len(runes) > 0 {
-					text = string(runes[:len(runes)-1])
-				} else {
-					break
-				}
-			}
-		}
-
-		actualWidth = properDisplayWidth(text)
-	}
-
-	// If text is shorter than target, add padding based on alignment
-	if actualWidth < targetWidth {
-		padding := targetWidth - actualWidth
-
-		switch constraint.Alignment {
-		case vtable.AlignCenter:
-			leftPad := padding / 2
-			rightPad := padding - leftPad
-			text = strings.Repeat(" ", leftPad) + text + strings.Repeat(" ", rightPad)
-		case vtable.AlignRight:
-			text = strings.Repeat(" ", padding) + text
-		default: // AlignLeft
-			text = text + strings.Repeat(" ", padding)
-		}
-	}
-
-	return text
-}
-
-// ValueCellFormatter formats value cells with colors and row-level styling
-func ValueCellFormatter(cellValue string, rowIndex, columnIndex int, column vtable.TableColumn, ctx vtable.RenderContext, isCursor, isSelected, isTopThreshold, isBottomThreshold bool) string {
-	// Parse value for color coding but will be overridden by row styling if needed
-	var baseStyle lipgloss.Style
 	if strings.HasPrefix(cellValue, "Value ") {
 		valueStr := strings.TrimPrefix(cellValue, "Value ")
 		if value, err := strconv.Atoi(valueStr); err == nil {
 			switch {
 			case value < 30:
-				baseStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(currentTheme.ErrorText))
+				style = lipgloss.NewStyle().Foreground(lipgloss.Color(currentTheme.ErrorText))
 			case value < 70:
-				baseStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(currentTheme.WarningText))
+				style = lipgloss.NewStyle().Foreground(lipgloss.Color(currentTheme.WarningText))
 			default:
-				baseStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(currentTheme.SuccessText))
+				style = lipgloss.NewStyle().Foreground(lipgloss.Color(currentTheme.SuccessText))
 			}
 		}
 	} else {
-		baseStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(currentTheme.PrimaryText))
+		style = lipgloss.NewStyle().Foreground(lipgloss.Color(currentTheme.PrimaryText))
 	}
 
-	// Apply row-level styling (overrides base styling for selections)
-	var style lipgloss.Style
-	if isCursor && isSelected {
-		style = lipgloss.NewStyle().
-			Background(lipgloss.Color(currentTheme.SelectionBg)).
-			Foreground(lipgloss.Color(currentTheme.PrimaryText)).
-			Bold(true)
-	} else if isCursor {
-		style = lipgloss.NewStyle().
-			Background(lipgloss.Color(currentTheme.CursorBg)).
-			Foreground(lipgloss.Color(currentTheme.PrimaryText)).
-			Bold(true)
-	} else if isSelected {
-		style = lipgloss.NewStyle().
-			Background(lipgloss.Color(currentTheme.SelectionBg)).
-			Foreground(lipgloss.Color(currentTheme.PrimaryText))
-	} else {
-		// Use base color coding for normal rows
-		style = baseStyle
+	// Apply selection background if selected
+	if isSelected {
+		style = style.Background(lipgloss.Color(currentTheme.SelectionBg)).Foreground(lipgloss.Color("15")) // White text on selection bg
 	}
 
-	// Apply cell constraints
-	constraint := CellConstraint{
-		Width:     column.Width,
-		Height:    1,
-		Alignment: vtable.AlignRight, // Value column: right aligned
-	}
-	constrainedValue := enforceCellConstraints(cellValue, constraint)
-
-	return style.Render(constrainedValue)
+	return style.Render(cellValue)
 }
 
-// StatusCellFormatter formats status cells with icons and row-level styling
-func StatusCellFormatter(cellValue string, rowIndex, columnIndex int, column vtable.TableColumn, ctx vtable.RenderContext, isCursor, isSelected, isTopThreshold, isBottomThreshold bool) string {
+// StatusCellFormatter formats status cells with icons, colors and selection handling
+func StatusCellFormatter(cellValue string, rowIndex int, column vtable.TableColumn, ctx vtable.RenderContext, isCursor, isSelected bool) string {
 	// Convert status to visual representation
 	var statusText string
-	var baseStyle lipgloss.Style
+	var style lipgloss.Style
 
 	switch cellValue {
 	case "Status 0":
-		baseStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(currentTheme.SuccessText))
+		style = lipgloss.NewStyle().Foreground(lipgloss.Color(currentTheme.SuccessText))
 		statusText = currentTheme.ActiveIcon + " Active"
 	case "Status 1":
-		baseStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(currentTheme.WarningText))
+		style = lipgloss.NewStyle().Foreground(lipgloss.Color(currentTheme.WarningText))
 		statusText = currentTheme.WarningIcon + " Warning"
 	case "Status 2":
-		baseStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(currentTheme.ErrorText))
+		style = lipgloss.NewStyle().Foreground(lipgloss.Color(currentTheme.ErrorText))
 		statusText = currentTheme.ErrorIcon + " Error"
 	default:
-		baseStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(currentTheme.SecondaryText))
+		style = lipgloss.NewStyle().Foreground(lipgloss.Color(currentTheme.SecondaryText))
 		statusText = currentTheme.UnknownIcon + " Unknown"
 	}
 
-	// Apply row-level styling (overrides base styling for selections)
-	var style lipgloss.Style
-	if isCursor && isSelected {
-		style = lipgloss.NewStyle().
-			Background(lipgloss.Color(currentTheme.SelectionBg)).
-			Foreground(lipgloss.Color(currentTheme.PrimaryText)).
-			Bold(true)
-	} else if isCursor {
-		style = lipgloss.NewStyle().
-			Background(lipgloss.Color(currentTheme.CursorBg)).
-			Foreground(lipgloss.Color(currentTheme.PrimaryText)).
-			Bold(true)
-	} else if isSelected {
-		style = lipgloss.NewStyle().
-			Background(lipgloss.Color(currentTheme.SelectionBg)).
-			Foreground(lipgloss.Color(currentTheme.PrimaryText))
-	} else {
-		// Use base color coding for normal rows
-		style = baseStyle
+	// Apply selection background if selected
+	if isSelected {
+		style = style.Background(lipgloss.Color(currentTheme.SelectionBg)).Foreground(lipgloss.Color("15")) // White text on selection bg
 	}
 
-	// Apply cell constraints
-	constraint := CellConstraint{
-		Width:     column.Width,
-		Height:    1,
-		Alignment: vtable.AlignCenter, // Status column: center aligned
-	}
-	constrainedValue := enforceCellConstraints(statusText, constraint)
-
-	return style.Render(constrainedValue)
+	return style.Render(statusText)
 }
 
-// CategoryCellFormatter formats category cells with row-level styling
-func CategoryCellFormatter(cellValue string, rowIndex, columnIndex int, column vtable.TableColumn, ctx vtable.RenderContext, isCursor, isSelected, isTopThreshold, isBottomThreshold bool) string {
-	// Color code categories for normal rows
-	var baseStyle lipgloss.Style
+// CategoryCellFormatter formats category cells with colors and selection handling
+func CategoryCellFormatter(cellValue string, rowIndex int, column vtable.TableColumn, ctx vtable.RenderContext, isCursor, isSelected bool) string {
+	// Color code categories
+	var style lipgloss.Style
 	switch cellValue {
 	case "Category A":
-		baseStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(currentTheme.AccentText))
+		style = lipgloss.NewStyle().Foreground(lipgloss.Color(currentTheme.AccentText))
 	case "Category B":
-		baseStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(currentTheme.SuccessText))
+		style = lipgloss.NewStyle().Foreground(lipgloss.Color(currentTheme.SuccessText))
 	case "Category C":
-		baseStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(currentTheme.WarningText))
+		style = lipgloss.NewStyle().Foreground(lipgloss.Color(currentTheme.WarningText))
 	case "Category D":
-		baseStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(currentTheme.ErrorText))
+		style = lipgloss.NewStyle().Foreground(lipgloss.Color(currentTheme.ErrorText))
 	case "Category E":
-		baseStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(currentTheme.PrimaryText))
+		style = lipgloss.NewStyle().Foreground(lipgloss.Color(currentTheme.PrimaryText))
 	default:
-		baseStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(currentTheme.SecondaryText))
+		style = lipgloss.NewStyle().Foreground(lipgloss.Color(currentTheme.SecondaryText))
 	}
 
-	// Apply row-level styling (overrides base styling for selections)
-	var style lipgloss.Style
-	if isCursor && isSelected {
-		style = lipgloss.NewStyle().
-			Background(lipgloss.Color(currentTheme.SelectionBg)).
-			Foreground(lipgloss.Color(currentTheme.PrimaryText)).
-			Bold(true)
-	} else if isCursor {
-		style = lipgloss.NewStyle().
-			Background(lipgloss.Color(currentTheme.CursorBg)).
-			Foreground(lipgloss.Color(currentTheme.PrimaryText)).
-			Bold(true)
-	} else if isSelected {
-		style = lipgloss.NewStyle().
-			Background(lipgloss.Color(currentTheme.SelectionBg)).
-			Foreground(lipgloss.Color(currentTheme.PrimaryText))
-	} else {
-		// Use base color coding for normal rows
-		style = baseStyle
+	// Apply selection background if selected
+	if isSelected {
+		style = style.Background(lipgloss.Color(currentTheme.SelectionBg)).Foreground(lipgloss.Color("15")) // White text on selection bg
 	}
 
-	// Apply cell constraints
-	constraint := CellConstraint{
-		Width:     column.Width,
-		Height:    1,
-		Alignment: vtable.AlignLeft, // Category column: left aligned
-	}
-	constrainedValue := enforceCellConstraints(cellValue, constraint)
-
-	return style.Render(constrainedValue)
+	return style.Render(cellValue)
 }
 
-// createCustomLoadingFormatter creates a custom loading row formatter
-func createCustomLoadingFormatter() vtable.LoadingRowFormatter {
-	return func(index int, columns []vtable.TableColumn, ctx vtable.RenderContext, isCursor bool) string {
-		var parts []string
+// createCustomHeaderFormatter creates a custom header formatter with styling
+func createCustomHeaderFormatter() map[int]vtable.SimpleHeaderFormatter {
+	formatters := make(map[int]vtable.SimpleHeaderFormatter)
 
-		// Create custom loading cells for each column
-		for i, col := range columns {
-			var loadingText string
-			var style lipgloss.Style
+	// Simple header formatters like the working test
+	formatters[0] = func(column vtable.TableColumn, ctx vtable.RenderContext) string {
+		return "📝 " + column.Title
+	}
 
-			// Different loading text for each column
-			switch i {
-			case 0: // Name column
-				loadingText = "⏳ Loading..."
-			case 1: // Value column
-				loadingText = "..."
-			case 2: // Status column
-				loadingText = "⚡ Loading"
-			case 3: // Category column
-				loadingText = "•••"
-			default:
-				loadingText = "..."
+	formatters[1] = func(column vtable.TableColumn, ctx vtable.RenderContext) string {
+		return "💰 " + column.Title
+	}
+
+	formatters[2] = func(column vtable.TableColumn, ctx vtable.RenderContext) string {
+		return "📊 " + column.Title
+	}
+
+	formatters[3] = func(column vtable.TableColumn, ctx vtable.RenderContext) string {
+		return "🏷️ " + column.Title
+	}
+
+	return formatters
+}
+
+// ================================
+// ADVANCED FORMATTER IMPLEMENTATIONS
+// ================================
+
+// createWrappingNameFormatter creates a name formatter with text wrapping support
+func createWrappingNameFormatter() vtable.SimpleCellFormatter {
+	return func(cellValue string, rowIndex int, column vtable.TableColumn, ctx vtable.RenderContext, isCursor, isSelected bool) string {
+		style := lipgloss.NewStyle().Foreground(lipgloss.Color(currentTheme.PrimaryText))
+
+		// For long content, show abbreviated version that fits better
+		if len(cellValue) > 15 {
+			// Break into words and create flowing text
+			words := strings.Fields(cellValue)
+			if len(words) > 1 {
+				// Create a more compact representation
+				abbreviated := words[0]
+				if len(words) > 1 {
+					abbreviated += "~" + words[len(words)-1] // First~Last pattern
+				}
+				return style.Render(abbreviated)
 			}
-
-			// Apply cell constraints
-			constraint := CellConstraint{
-				Width:     col.Width,
-				Height:    1,
-				Alignment: col.Alignment,
-			}
-			constrainedText := enforceCellConstraints(loadingText, constraint)
-
-			// Apply cursor or loading styling
-			if isCursor {
-				style = lipgloss.NewStyle().
-					Background(lipgloss.Color(currentTheme.CursorBg)).
-					Foreground(lipgloss.Color(currentTheme.PrimaryText)).
-					Bold(true)
-			} else {
-				style = lipgloss.NewStyle().
-					Foreground(lipgloss.Color(currentTheme.SecondaryText)).
-					Italic(true)
-			}
-
-			parts = append(parts, style.Render(constrainedText))
 		}
 
-		// Join with borders if enabled
-		result := strings.Join(parts, "│")
-		result = "│" + result + "│"
+		return style.Render(cellValue)
+	}
+}
+
+// createWrappingValueFormatter creates a value formatter with text wrapping support
+func createWrappingValueFormatter() vtable.SimpleCellFormatter {
+	return func(cellValue string, rowIndex int, column vtable.TableColumn, ctx vtable.RenderContext, isCursor, isSelected bool) string {
+		// Parse value for color coding (same as original)
+		var style lipgloss.Style
+		if strings.HasPrefix(cellValue, "Value ") {
+			valueStr := strings.TrimPrefix(cellValue, "Value ")
+			if value, err := strconv.Atoi(valueStr); err == nil {
+				switch {
+				case value < 30:
+					style = lipgloss.NewStyle().Foreground(lipgloss.Color(currentTheme.ErrorText))
+				case value < 70:
+					style = lipgloss.NewStyle().Foreground(lipgloss.Color(currentTheme.WarningText))
+				default:
+					style = lipgloss.NewStyle().Foreground(lipgloss.Color(currentTheme.SuccessText))
+				}
+			}
+		} else {
+			style = lipgloss.NewStyle().Foreground(lipgloss.Color(currentTheme.PrimaryText))
+		}
+
+		// Add wrapping indicator that fits in single line
+		if strings.HasPrefix(cellValue, "Value ") {
+			valueStr := strings.TrimPrefix(cellValue, "Value ")
+			enhanced := fmt.Sprintf("$%s⟲", valueStr) // Show currency symbol + wrap indicator
+			return style.Render(enhanced)
+		}
+
+		return style.Render(cellValue)
+	}
+}
+
+// createWrappingStatusFormatter creates a status formatter with text wrapping support
+func createWrappingStatusFormatter() vtable.SimpleCellFormatter {
+	return func(cellValue string, rowIndex int, column vtable.TableColumn, ctx vtable.RenderContext, isCursor, isSelected bool) string {
+		// Convert status to visual representation with more compact info
+		var statusText string
+		var style lipgloss.Style
+
+		switch cellValue {
+		case "Status 0":
+			style = lipgloss.NewStyle().Foreground(lipgloss.Color(currentTheme.SuccessText))
+			statusText = currentTheme.ActiveIcon + " Active✨" // Single line with indicator
+		case "Status 1":
+			style = lipgloss.NewStyle().Foreground(lipgloss.Color(currentTheme.WarningText))
+			statusText = currentTheme.WarningIcon + " Warn⚠️" // Single line with indicator
+		case "Status 2":
+			style = lipgloss.NewStyle().Foreground(lipgloss.Color(currentTheme.ErrorText))
+			statusText = currentTheme.ErrorIcon + " Error❌" // Single line with indicator
+		default:
+			style = lipgloss.NewStyle().Foreground(lipgloss.Color(currentTheme.SecondaryText))
+			statusText = currentTheme.UnknownIcon + " Unknown❓"
+		}
+
+		return style.Render(statusText)
+	}
+}
+
+// createWrappingCategoryFormatter creates a category formatter with text wrapping support
+func createWrappingCategoryFormatter() vtable.SimpleCellFormatter {
+	return func(cellValue string, rowIndex int, column vtable.TableColumn, ctx vtable.RenderContext, isCursor, isSelected bool) string {
+		// Color code categories (same as original)
+		var style lipgloss.Style
+		switch cellValue {
+		case "Category A":
+			style = lipgloss.NewStyle().Foreground(lipgloss.Color(currentTheme.AccentText))
+		case "Category B":
+			style = lipgloss.NewStyle().Foreground(lipgloss.Color(currentTheme.SuccessText))
+		case "Category C":
+			style = lipgloss.NewStyle().Foreground(lipgloss.Color(currentTheme.WarningText))
+		case "Category D":
+			style = lipgloss.NewStyle().Foreground(lipgloss.Color(currentTheme.ErrorText))
+		case "Category E":
+			style = lipgloss.NewStyle().Foreground(lipgloss.Color(currentTheme.PrimaryText))
+		default:
+			style = lipgloss.NewStyle().Foreground(lipgloss.Color(currentTheme.SecondaryText))
+		}
+
+		// Add compact wrapping indicator
+		if strings.HasPrefix(cellValue, "Category ") {
+			categoryLetter := strings.TrimPrefix(cellValue, "Category ")
+			enhanced := fmt.Sprintf("📂%s-Type", categoryLetter) // More compact representation
+			return style.Render(enhanced)
+		}
+
+		return style.Render(cellValue)
+	}
+}
+
+// createFullRowCursorFormatter creates a formatter that highlights the entire row when cursor is on it
+func createFullRowCursorFormatter(baseFormatter vtable.SimpleCellFormatter) vtable.SimpleCellFormatter {
+	return func(cellValue string, rowIndex int, column vtable.TableColumn, ctx vtable.RenderContext, isCursor, isSelected bool) string {
+		// If this is the cursor row, apply enhanced highlighting to all cells in the row
+		if isCursor {
+			// Full row highlighting - bold with distinctive background
+			// IMPORTANT: No padding here - let the table's applyCellConstraints handle padding extension
+			fullRowStyle := lipgloss.NewStyle().
+				Background(lipgloss.Color(currentTheme.CursorBg)).
+				Foreground(lipgloss.Color("15")). // White text
+				Bold(true).
+				Underline(true) // Extra emphasis for full row mode
+
+			// Don't add row indicator - just style the content strongly
+			return fullRowStyle.Render(cellValue)
+		}
+
+		// For non-cursor rows, use the base formatter without extra styling
+		return baseFormatter(cellValue, rowIndex, column, ctx, false, isSelected)
+	}
+}
+
+// createSelectionAwareFormatter creates a formatter that ensures selection highlighting is always applied
+func createSelectionAwareFormatter(baseFormatter vtable.SimpleCellFormatter) vtable.SimpleCellFormatter {
+	return func(cellValue string, rowIndex int, column vtable.TableColumn, ctx vtable.RenderContext, isCursor, isSelected bool) string {
+		// Always apply the base formatter first (which should handle selection highlighting)
+		result := baseFormatter(cellValue, rowIndex, column, ctx, isCursor, isSelected)
+
+		// If selected but the result doesn't seem to have selection styling, force it
+		if isSelected && !strings.Contains(result, currentTheme.SelectionBg) {
+			// Force selection background
+			selectionStyle := lipgloss.NewStyle().
+				Background(lipgloss.Color(currentTheme.SelectionBg)).
+				Foreground(lipgloss.Color("15")) // White text on selection bg
+			return selectionStyle.Render(cellValue)
+		}
 
 		return result
 	}
 }
 
-// createCustomHeaderCellFormatter creates a custom header cell formatter
-func createCustomHeaderCellFormatter() vtable.HeaderCellFormatter {
-	return func(column vtable.TableColumn, columnIndex int, ctx vtable.RenderContext) string {
-		var headerText string
-		var style lipgloss.Style
+// ================================
+// FORMATTER MANAGEMENT HELPERS
+// ================================
 
-		// Different styling for each column
-		switch columnIndex {
-		case 0: // Name column
-			headerText = "📝 " + column.Title
-			style = lipgloss.NewStyle().
-				Foreground(lipgloss.Color("14")). // Cyan
-				Bold(true).
-				Background(lipgloss.Color("8"))
-
-		case 1: // Value column
-			headerText = "💰 " + column.Title
-			style = lipgloss.NewStyle().
-				Foreground(lipgloss.Color("11")). // Yellow
-				Bold(true).
-				Background(lipgloss.Color("8"))
-
-		case 2: // Status column
-			headerText = "📊 " + column.Title
-			style = lipgloss.NewStyle().
-				Foreground(lipgloss.Color("10")). // Green
-				Bold(true).
-				Background(lipgloss.Color("8"))
-
-		case 3: // Category column
-			headerText = "🏷️ " + column.Title
-			style = lipgloss.NewStyle().
-				Foreground(lipgloss.Color("13")). // Magenta
-				Bold(true).
-				Background(lipgloss.Color("8"))
-
-		default:
-			headerText = column.Title
-			style = lipgloss.NewStyle().
-				Foreground(lipgloss.Color("15")).
-				Bold(true).
-				Background(lipgloss.Color("8"))
-		}
-
-		// Apply constraint - use the column's HeaderConstraint if specified
-		var constraint CellConstraint
-		if column.HeaderConstraint.Width > 0 {
-			// Convert vtable.CellConstraint to local CellConstraint
-			constraint = CellConstraint{
-				Width:     column.HeaderConstraint.Width,
-				Alignment: column.HeaderConstraint.Alignment,
-				Height:    column.HeaderConstraint.Height,
-			}
-		} else {
-			// Use column alignment and width as fallback
-			alignment := column.HeaderAlignment
-			if alignment == 0 {
-				alignment = column.Alignment
-			}
-			constraint = CellConstraint{
-				Width:     column.Width,
-				Alignment: alignment,
-				Height:    1,
-			}
-		}
-
-		constrainedText := enforceCellConstraints(headerText, constraint)
-		return style.Render(constrainedText)
-	}
+// resetAllFormattersToBase resets all cell formatters to their base implementations
+func resetAllFormattersToBase() tea.Cmd {
+	return tea.Batch(
+		vtable.CellFormatterSetCmd(0, NameCellFormatter),
+		vtable.CellFormatterSetCmd(1, ValueCellFormatter),
+		vtable.CellFormatterSetCmd(2, StatusCellFormatter),
+		vtable.CellFormatterSetCmd(3, CategoryCellFormatter),
+	)
 }
 
 // ================================
 // MAIN INTERACTIVE APPLICATION
 // ================================
 
-// AppModel wraps our table for the Tea application
+// AppModel represents the state of our application
 type AppModel struct {
-	table             *vtable.Table
-	dataSource        *ExampleTableDataSource
-	showDebug         bool
-	showHelp          bool
-	statusMessage     string
-	indexInput        string
-	inputMode         bool // true when entering a number for JumpToIndex
-	currentThemeIndex int  // Track current theme
-	// Add chunk loading observability
-	loadingChunks map[int]bool
-	chunkHistory  []string
+	table                *vtable.Table
+	dataSource           *ExampleTableDataSource
+	statusMessage        string
+	showHelp             bool
+	showDebug            bool
+	inputMode            bool
+	indexInput           string
+	wrappingEnabled      bool
+	fullRowCursorEnabled bool // Track if full row cursor highlighting is enabled
+	selectionModeEnabled bool // Track if selection highlighting is enabled
+	loadingChunks        map[int]bool
+	chunkHistory         []string
+
+	// Theme cycling
+	themeIndex int
+
+	// Column ordering
+	columnOrderIndex int
+
+	// Sorting states
+	sortingEnabled   bool
+	currentSortField string
+	currentSortDir   string
+
+	// Filtering states
+	filteringEnabled   bool
+	currentFilter      string
+	currentFilterField string
 }
 
 // Available themes list
@@ -927,6 +934,121 @@ var availableThemes = []TableTheme{
 	DarkTheme,
 	MinimalTheme,
 	NeonTheme,
+}
+
+// Available column orderings
+var availableColumnOrders = [][]vtable.TableColumn{
+	// Default order: Name, Value, Status, Category
+	{
+		{
+			Title:           "Name",
+			Field:           "name",
+			Width:           25,
+			Alignment:       vtable.AlignLeft,
+			HeaderAlignment: vtable.AlignCenter,
+			HeaderConstraint: vtable.CellConstraint{
+				Width:     25,
+				Alignment: vtable.AlignCenter,
+				Padding:   vtable.PaddingConfig{Left: 1, Right: 1},
+			},
+		},
+		{
+			Title:           "Value",
+			Field:           "value",
+			Width:           15,
+			Alignment:       vtable.AlignRight,
+			HeaderAlignment: vtable.AlignLeft,
+			HeaderConstraint: vtable.CellConstraint{
+				Width:     15,
+				Alignment: vtable.AlignLeft,
+			},
+		},
+		{
+			Title:           "Status",
+			Field:           "status",
+			Width:           18,
+			Alignment:       vtable.AlignCenter,
+			HeaderAlignment: vtable.AlignRight,
+			HeaderConstraint: vtable.CellConstraint{
+				Width:     18,
+				Alignment: vtable.AlignRight,
+			},
+		},
+		{
+			Title:           "Category",
+			Field:           "category",
+			Width:           20,
+			Alignment:       vtable.AlignLeft,
+			HeaderAlignment: vtable.AlignCenter,
+			HeaderConstraint: vtable.CellConstraint{
+				Width:     20,
+				Alignment: vtable.AlignCenter,
+				Padding:   vtable.PaddingConfig{Left: 2, Right: 2},
+			},
+		},
+	},
+	// Value-first order: Value, Name, Status, Category
+	{
+		{
+			Title:           "Value",
+			Field:           "value",
+			Width:           15,
+			Alignment:       vtable.AlignRight,
+			HeaderAlignment: vtable.AlignCenter,
+		},
+		{
+			Title:           "Name",
+			Field:           "name",
+			Width:           25,
+			Alignment:       vtable.AlignLeft,
+			HeaderAlignment: vtable.AlignLeft,
+		},
+		{
+			Title:           "Status",
+			Field:           "status",
+			Width:           18,
+			Alignment:       vtable.AlignCenter,
+			HeaderAlignment: vtable.AlignCenter,
+		},
+		{
+			Title:           "Category",
+			Field:           "category",
+			Width:           20,
+			Alignment:       vtable.AlignLeft,
+			HeaderAlignment: vtable.AlignRight,
+		},
+	},
+	// Status-first order: Status, Category, Name, Value
+	{
+		{
+			Title:           "Status",
+			Field:           "status",
+			Width:           18,
+			Alignment:       vtable.AlignCenter,
+			HeaderAlignment: vtable.AlignCenter,
+		},
+		{
+			Title:           "Category",
+			Field:           "category",
+			Width:           20,
+			Alignment:       vtable.AlignLeft,
+			HeaderAlignment: vtable.AlignLeft,
+		},
+		{
+			Title:           "Name",
+			Field:           "name",
+			Width:           25,
+			Alignment:       vtable.AlignLeft,
+			HeaderAlignment: vtable.AlignRight,
+		},
+		{
+			Title:           "Value",
+			Field:           "value",
+			Width:           15,
+			Alignment:       vtable.AlignRight,
+			HeaderAlignment: vtable.AlignCenter,
+		},
+	},
 }
 
 func main() {
@@ -938,16 +1060,27 @@ func main() {
 
 	// Create app model
 	app := AppModel{
-		table:             table,
-		dataSource:        dataSource,
-		showDebug:         true,
-		showHelp:          true,
-		statusMessage:     "Welcome! Use arrow keys to navigate, space to select, ? to toggle help",
-		indexInput:        "",
-		inputMode:         false,
-		currentThemeIndex: 0, // Start with DefaultTheme
-		loadingChunks:     make(map[int]bool),
-		chunkHistory:      make([]string, 0),
+		table:         table,
+		dataSource:    dataSource,
+		showDebug:     true,
+		showHelp:      true,
+		statusMessage: "Welcome! Use arrow keys to navigate, space to select, ? to toggle help",
+		indexInput:    "",
+		inputMode:     false,
+		themeIndex:    0, // Start with DefaultTheme
+		loadingChunks: make(map[int]bool),
+		chunkHistory:  make([]string, 0),
+		// Initialize new feature flags
+		columnOrderIndex:     0, // Start with default column order
+		sortingEnabled:       false,
+		filteringEnabled:     false,
+		currentSortField:     "",
+		currentSortDir:       "",
+		currentFilter:        "",
+		currentFilterField:   "",
+		wrappingEnabled:      false,
+		fullRowCursorEnabled: false,
+		selectionModeEnabled: false,
 	}
 
 	// Run the interactive program
@@ -958,19 +1091,28 @@ func main() {
 }
 
 func (m AppModel) Init() tea.Cmd {
-	return tea.Batch(
-		m.table.Init(),
-		m.table.Focus(),
-		// Set cell formatters through the Tea model loop
-		vtable.CellFormatterSetCmd(0, NameCellFormatter),     // Name column with selection indicators
-		vtable.CellFormatterSetCmd(1, ValueCellFormatter),    // Value column
-		vtable.CellFormatterSetCmd(2, StatusCellFormatter),   // Status column
-		vtable.CellFormatterSetCmd(3, CategoryCellFormatter), // Category column
-		// Set custom loading formatter
-		vtable.LoadingFormatterSetCmd(createCustomLoadingFormatter()),
-		// Set custom header cell formatter
-		vtable.HeaderCellFormatterSetCmd(createCustomHeaderCellFormatter()),
-	)
+	// Get the header formatters
+	headerFormatters := createCustomHeaderFormatter()
+
+	var cmds []tea.Cmd
+	cmds = append(cmds, m.table.Init())
+	cmds = append(cmds, m.table.Focus())
+
+	// Set cell formatters through the Tea model loop
+	cmds = append(cmds, vtable.CellFormatterSetCmd(0, NameCellFormatter))     // Name column
+	cmds = append(cmds, vtable.CellFormatterSetCmd(1, ValueCellFormatter))    // Value column
+	cmds = append(cmds, vtable.CellFormatterSetCmd(2, StatusCellFormatter))   // Status column
+	cmds = append(cmds, vtable.CellFormatterSetCmd(3, CategoryCellFormatter)) // Category column
+
+	// Set header formatters for each column
+	for columnIndex, formatter := range headerFormatters {
+		cmds = append(cmds, vtable.HeaderFormatterSetCmd(columnIndex, formatter))
+	}
+
+	// Enable component renderer - now FIXED to not contaminate cell content
+	cmds = append(cmds, m.table.EnableComponentRenderer())
+
+	return tea.Batch(cmds...)
 }
 
 func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -1038,15 +1180,192 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		case "t":
 			// Cycle through themes
-			m.currentThemeIndex = (m.currentThemeIndex + 1) % len(availableThemes)
-			newTheme := availableThemes[m.currentThemeIndex]
+			m.themeIndex = (m.themeIndex + 1) % len(availableThemes)
+			newTheme := availableThemes[m.themeIndex]
 			SetTheme(newTheme)
 			m.statusMessage = fmt.Sprintf("Theme changed to: %s - %s", newTheme.Name, newTheme.Description)
-			return m, nil
+
+			// CRITICAL FIX: Update the table's built-in theme too!
+			vtableTheme := convertToVTableTheme(newTheme)
+			return m, m.table.SetTheme(vtableTheme)
 
 		case "r":
 			m.statusMessage = "Refreshing data..."
 			return m, vtable.DataRefreshCmd()
+
+		// === NEW ADVANCED FEATURES ===
+		case "o":
+			// Cycle through column orderings
+			m.columnOrderIndex = (m.columnOrderIndex + 1) % len(availableColumnOrders)
+			newColumns := availableColumnOrders[m.columnOrderIndex]
+			orderNames := []string{"Default (Name→Value→Status→Category)", "Value-first", "Status-first"}
+			m.statusMessage = fmt.Sprintf("Column order changed to: %s", orderNames[m.columnOrderIndex])
+			return m, vtable.ColumnSetCmd(newColumns)
+
+		case "T":
+			// Toggle sorting (uppercase T for table sorting)
+			if !m.sortingEnabled {
+				// Enable sorting on Name field ascending
+				m.sortingEnabled = true
+				m.currentSortField = "name"
+				m.currentSortDir = "asc"
+				m.statusMessage = "Sorting enabled: Name (ascending) - press T again to cycle"
+				m.dataSource.SetSort([]string{"name"}, []string{"asc"})
+				return m, vtable.DataRefreshCmd()
+			} else {
+				// Cycle through different sorts
+				switch m.currentSortField + "_" + m.currentSortDir {
+				case "name_asc":
+					m.currentSortField = "name"
+					m.currentSortDir = "desc"
+					m.statusMessage = "Sorting: Name (descending)"
+					m.dataSource.SetSort([]string{"name"}, []string{"desc"})
+					return m, vtable.DataRefreshCmd()
+				case "name_desc":
+					m.currentSortField = "value"
+					m.currentSortDir = "asc"
+					m.statusMessage = "Sorting: Value (ascending)"
+					m.dataSource.SetSort([]string{"value"}, []string{"asc"})
+					return m, vtable.DataRefreshCmd()
+				case "value_asc":
+					m.currentSortField = "value"
+					m.currentSortDir = "desc"
+					m.statusMessage = "Sorting: Value (descending)"
+					m.dataSource.SetSort([]string{"value"}, []string{"desc"})
+					return m, vtable.DataRefreshCmd()
+				case "value_desc":
+					m.currentSortField = "status"
+					m.currentSortDir = "asc"
+					m.statusMessage = "Sorting: Status (ascending)"
+					m.dataSource.SetSort([]string{"status"}, []string{"asc"})
+					return m, vtable.DataRefreshCmd()
+				case "status_asc":
+					// Add multi-sort: Status + Name
+					m.statusMessage = "Multi-sort: Status (asc) + Name (asc)"
+					m.dataSource.SetSort([]string{"status", "name"}, []string{"asc", "asc"})
+					return m, vtable.DataRefreshCmd()
+				default:
+					// Clear sorting
+					m.sortingEnabled = false
+					m.currentSortField = ""
+					m.currentSortDir = ""
+					m.statusMessage = "Sorting disabled"
+					m.dataSource.SetSort([]string{}, []string{})
+					return m, vtable.DataRefreshCmd()
+				}
+			}
+
+		case "S":
+			// Toggle selection highlighting mode (uppercase S - different from lowercase 's' which shows selection count)
+			if m.selectionModeEnabled {
+				// Disable selection highlighting
+				m.selectionModeEnabled = false
+				m.statusMessage = "Selection highlighting disabled"
+				return m, resetAllFormattersToBase()
+			} else {
+				// Enable selection highlighting
+				m.selectionModeEnabled = true
+				// Disable full row mode if enabled
+				if m.fullRowCursorEnabled {
+					m.fullRowCursorEnabled = false
+				}
+				m.statusMessage = "Selection highlighting enabled - selected rows highlighted"
+				// Use special selection-aware formatters
+				return m, tea.Batch(
+					resetAllFormattersToBase(),
+					tea.Sequence(
+						vtable.CellFormatterSetCmd(0, createSelectionAwareFormatter(NameCellFormatter)),
+						vtable.CellFormatterSetCmd(1, createSelectionAwareFormatter(ValueCellFormatter)),
+						vtable.CellFormatterSetCmd(2, createSelectionAwareFormatter(StatusCellFormatter)),
+						vtable.CellFormatterSetCmd(3, createSelectionAwareFormatter(CategoryCellFormatter)),
+					),
+				)
+			}
+
+		case "F":
+			// Toggle filtering (uppercase F for filter setup)
+			if !m.filteringEnabled {
+				// Enable filtering - show only Category A items
+				m.filteringEnabled = true
+				m.currentFilterField = "category"
+				m.currentFilter = "Category A"
+				m.statusMessage = "Filtering enabled: Category A only - press F to cycle filters"
+				m.dataSource.SetFilter("category", "Category A")
+				return m, vtable.DataRefreshCmd()
+			} else {
+				// Cycle through different filters
+				switch m.currentFilter {
+				case "Category A":
+					m.currentFilter = "Category B"
+					m.statusMessage = "Filtering: Category B only"
+					m.dataSource.ClearAllFilters()
+					m.dataSource.SetFilter("category", "Category B")
+					return m, vtable.DataRefreshCmd()
+				case "Category B":
+					// Switch to value filter
+					m.currentFilterField = "value"
+					m.currentFilter = "high" // Filter for high values
+					m.statusMessage = "Filtering: High values only (>50)"
+					m.dataSource.ClearAllFilters()
+					m.dataSource.SetFilter("value", "high")
+					return m, vtable.DataRefreshCmd()
+				case "high":
+					// Switch to status filter
+					m.currentFilterField = "status"
+					m.currentFilter = "active"
+					m.statusMessage = "Filtering: Active status only"
+					m.dataSource.ClearAllFilters()
+					m.dataSource.SetFilter("status", "active")
+					return m, vtable.DataRefreshCmd()
+				default:
+					// Clear filtering
+					m.filteringEnabled = false
+					m.currentFilterField = ""
+					m.currentFilter = ""
+					m.statusMessage = "Filtering disabled"
+					m.dataSource.ClearAllFilters()
+					return m, vtable.DataRefreshCmd()
+				}
+			}
+
+		case "w":
+			// Toggle text wrapping
+			m.wrappingEnabled = !m.wrappingEnabled
+			if m.wrappingEnabled {
+				m.statusMessage = "Text wrapping enabled - long content will wrap within cells"
+				// Reset first, then apply wrapping-enabled formatters
+				return m, tea.Batch(
+					resetAllFormattersToBase(),
+					tea.Sequence(
+						vtable.CellFormatterSetCmd(0, createWrappingNameFormatter()),
+						vtable.CellFormatterSetCmd(1, createWrappingValueFormatter()),
+						vtable.CellFormatterSetCmd(2, createWrappingStatusFormatter()),
+						vtable.CellFormatterSetCmd(3, createWrappingCategoryFormatter()),
+					),
+				)
+			} else {
+				m.statusMessage = "Text wrapping disabled - long content will be truncated"
+				// Restore normal formatters
+				return m, resetAllFormattersToBase()
+			}
+
+		case "R":
+			// Toggle full row cursor highlighting (uppercase R)
+			if m.fullRowCursorEnabled {
+				// Disable full row highlighting using the BUILT-IN system
+				m.fullRowCursorEnabled = false
+				m.statusMessage = "Full row cursor highlighting disabled"
+				return m, vtable.FullRowHighlightEnableCmd(false)
+			} else {
+				// Enable full row highlighting using the BUILT-IN system
+				m.fullRowCursorEnabled = true
+				// Disable selection mode if enabled
+				if m.selectionModeEnabled {
+					m.selectionModeEnabled = false
+				}
+				m.statusMessage = "Full row cursor highlighting enabled - entire row highlighted"
+				return m, vtable.FullRowHighlightEnableCmd(true)
+			}
 
 		// === NAVIGATION KEYS ===
 		case "g":
@@ -1305,15 +1624,56 @@ func (m AppModel) View() string {
 
 	// Show help if enabled
 	if m.showHelp {
-		view.WriteString("=== TABLE DEMO ===\n")
-		view.WriteString("Visual Indicators: row highlighting = cursor • background color = selected\n")
-		view.WriteString("Header Features: independent alignment per column • custom cell constraints • emoji icons\n")
-		view.WriteString("Navigation: j/k or ↑/↓ move • h/l page up/down • g=start • G=end • J=jump to index • 1-5=quick jumps\n")
-		view.WriteString("Selection: Space=toggle • a=select all • c=clear • s=show count\n")
-		view.WriteString("Themes: t=cycle themes (Default→Dark→Minimal→Neon)\n")
-		view.WriteString("Debug: d=toggle debug (shows chunk loading activity)\n")
-		view.WriteString("Other: r=refresh • ?=help • q=quit\n")
-		view.WriteString(fmt.Sprintf("Current Theme: %s - %s\n\n", currentTheme.Name, currentTheme.Description))
+		view.WriteString("=== ADVANCED TABLE FORMATTER DEMO ===\n")
+		view.WriteString("✨ NEW FEATURES: All advanced table features showcased!\n\n")
+
+		view.WriteString("🎨 VISUAL FEATURES:\n")
+		view.WriteString("• Cell Formatters: Each column styled with colors + icons + auto-truncation\n")
+		view.WriteString("• Header Formatters: Emoji headers (📝💰📊🏷️) with perfect Unicode alignment\n")
+		view.WriteString("• Component Renderer: Clean cursor (►) + selection (✓) indicators\n")
+		view.WriteString("• Multi-Themes: t=cycle (Default→Dark→Minimal→Neon)\n\n")
+
+		view.WriteString("📊 DATA FEATURES:\n")
+		view.WriteString("• Column Ordering: o=cycle column arrangements\n")
+		view.WriteString("• Sort/Multi-Sort: T=cycle sorts (Name↑↓→Value↑↓→Status↑→Multi-Sort→Clear)\n")
+		view.WriteString("• Filter/Multi-Filter: F=cycle filters (CategoryA→CategoryB→HighValues→ActiveStatus→Clear)\n\n")
+
+		view.WriteString("🖱️  INTERACTION:\n")
+		view.WriteString("• Navigation: j/k↑↓=move • h/l=page • g/G=start/end • J=jump • 1-5=quick jumps\n")
+		view.WriteString("• Selection: Space=toggle • a=select all • c=clear • s=show count\n")
+		view.WriteString("• Text Wrapping: w=toggle (wrap vs truncate long content)\n")
+		view.WriteString("• Selection Highlighting: S=toggle selection background highlighting\n")
+		view.WriteString("• Full Row Highlighting: R=toggle full row highlighting\n\n")
+
+		view.WriteString("🔧 SYSTEM:\n")
+		view.WriteString("• Debug: d=toggle (chunk loading activity) • r=refresh • ?=help • q=quit\n\n")
+
+		// Show current feature states
+		view.WriteString("📈 CURRENT STATE:\n")
+		view.WriteString(fmt.Sprintf("• Theme: %s • Order: %s\n",
+			currentTheme.Name,
+			[]string{"Default", "Value-first", "Status-first"}[m.columnOrderIndex]))
+
+		if m.sortingEnabled {
+			if m.currentSortField != "" {
+				view.WriteString(fmt.Sprintf("• Sorting: %s (%s)\n", m.currentSortField, m.currentSortDir))
+			} else {
+				view.WriteString("• Sorting: Multi-sort active\n")
+			}
+		} else {
+			view.WriteString("• Sorting: Disabled\n")
+		}
+
+		if m.filteringEnabled {
+			view.WriteString(fmt.Sprintf("• Filtering: %s=%s\n", m.currentFilterField, m.currentFilter))
+		} else {
+			view.WriteString("• Filtering: Disabled\n")
+		}
+
+		view.WriteString(fmt.Sprintf("• Text Wrapping: %s • Selection Mode: %s • Full Row: %s\n\n",
+			map[bool]string{true: "Enabled", false: "Disabled"}[m.wrappingEnabled],
+			map[bool]string{true: "Enabled", false: "Disabled"}[m.selectionModeEnabled],
+			map[bool]string{true: "Enabled", false: "Disabled"}[m.fullRowCursorEnabled]))
 	}
 
 	// Show status message or input prompt
@@ -1446,27 +1806,7 @@ func CreateExampleTableWithDataSource(dataSource *ExampleTableDataSource) *vtabl
 			BoundingAreaBefore: 25,
 			BoundingAreaAfter:  25,
 		},
-		Theme: vtable.Theme{
-			HeaderStyle:   lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("15")).Background(lipgloss.Color("8")),
-			CellStyle:     lipgloss.NewStyle().Foreground(lipgloss.Color("15")),
-			CursorStyle:   lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("0")).Background(lipgloss.Color("12")),
-			SelectedStyle: lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("0")).Background(lipgloss.Color("10")),
-			BorderChars: vtable.BorderChars{
-				Horizontal:  "─",
-				Vertical:    "│",
-				TopLeft:     "┌",
-				TopRight:    "┐",
-				BottomLeft:  "└",
-				BottomRight: "┘",
-				TopT:        "┬",
-				BottomT:     "┴",
-				LeftT:       "├",
-				RightT:      "┤",
-				Cross:       "┼",
-			},
-			BorderColor: "8",
-			HeaderColor: "15",
-		},
+		Theme:         convertToVTableTheme(currentTheme),
 		SelectionMode: vtable.SelectionMultiple,
 		KeyMap: vtable.NavigationKeyMap{
 			Up:        []string{"up", "k"},

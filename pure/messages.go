@@ -33,6 +33,12 @@ type JumpToMsg struct {
 	Index int
 }
 
+// TreeJumpToIndexMsg moves the cursor to a specific index in a tree, expanding parent nodes as needed
+type TreeJumpToIndexMsg struct {
+	Index         int
+	ExpandParents bool // If true, expand all parent nodes to make the target item visible
+}
+
 // ===== Data Messages =====
 
 // DataRefreshMsg triggers a complete data refresh
@@ -284,7 +290,7 @@ type BorderVisibilityMsg struct {
 // CellFormatterSetMsg sets a cell formatter for a specific column
 type CellFormatterSetMsg struct {
 	ColumnIndex int // -1 for all columns
-	Formatter   CellFormatter
+	Formatter   SimpleCellFormatter
 }
 
 // CellAnimatedFormatterSetMsg sets an animated cell formatter
@@ -293,22 +299,23 @@ type CellAnimatedFormatterSetMsg struct {
 	Formatter   CellFormatterAnimated
 }
 
-// RowFormatterSetMsg sets the row formatter
+// RowFormatterSetMsg sets the loading row formatter
 type RowFormatterSetMsg struct {
-	Formatter RowFormatter
+	Formatter LoadingRowFormatter
 }
 
-// HeaderFormatterSetMsg sets the header formatter
+// HeaderFormatterSetMsg sets the header formatter for a specific column
 type HeaderFormatterSetMsg struct {
-	Formatter HeaderFormatter
+	ColumnIndex int
+	Formatter   SimpleHeaderFormatter
 }
 
-// LoadingFormatterSetMsg sets the loading row formatter
+// LoadingFormatterSetMsg sets the loading row formatter (DEPRECATED - use RowFormatterSetMsg)
 type LoadingFormatterSetMsg struct {
 	Formatter LoadingRowFormatter
 }
 
-// HeaderCellFormatterSetMsg sets the header cell formatter
+// HeaderCellFormatterSetMsg sets the header cell formatter (DEPRECATED - use HeaderFormatterSetMsg)
 type HeaderCellFormatterSetMsg struct {
 	Formatter HeaderCellFormatter
 }

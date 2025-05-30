@@ -61,7 +61,7 @@ type TableComponentContext struct {
 	ComponentData map[TableComponentType]string
 
 	// Table-specific configuration
-	TableConfig TableRenderConfig
+	TableConfig ComponentTableRenderConfig
 }
 
 // TableColumnData contains information about a specific column
@@ -72,8 +72,8 @@ type TableColumnData struct {
 	Column    TableColumn // Reference to the actual column
 }
 
-// TableRenderConfig contains configuration for component-based table rendering
-type TableRenderConfig struct {
+// ComponentTableRenderConfig contains configuration for component-based table rendering
+type ComponentTableRenderConfig struct {
 	// Component order - defines which components render and in what order
 	ComponentOrder []TableComponentType
 
@@ -576,10 +576,10 @@ func (c *TableBackgroundComponent) SetEnabled(enabled bool) {
 // TableComponentRenderer orchestrates the rendering of all table components
 type TableComponentRenderer struct {
 	components map[TableComponentType]TableRenderComponent
-	config     TableRenderConfig
+	config     ComponentTableRenderConfig
 }
 
-func NewTableComponentRenderer(config TableRenderConfig) *TableComponentRenderer {
+func NewTableComponentRenderer(config ComponentTableRenderConfig) *TableComponentRenderer {
 	renderer := &TableComponentRenderer{
 		components: make(map[TableComponentType]TableRenderComponent),
 		config:     config,
@@ -623,7 +623,7 @@ func (r *TableComponentRenderer) GetComponent(componentType TableComponentType) 
 }
 
 // UpdateConfig updates the renderer configuration
-func (r *TableComponentRenderer) UpdateConfig(config TableRenderConfig) {
+func (r *TableComponentRenderer) UpdateConfig(config ComponentTableRenderConfig) {
 	r.config = config
 	// Recreate components with new config
 	r.components[TableComponentCursor] = NewTableCursorComponent(config.CursorConfig)
@@ -704,9 +704,9 @@ func (r *TableComponentRenderer) Render(
 // PRESET CONFIGURATIONS
 // ================================
 
-// DefaultTableRenderConfig returns sensible defaults for component-based table rendering
-func DefaultTableRenderConfig() TableRenderConfig {
-	return TableRenderConfig{
+// DefaultComponentTableRenderConfig returns sensible defaults for component-based table rendering
+func DefaultComponentTableRenderConfig() ComponentTableRenderConfig {
+	return ComponentTableRenderConfig{
 		ComponentOrder: []TableComponentType{
 			TableComponentCursor,
 			TableComponentSelectionMarker,
@@ -769,8 +769,8 @@ func DefaultTableRenderConfig() TableRenderConfig {
 }
 
 // NumberedTableConfig creates a config for tables with row numbers
-func NumberedTableConfig() TableRenderConfig {
-	config := DefaultTableRenderConfig()
+func NumberedTableConfig() ComponentTableRenderConfig {
+	config := DefaultComponentTableRenderConfig()
 	config.ComponentOrder = []TableComponentType{
 		TableComponentCursor,
 		TableComponentRowNumber,
@@ -782,8 +782,8 @@ func NumberedTableConfig() TableRenderConfig {
 }
 
 // MinimalTableConfig creates a config for minimal tables
-func MinimalTableConfig() TableRenderConfig {
-	config := DefaultTableRenderConfig()
+func MinimalTableConfig() ComponentTableRenderConfig {
+	config := DefaultComponentTableRenderConfig()
 	config.ComponentOrder = []TableComponentType{
 		TableComponentCells,
 	}
@@ -793,8 +793,8 @@ func MinimalTableConfig() TableRenderConfig {
 }
 
 // BorderedTableConfig creates a config for tables with borders
-func BorderedTableConfig() TableRenderConfig {
-	config := DefaultTableRenderConfig()
+func BorderedTableConfig() ComponentTableRenderConfig {
+	config := DefaultComponentTableRenderConfig()
 	config.ComponentOrder = []TableComponentType{
 		TableComponentBorder,
 	}
@@ -803,15 +803,15 @@ func BorderedTableConfig() TableRenderConfig {
 }
 
 // AlternatingTableConfig creates a config for tables with alternating row colors
-func AlternatingTableConfig() TableRenderConfig {
-	config := DefaultTableRenderConfig()
+func AlternatingTableConfig() ComponentTableRenderConfig {
+	config := DefaultComponentTableRenderConfig()
 	config.CellsConfig.UseAlternating = true
 	return config
 }
 
 // BackgroundStyledTableConfig creates a config with background styling
-func BackgroundStyledTableConfig(style lipgloss.Style, mode TableBackgroundMode) TableRenderConfig {
-	config := DefaultTableRenderConfig()
+func BackgroundStyledTableConfig(style lipgloss.Style, mode TableBackgroundMode) ComponentTableRenderConfig {
+	config := DefaultComponentTableRenderConfig()
 	config.BackgroundConfig.Enabled = true
 	config.BackgroundConfig.Style = style
 	config.BackgroundConfig.Mode = mode
@@ -823,7 +823,7 @@ func BackgroundStyledTableConfig(style lipgloss.Style, mode TableBackgroundMode)
 // ================================
 
 // ComponentBasedTableFormatter creates a CellFormatter that uses the component system
-func ComponentBasedTableFormatter(config TableRenderConfig) func(Data[any], int, []string, []TableColumnData, RenderContext, bool, bool, bool) string {
+func ComponentBasedTableFormatter(config ComponentTableRenderConfig) func(Data[any], int, []string, []TableColumnData, RenderContext, bool, bool, bool) string {
 	renderer := NewTableComponentRenderer(config)
 	return func(
 		item Data[any],
@@ -839,7 +839,7 @@ func ComponentBasedTableFormatter(config TableRenderConfig) func(Data[any], int,
 
 // EnhancedTableFormatter creates a table formatter using the component system
 // This is the main entry point for table rendering
-func EnhancedTableFormatter(config TableRenderConfig) func(Data[any], int, []string, []TableColumnData, RenderContext, bool, bool, bool) string {
+func EnhancedTableFormatter(config ComponentTableRenderConfig) func(Data[any], int, []string, []TableColumnData, RenderContext, bool, bool, bool) string {
 	return ComponentBasedTableFormatter(config)
 }
 

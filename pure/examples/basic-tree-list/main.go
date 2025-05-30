@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"log"
+	"strconv"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -242,6 +243,9 @@ type TreeAppModel struct {
 	styleNames    []string
 	cursorStyle   int
 	cursorStyles  []CursorStyleConfig
+	// Add jump to index functionality
+	inputMode bool   // true when entering a number for JumpToIndex
+	jumpInput string // the input string being built
 }
 
 // CursorStyleConfig represents different cursor styling options
@@ -348,6 +352,8 @@ func main() {
 		styleNames:    []string{"Default", "Standard", "Minimal", "Enumerated"},
 		cursorStyle:   0,
 		cursorStyles:  cursorStyles,
+		inputMode:     false,
+		jumpInput:     "",
 	}
 
 	// Run the program
@@ -441,6 +447,51 @@ func (m TreeAppModel) Init() tea.Cmd {
 func (m TreeAppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
+		// Handle input mode for JumpToIndex
+		if m.inputMode {
+			switch msg.String() {
+			case "enter":
+				// Parse the input and jump to index
+				if index, err := strconv.Atoi(m.jumpInput); err == nil && index >= 0 {
+					m.inputMode = false
+					m.jumpInput = ""
+					// Get the total possible indices in fully expanded tree
+					fullyExpandedCount := m.treeList.GetFullyExpandedItemCount()
+					if index < fullyExpandedCount {
+						m.statusMessage = fmt.Sprintf("🎯 Jumping to index %d with parent expansion", index)
+						return m, m.treeList.JumpToIndexExpandingParents(index)
+					} else {
+						m.statusMessage = fmt.Sprintf("❌ Index %d is beyond tree range (max: %d)", index, fullyExpandedCount-1)
+						return m, nil
+					}
+				} else {
+					m.statusMessage = "❌ Invalid index! Please enter a valid number"
+					m.inputMode = false
+					m.jumpInput = ""
+					return m, nil
+				}
+			case "escape":
+				m.inputMode = false
+				m.jumpInput = ""
+				m.statusMessage = "🚫 Jump cancelled"
+				return m, nil
+			case "backspace":
+				if len(m.jumpInput) > 0 {
+					m.jumpInput = m.jumpInput[:len(m.jumpInput)-1]
+				}
+				return m, nil
+			default:
+				// Only allow digits
+				if len(msg.String()) == 1 && msg.String() >= "0" && msg.String() <= "9" {
+					if len(m.jumpInput) < 5 { // Limit to 5 digits for very large trees
+						m.jumpInput += msg.String()
+					}
+				}
+				return m, nil
+			}
+		}
+
+		// Normal key handling
 		switch msg.String() {
 		case "q", "ctrl+c":
 			return m, tea.Quit
@@ -520,6 +571,14 @@ func (m TreeAppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, vtable.PageUpCmd()
 		case "l":
 			return m, vtable.PageDownCmd()
+
+		case "J":
+			// Enter jump-to-index mode (uppercase J)
+			m.inputMode = true
+			m.jumpInput = ""
+			fullyExpandedCount := m.treeList.GetFullyExpandedItemCount()
+			m.statusMessage = fmt.Sprintf("🎯 Jump to index (0-%d): ", fullyExpandedCount-1)
+			return m, nil
 
 		// Navigation keys - let TreeList handle these
 		case "j", "down":
@@ -631,6 +690,17 @@ func (m TreeAppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			state.ViewportStartIndex+14)
 		return m, cmd
 
+	case vtable.TreeJumpToIndexMsg:
+		var cmd tea.Cmd
+		_, cmd = m.treeList.Update(msg)
+		state := m.treeList.GetState()
+		m.statusMessage = fmt.Sprintf("🎯 Jumped to index %d (Position: %d, Viewport: %d-%d)",
+			msg.Index,
+			state.CursorIndex+1,
+			state.ViewportStartIndex,
+			state.ViewportStartIndex+14)
+		return m, cmd
+
 	case vtable.CursorUpMsg, vtable.CursorDownMsg:
 		var cmd tea.Cmd
 		_, cmd = m.treeList.Update(msg)
@@ -715,7 +785,12 @@ func (m TreeAppModel) View() string {
 	}
 
 	// Show status message
-	view.WriteString(m.statusMessage)
+	if m.inputMode {
+		// Show input prompt with current input
+		view.WriteString(fmt.Sprintf("%s%s_", m.statusMessage, m.jumpInput))
+	} else {
+		view.WriteString(m.statusMessage)
+	}
 	view.WriteString("\n\n")
 
 	// Show main tree list content
@@ -747,7 +822,7 @@ func (m TreeAppModel) renderHelp() string {
 	help.WriteString("Tree Styles: Default, Standard (box connectors), Minimal, Enumerated\n")
 	help.WriteString("Cursor Styles: Arrow, Pointer, Star, Bullet, Bracket, Background Only, Subtle, Bright, None\n")
 	help.WriteString("Component: C=toggle cascading selection • b=toggle background cursor styling\n")
-	help.WriteString("Navigation: j/k or ↑/↓ move • h/l page • g=start • G=end\n")
+	help.WriteString("Navigation: j/k or ↑/↓ move • h/l page • g=start • G=end • J=jump to index\n")
 	help.WriteString("Selection: Space=toggle • a=select all • x=clear • s=show selection info\n")
 	help.WriteString("Cascading: When ON, selecting a parent automatically selects all children\n")
 	help.WriteString("Other: r=refresh • d=debug (shows component config) • ?=help • q=quit")

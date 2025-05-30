@@ -59,6 +59,16 @@ func JumpToCmd(index int) tea.Cmd {
 	}
 }
 
+// TreeJumpToIndexCmd returns a command to jump to a specific index in a tree with optional parent expansion
+func TreeJumpToIndexCmd(index int, expandParents bool) tea.Cmd {
+	return func() tea.Msg {
+		return TreeJumpToIndexMsg{
+			Index:         index,
+			ExpandParents: expandParents,
+		}
+	}
+}
+
 // ================================
 // DATA COMMANDS
 // ================================
@@ -456,7 +466,7 @@ func BorderVisibilityCmd(visible bool) tea.Cmd {
 }
 
 // CellFormatterSetCmd returns a command to set a cell formatter
-func CellFormatterSetCmd(columnIndex int, formatter CellFormatter) tea.Cmd {
+func CellFormatterSetCmd(columnIndex int, formatter SimpleCellFormatter) tea.Cmd {
 	return func() tea.Msg {
 		return CellFormatterSetMsg{
 			ColumnIndex: columnIndex,
@@ -475,28 +485,31 @@ func CellAnimatedFormatterSetCmd(columnIndex int, formatter CellFormatterAnimate
 	}
 }
 
-// RowFormatterSetCmd returns a command to set a row formatter
-func RowFormatterSetCmd(formatter RowFormatter) tea.Cmd {
+// RowFormatterSetCmd returns a command to set a loading row formatter
+func RowFormatterSetCmd(formatter LoadingRowFormatter) tea.Cmd {
 	return func() tea.Msg {
 		return RowFormatterSetMsg{Formatter: formatter}
 	}
 }
 
 // HeaderFormatterSetCmd returns a command to set a header formatter
-func HeaderFormatterSetCmd(formatter HeaderFormatter) tea.Cmd {
+func HeaderFormatterSetCmd(columnIndex int, formatter SimpleHeaderFormatter) tea.Cmd {
 	return func() tea.Msg {
-		return HeaderFormatterSetMsg{Formatter: formatter}
+		return HeaderFormatterSetMsg{
+			ColumnIndex: columnIndex,
+			Formatter:   formatter,
+		}
 	}
 }
 
-// LoadingFormatterSetCmd returns a command to set a loading row formatter
+// LoadingFormatterSetCmd returns a command to set a loading row formatter (DEPRECATED)
 func LoadingFormatterSetCmd(formatter LoadingRowFormatter) tea.Cmd {
 	return func() tea.Msg {
 		return LoadingFormatterSetMsg{Formatter: formatter}
 	}
 }
 
-// HeaderCellFormatterSetCmd returns a command to set a header cell formatter
+// HeaderCellFormatterSetCmd returns a command to set a header cell formatter (DEPRECATED)
 func HeaderCellFormatterSetCmd(formatter HeaderCellFormatter) tea.Cmd {
 	return func() tea.Msg {
 		return HeaderCellFormatterSetMsg{Formatter: formatter}
@@ -806,4 +819,26 @@ func DelayCmd(duration time.Duration, msg tea.Msg) tea.Cmd {
 // NoOpCmd returns a command that does nothing
 func NoOpCmd() tea.Cmd {
 	return nil
+}
+
+// FullRowHighlightToggleCmd returns a command that toggles full row highlighting mode.
+func FullRowHighlightToggleCmd() tea.Cmd {
+	return func() tea.Msg {
+		return FullRowHighlightToggleMsg{}
+	}
+}
+
+// FullRowHighlightEnableCmd returns a command that enables full row highlighting mode.
+func FullRowHighlightEnableCmd(enabled bool) tea.Cmd {
+	return func() tea.Msg {
+		return FullRowHighlightEnableMsg{Enabled: enabled}
+	}
+}
+
+// FullRowHighlightToggleMsg toggles full row highlighting mode.
+type FullRowHighlightToggleMsg struct{}
+
+// FullRowHighlightEnableMsg enables or disables full row highlighting mode.
+type FullRowHighlightEnableMsg struct {
+	Enabled bool
 }

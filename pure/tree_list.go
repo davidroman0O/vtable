@@ -251,6 +251,10 @@ func (tl *TreeList[T]) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmd := tl.handleJumpTo(msg.Index)
 		return tl, cmd
 
+	case TreeJumpToIndexMsg:
+		cmd := tl.handleTreeJumpToIndex(msg.Index, msg.ExpandParents)
+		return tl, cmd
+
 	// ===== Data Messages - Same as List =====
 	case DataRefreshMsg:
 		cmd := tl.handleDataRefresh()
@@ -548,6 +552,63 @@ func (tl *TreeList[T]) ToggleCurrentNode() tea.Cmd {
 	return nil
 }
 
+// createFullyExpandedView creates a flattened view as if all nodes were expanded
+func (tl *TreeList[T]) createFullyExpandedView() []FlatTreeItem[T] {
+	var fullyExpandedView []FlatTreeItem[T]
+	tl.flattenNodesFullyExpanded(tl.rootNodes, "", 0, &fullyExpandedView)
+	return fullyExpandedView
+}
+
+// flattenNodesFullyExpanded recursively flattens tree nodes with all nodes expanded
+func (tl *TreeList[T]) flattenNodesFullyExpanded(nodes []TreeData[T], parentID string, depth int, result *[]FlatTreeItem[T]) {
+	for _, node := range nodes {
+		// Add the node itself
+		*result = append(*result, FlatTreeItem[T]{
+			ID:            node.ID,
+			Item:          node.Item,
+			Depth:         depth,
+			HasChildNodes: len(node.Children) > 0,
+			Expanded:      true, // Always expanded in this view
+			ParentID:      parentID,
+		})
+
+		// Always add children (fully expanded)
+		if len(node.Children) > 0 {
+			tl.flattenNodesFullyExpanded(node.Children, node.ID, depth+1, result)
+		}
+	}
+}
+
+// findPathToItem finds the path of parent IDs to reach a specific item
+func (tl *TreeList[T]) findPathToItem(targetID string, nodes []TreeData[T], currentPath []string) []string {
+	for _, node := range nodes {
+		if node.ID == targetID {
+			// Found the target item, return the current path (which doesn't include the target itself)
+			return currentPath
+		}
+
+		if len(node.Children) > 0 {
+			// Search in children with this node added to the path
+			newPath := append(currentPath, node.ID)
+			if result := tl.findPathToItem(targetID, node.Children, newPath); result != nil {
+				return result
+			}
+		}
+	}
+
+	return nil // Not found
+}
+
+// findItemIndexInFlattenedView finds the index of an item in the current flattened view
+func (tl *TreeList[T]) findItemIndexInFlattenedView(itemID string) int {
+	for i, item := range tl.flattenedView {
+		if item.ID == itemID {
+			return i
+		}
+	}
+	return -1 // Not found
+}
+
 // ================================
 // TREE FLATTENING - TreeList specific
 // ================================
@@ -768,6 +829,70 @@ func (tl *TreeList[T]) handleJumpTo(index int) tea.Cmd {
 
 	tl.viewport = CalculateJumpTo(index, tl.config.ViewportConfig, tl.totalItems)
 	return tl.smartChunkManagement()
+}
+
+// handleTreeJumpToIndex - handles tree-specific jumping with parent expansion
+func (tl *TreeList[T]) handleTreeJumpToIndex(index int, expandParents bool) tea.Cmd {
+	if tl.totalItems == 0 || index < 0 || !tl.canScroll {
+		return nil
+	}
+
+	// If expandParents is false, just use regular jump
+	if !expandParents {
+		return tl.handleJumpTo(index)
+	}
+
+	// We need to jump to a specific index in the "fully expanded" tree
+	// This means we need to:
+	// 1. Create a temporary fully expanded view to find what item is at that index
+	// 2. Find the path to that item in the tree
+	// 3. Expand all parents in that path
+	// 4. Re-flatten the view with the new expansions
+	// 5. Find the new index of the target item in the re-flattened view
+	// 6. Jump to that new index
+
+	// Step 1: Create a fully expanded view to map the target index to an actual item
+	fullyExpandedView := tl.createFullyExpandedView()
+
+	if index >= len(fullyExpandedView) {
+		// Index is beyond the fully expanded tree, jump to the end
+		return tl.handleJumpToEnd()
+	}
+
+	targetItem := fullyExpandedView[index]
+
+	// Step 2: Find the path to this item (all parent IDs)
+	parentPath := tl.findPathToItem(targetItem.ID, tl.rootNodes, []string{})
+
+	// Step 3: Expand all parents in the path
+	var cmds []tea.Cmd
+	expansionNeeded := false
+	for _, parentID := range parentPath {
+		if !tl.expandedNodes[parentID] {
+			tl.expandedNodes[parentID] = true
+			expansionNeeded = true
+		}
+	}
+
+	// Step 4: Re-flatten the view if we made any expansions
+	if expansionNeeded {
+		tl.updateFlattenedView()
+		cmds = append(cmds, DataTotalUpdateCmd(len(tl.flattenedView)))
+		cmds = append(cmds, DataChunksRefreshCmd())
+	}
+
+	// Step 5: Find the new index of the target item in the current flattened view
+	newIndex := tl.findItemIndexInFlattenedView(targetItem.ID)
+	if newIndex == -1 {
+		// Item not found in flattened view (shouldn't happen), fallback to regular jump
+		return tea.Batch(cmds...)
+	}
+
+	// Step 6: Jump to the new index
+	tl.viewport = CalculateJumpTo(newIndex, tl.config.ViewportConfig, tl.totalItems)
+	cmds = append(cmds, tl.smartChunkManagement())
+
+	return tea.Batch(cmds...)
 }
 
 // ================================
@@ -1143,4 +1268,16 @@ func (tl *TreeList[T]) SetCursorStyle(showIndicator bool, backgroundColor, foreg
 	tl.treeConfig.CursorBackgroundStyle = lipgloss.NewStyle().
 		Background(lipgloss.Color(backgroundColor)).
 		Foreground(lipgloss.Color(foregroundColor))
+}
+
+// JumpToIndexExpandingParents jumps to a specific index in the fully expanded tree,
+// automatically expanding all parent nodes necessary to make the target item visible
+func (tl *TreeList[T]) JumpToIndexExpandingParents(index int) tea.Cmd {
+	return TreeJumpToIndexCmd(index, true)
+}
+
+// GetFullyExpandedItemCount returns the total number of items if the tree were fully expanded
+func (tl *TreeList[T]) GetFullyExpandedItemCount() int {
+	fullyExpandedView := tl.createFullyExpandedView()
+	return len(fullyExpandedView)
 }

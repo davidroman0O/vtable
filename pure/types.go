@@ -461,17 +461,18 @@ type StyleConfig struct {
 
 // Theme defines the visual appearance for table components
 type Theme struct {
-	HeaderStyle       lipgloss.Style
-	CellStyle         lipgloss.Style
-	CursorStyle       lipgloss.Style
-	SelectedStyle     lipgloss.Style
-	BorderChars       BorderChars
-	BorderColor       string
-	HeaderColor       string
-	AlternateRowStyle lipgloss.Style
-	DisabledStyle     lipgloss.Style
-	LoadingStyle      lipgloss.Style
-	ErrorStyle        lipgloss.Style
+	HeaderStyle        lipgloss.Style
+	CellStyle          lipgloss.Style
+	CursorStyle        lipgloss.Style
+	SelectedStyle      lipgloss.Style
+	FullRowCursorStyle lipgloss.Style // Style applied to entire row when full row highlighting is enabled
+	BorderChars        BorderChars
+	BorderColor        string
+	HeaderColor        string
+	AlternateRowStyle  lipgloss.Style
+	DisabledStyle      lipgloss.Style
+	LoadingStyle       lipgloss.Style
+	ErrorStyle         lipgloss.Style
 }
 
 // BorderChars defines the characters used for table borders
@@ -499,6 +500,9 @@ type TableConfig struct {
 	Columns     []TableColumn
 	ShowHeader  bool
 	ShowBorders bool
+
+	// Highlighting configuration
+	FullRowHighlighting bool // Enable full row highlighting mode
 
 	// Viewport configuration
 	ViewportConfig ViewportConfig
