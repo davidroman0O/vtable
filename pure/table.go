@@ -14,6 +14,18 @@ import (
 // TABLE MODEL IMPLEMENTATION
 // ================================
 
+// TextSegment represents a segment of text (either visible text or ANSI escape codes)
+type TextSegment struct {
+	Text    string
+	IsANSI  bool
+	IsSpace bool
+	Index   int
+	Rune    rune
+	Next    *TextSegment
+	Prev    *TextSegment
+	IsLower bool
+}
+
 // Table represents a pure Tea table component that reuses the List infrastructure
 type Table struct {
 	// Core state - reuse List infrastructure
@@ -68,6 +80,13 @@ type Table struct {
 
 	// Component-based rendering system
 	componentRenderer *TableComponentRenderer // Optional component-based renderer
+
+	// Horizontal scrolling state
+	horizontalScrollOffsets map[int]int // Column index -> scroll offset
+	horizontalScrollMode    string      // "character", "word", "smart"
+	horizontalScrollScope   string      // "all", "current" - scroll all rows or just current row
+	currentColumn           int         // Currently focused column for scrolling
+	previousCursorIndex     int         // Track previous cursor position for scroll reset
 }
 
 // ================================
@@ -202,6 +221,12 @@ func NewTable(config TableConfig, dataSource DataSource[any]) *Table {
 		hasLoadingChunks:     false,
 		canScroll:            true,
 		componentRenderer:    nil, // Component renderer is optional - can be enabled later
+		// Initialize horizontal scrolling state
+		horizontalScrollOffsets: make(map[int]int),
+		horizontalScrollMode:    "character",                        // Default to character-by-character
+		horizontalScrollScope:   "all",                              // Default to scroll all rows together (more intuitive)
+		currentColumn:           0,                                  // Start with first column
+		previousCursorIndex:     config.ViewportConfig.InitialIndex, // Track for scroll reset
 		viewport: ViewportState{
 			ViewportStartIndex:  0,
 			CursorIndex:         config.ViewportConfig.InitialIndex,
@@ -393,6 +418,26 @@ func (t *Table) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		t.config.ShowBorders = msg.Visible
 		return t, nil
 
+	case TopBorderVisibilityMsg:
+		t.config.ShowTopBorder = msg.Visible
+		return t, nil
+
+	case BottomBorderVisibilityMsg:
+		t.config.ShowBottomBorder = msg.Visible
+		return t, nil
+
+	case HeaderSeparatorVisibilityMsg:
+		t.config.ShowHeaderSeparator = msg.Visible
+		return t, nil
+
+	case TopBorderSpaceRemovalMsg:
+		t.config.RemoveTopBorderSpace = msg.Remove
+		return t, nil
+
+	case BottomBorderSpaceRemovalMsg:
+		t.config.RemoveBottomBorderSpace = msg.Remove
+		return t, nil
+
 	case CellFormatterSetMsg:
 		if msg.ColumnIndex >= 0 {
 			t.cellFormatters[msg.ColumnIndex] = msg.Formatter
@@ -546,12 +591,24 @@ func (t *Table) View() string {
 		return "No data available"
 	}
 
+	// Add top border if enabled
+	if t.config.ShowTopBorder && !t.config.RemoveTopBorderSpace {
+		builder.WriteString(t.constructTopBorder())
+		builder.WriteString("\n")
+	}
+
 	// Render header if enabled
 	if t.config.ShowHeader {
 		header := t.renderHeader()
 		if header != "" {
 			builder.WriteString(header)
 			builder.WriteString("\n")
+
+			// Add header separator border if enabled
+			if t.config.ShowHeaderSeparator {
+				builder.WriteString(t.constructHeaderSeparator())
+				builder.WriteString("\n")
+			}
 		}
 	}
 
@@ -578,7 +635,7 @@ func (t *Table) View() string {
 	}
 
 	// Add bottom border if enabled
-	if t.config.ShowBorders {
+	if t.config.ShowBottomBorder && !t.config.RemoveBottomBorderSpace {
 		builder.WriteString("\n")
 		builder.WriteString(t.constructBottomBorder())
 	}
@@ -764,6 +821,28 @@ func (t *Table) reset() {
 // NAVIGATION HELPERS - Reuse List logic
 // ================================
 
+// handleScrollResetOnNavigation resets scroll offsets when navigating between rows if enabled
+func (t *Table) handleScrollResetOnNavigation() {
+	// Only reset if the feature is enabled and we actually moved to a different row
+	if !t.config.ResetScrollOnNavigation || t.viewport.CursorIndex == t.previousCursorIndex {
+		return
+	}
+
+	// Reset scroll offsets based on scope
+	if t.horizontalScrollScope == "current" {
+		// Current row mode: only reset if we moved away from the row that had scrolling
+		// The previousCursorIndex row had scrolling, so reset it
+		t.horizontalScrollOffsets = make(map[int]int)
+	} else {
+		// All rows mode: reset scroll offsets when moving between any rows
+		// This prevents confusing behavior where content appears pre-scrolled
+		t.horizontalScrollOffsets = make(map[int]int)
+	}
+
+	// Update the previous cursor position
+	t.previousCursorIndex = t.viewport.CursorIndex
+}
+
 // loadInitialData loads the total count and initial chunk
 func (t *Table) loadInitialData() tea.Cmd {
 	if t.dataSource == nil {
@@ -784,6 +863,9 @@ func (t *Table) handleCursorUp() tea.Cmd {
 
 	previousState := t.viewport
 	t.viewport = CalculateCursorUp(t.viewport, t.config.ViewportConfig, t.totalItems)
+
+	// Handle scroll reset if enabled and cursor position changed
+	t.handleScrollResetOnNavigation()
 
 	if t.viewport.ViewportStartIndex != previousState.ViewportStartIndex {
 		t.updateVisibleItems()
@@ -806,6 +888,9 @@ func (t *Table) handleCursorDown() tea.Cmd {
 	previousState := t.viewport
 	t.viewport = CalculateCursorDown(t.viewport, t.config.ViewportConfig, t.totalItems)
 
+	// Handle scroll reset if enabled and cursor position changed
+	t.handleScrollResetOnNavigation()
+
 	if t.viewport.ViewportStartIndex != previousState.ViewportStartIndex {
 		t.updateVisibleItems()
 		return t.smartChunkManagement()
@@ -823,6 +908,9 @@ func (t *Table) handlePageUp() tea.Cmd {
 	previousState := t.viewport
 	t.viewport = CalculatePageUp(t.viewport, t.config.ViewportConfig, t.totalItems)
 
+	// Handle scroll reset if enabled and cursor position changed
+	t.handleScrollResetOnNavigation()
+
 	if t.viewport.ViewportStartIndex != previousState.ViewportStartIndex {
 		t.updateVisibleItems()
 	}
@@ -839,6 +927,9 @@ func (t *Table) handlePageDown() tea.Cmd {
 	previousState := t.viewport
 	t.viewport = CalculatePageDown(t.viewport, t.config.ViewportConfig, t.totalItems)
 
+	// Handle scroll reset if enabled and cursor position changed
+	t.handleScrollResetOnNavigation()
+
 	if t.viewport.ViewportStartIndex != previousState.ViewportStartIndex {
 		t.updateVisibleItems()
 	}
@@ -853,6 +944,10 @@ func (t *Table) handleJumpToStart() tea.Cmd {
 	}
 
 	t.viewport = CalculateJumpToStart(t.config.ViewportConfig, t.totalItems)
+
+	// Handle scroll reset if enabled and cursor position changed
+	t.handleScrollResetOnNavigation()
+
 	return t.smartChunkManagement()
 }
 
@@ -864,6 +959,9 @@ func (t *Table) handleJumpToEnd() tea.Cmd {
 
 	previousState := t.viewport
 	t.viewport = CalculateJumpToEnd(t.config.ViewportConfig, t.totalItems)
+
+	// Handle scroll reset if enabled and cursor position changed
+	t.handleScrollResetOnNavigation()
 
 	if t.viewport.ViewportStartIndex != previousState.ViewportStartIndex {
 		t.updateVisibleItems()
@@ -879,6 +977,10 @@ func (t *Table) handleJumpTo(index int) tea.Cmd {
 	}
 
 	t.viewport = CalculateJumpTo(index, t.config.ViewportConfig, t.totalItems)
+
+	// Handle scroll reset if enabled and cursor position changed
+	t.handleScrollResetOnNavigation()
+
 	return t.smartChunkManagement()
 }
 
@@ -1137,6 +1239,32 @@ func (t *Table) handleKeyPress(msg tea.KeyMsg) tea.Cmd {
 		}
 	}
 
+	// === HORIZONTAL SCROLLING KEYS ===
+	switch key {
+	case "left":
+		return t.handleHorizontalScrollLeft()
+	case "right":
+		return t.handleHorizontalScrollRight()
+	case "[":
+		return t.handleHorizontalScrollWordLeft()
+	case "]":
+		return t.handleHorizontalScrollWordRight()
+	case "{":
+		return t.handleHorizontalScrollSmartLeft()
+	case "}":
+		return t.handleHorizontalScrollSmartRight()
+	case ".":
+		return t.handleNextColumn()
+	case ",":
+		return t.handlePrevColumn()
+	case "m", "M":
+		return t.handleToggleScrollMode()
+	case "v", "V":
+		return t.handleToggleScrollScope()
+	case "backspace", "delete":
+		return t.handleResetScrolling()
+	}
+
 	return nil
 }
 
@@ -1169,7 +1297,7 @@ func (t *Table) renderHeader() string {
 			Alignment: AlignCenter,
 		}
 
-		styledIndicatorHeader := t.applyCellConstraints(indicatorHeader, indicatorConstraint)
+		styledIndicatorHeader := t.applyCellConstraints(indicatorHeader, indicatorConstraint, -1) // Use -1 for indicator column
 		styledIndicatorHeader = t.config.Theme.HeaderStyle.Render(styledIndicatorHeader)
 		parts = append(parts, styledIndicatorHeader)
 	}
@@ -1207,12 +1335,13 @@ func (t *Table) renderHeader() string {
 			}
 
 			// CRITICAL: Apply constraints to the formatted header to ensure exact column width
-			constrainedHeader := t.applyCellConstraints(formattedHeader, constraint)
+			constrainedHeader := t.applyCellConstraints(formattedHeader, constraint, -1) // Use -1 to skip horizontal scrolling for headers
 
 			// Apply header styling to the constrained content
 			headerText = t.config.Theme.HeaderStyle.Render(constrainedHeader)
 		} else {
 			// Default header cell rendering
+
 			headerText = col.Title
 
 			// Add sort indicator if this column is sorted
@@ -1251,7 +1380,7 @@ func (t *Table) renderHeader() string {
 			}
 
 			// Apply constraints to header text
-			styledHeader := t.applyCellConstraints(headerText, constraint)
+			styledHeader := t.applyCellConstraints(headerText, constraint, -1) // Use -1 to skip horizontal scrolling for headers
 
 			// Apply header styling
 			headerText = t.config.Theme.HeaderStyle.Render(styledHeader)
@@ -1320,7 +1449,7 @@ func (t *Table) renderRow(item Data[any], absoluteIndex int, isCursor bool) stri
 			Height:    1,
 			Alignment: AlignCenter,
 		}
-		constrainedIndicator := t.applyCellConstraints(indicatorContent, indicatorConstraint)
+		constrainedIndicator := t.applyCellConstraints(indicatorContent, indicatorConstraint, -1) // Use -1 for indicator column
 
 		// Style the indicator column
 		var styledIndicator string
@@ -1356,7 +1485,7 @@ func (t *Table) renderRow(item Data[any], absoluteIndex int, isCursor bool) stri
 				Alignment: col.Alignment,
 			}
 
-			constrainedContent := t.applyCellConstraints(formattedContent, constraint)
+			constrainedContent := t.applyCellConstraintsWithRowInfo(formattedContent, constraint, i, isCursor)
 
 			// POST-PROCESSING: Apply full row highlighting if enabled (overrides all other styling)
 			var styledCell string
@@ -1365,6 +1494,14 @@ func (t *Table) renderRow(item Data[any], absoluteIndex int, isCursor bool) stri
 				plainContent := stripANSI(constrainedContent)
 				fullRowStyle := t.config.Theme.FullRowCursorStyle
 				styledCell = fullRowStyle.Render(plainContent)
+			} else if item.Selected {
+				// Apply full-row selection styling - strip existing styling and apply uniform selection background
+				plainContent := stripANSI(constrainedContent)
+				selectionStyle := t.config.Theme.SelectedStyle
+				styledCell = selectionStyle.Render(plainContent)
+			} else if isCursor {
+				// Apply cursor styling to formatted content
+				styledCell = t.config.Theme.CursorStyle.Render(constrainedContent)
 			} else {
 				// Use the formatted and constrained content as-is
 				styledCell = constrainedContent
@@ -1412,14 +1549,22 @@ func (t *Table) renderRow(item Data[any], absoluteIndex int, isCursor bool) stri
 				Height:    1,
 				Alignment: col.Alignment,
 			}
-			constrainedContent := t.applyCellConstraints(formattedContent, constraint)
+			constrainedContent := t.applyCellConstraintsWithRowInfo(formattedContent, constraint, i, isCursor)
 
-			// Apply full row highlighting if enabled (overrides formatter styling)
+			// POST-PROCESSING: Apply full row highlighting if enabled (overrides all other styling)
 			if t.config.FullRowHighlighting && isCursor {
 				// Full row highlighting takes over - strip existing styling and apply uniform background
 				plainContent := stripANSI(constrainedContent)
 				fullRowStyle := t.config.Theme.FullRowCursorStyle
 				styledCell = fullRowStyle.Render(plainContent)
+			} else if item.Selected {
+				// Apply full-row selection styling - strip existing styling and apply uniform selection background
+				plainContent := stripANSI(constrainedContent)
+				selectionStyle := t.config.Theme.SelectedStyle
+				styledCell = selectionStyle.Render(plainContent)
+			} else if isCursor {
+				// Apply cursor styling to formatted content
+				styledCell = t.config.Theme.CursorStyle.Render(constrainedContent)
 			} else {
 				// Use the formatted and constrained content as-is
 				styledCell = constrainedContent
@@ -1432,19 +1577,25 @@ func (t *Table) renderRow(item Data[any], absoluteIndex int, isCursor bool) stri
 				Alignment: col.Alignment,
 			}
 
-			constrainedContent := t.applyCellConstraints(cellValue, constraint)
+			constrainedContent := t.applyCellConstraintsWithRowInfo(cellValue, constraint, i, isCursor)
 
-			// Apply full row highlighting if enabled, otherwise apply default row styling
+			// POST-PROCESSING: Apply full row highlighting if enabled (overrides all other styling)
 			if t.config.FullRowHighlighting && isCursor {
-				// Full row highlighting takes over
+				// Full row highlighting takes over - strip existing styling and apply uniform background
+				plainContent := stripANSI(constrainedContent)
 				fullRowStyle := t.config.Theme.FullRowCursorStyle
-				styledCell = fullRowStyle.Render(constrainedContent)
-			} else if isCursor {
-				styledCell = t.config.Theme.CursorStyle.Render(constrainedContent)
+				styledCell = fullRowStyle.Render(plainContent)
 			} else if item.Selected {
-				styledCell = t.config.Theme.SelectedStyle.Render(constrainedContent)
+				// Apply full-row selection styling - strip existing styling and apply uniform selection background
+				plainContent := stripANSI(constrainedContent)
+				selectionStyle := t.config.Theme.SelectedStyle
+				styledCell = selectionStyle.Render(plainContent)
+			} else if isCursor {
+				// Apply cursor styling to formatted content
+				styledCell = t.config.Theme.CursorStyle.Render(constrainedContent)
 			} else {
-				styledCell = t.config.Theme.CellStyle.Render(constrainedContent)
+				// Use the formatted and constrained content as-is
+				styledCell = constrainedContent
 			}
 		}
 
@@ -1526,7 +1677,7 @@ func (t *Table) renderDefaultLoadingRow(absoluteIndex int, isCursor bool) string
 			loadingText = "Loading..."
 		}
 
-		constrainedContent := t.applyCellConstraints(loadingText, constraint)
+		constrainedContent := t.applyCellConstraints(loadingText, constraint, -1) // Use -1 for loading cells
 
 		// Apply styling - full row highlighting takes precedence
 		var styledCell string
@@ -1552,12 +1703,63 @@ func (t *Table) renderDefaultLoadingRow(absoluteIndex int, isCursor bool) string
 	return result
 }
 
-// applyCellConstraints applies width and alignment constraints to cell content
-func (t *Table) applyCellConstraints(text string, constraint CellConstraint) string {
+// applyCellConstraints applies width and alignment constraints to cell content with horizontal scrolling support
+func (t *Table) applyCellConstraints(text string, constraint CellConstraint, columnIndex int) string {
+	return t.applyCellConstraintsWithRowInfo(text, constraint, columnIndex, false)
+}
+
+// applyCellConstraintsWithRowInfo applies width and alignment constraints with row context for scope-aware scrolling
+func (t *Table) applyCellConstraintsWithRowInfo(text string, constraint CellConstraint, columnIndex int, isCurrentRow bool) string {
 	width := constraint.Width
 
+	// For cursor row mode, only apply scrolling to the cell that's BOTH:
+	// 1. On the cursor row (isCurrentRow = true)
+	// 2. AND in the currently focused column (columnIndex == t.currentColumn)
+	var shouldApplyHorizontalScrolling bool
+	if t.horizontalScrollScope == "current" {
+		// Cursor row mode: only scroll the cell at cursor row + focused column
+		shouldApplyHorizontalScrolling = isCurrentRow && columnIndex == t.currentColumn
+	} else {
+		// All rows mode: scroll all cells in the focused column
+		shouldApplyHorizontalScrolling = columnIndex == t.currentColumn
+	}
+
+	// Apply horizontal scrolling first (before any constraints)
+	var scrolledText string
+	if shouldApplyHorizontalScrolling {
+		scrolledText = t.applyHorizontalScrollWithScope(text, columnIndex, isCurrentRow)
+	} else {
+		scrolledText = text // No horizontal scrolling for this cell
+	}
+
+	// Track original text for ellipsis decision
+	originalText := text
+
+	// Check if horizontal scrolling was applied (i.e., we have a scroll offset)
+	hasHorizontalScrolling := false
+	if shouldApplyHorizontalScrolling && columnIndex >= 0 && t.horizontalScrollOffsets[columnIndex] > 0 {
+		hasHorizontalScrolling = true
+	}
+
+	// Clean up scrolled content (same as before but on scrolled text)
+	scrolledText = strings.ReplaceAll(scrolledText, "\n", " ")
+	scrolledText = strings.ReplaceAll(scrolledText, "\r", " ")
+	scrolledText = strings.ReplaceAll(scrolledText, "\t", " ")
+	for strings.Contains(scrolledText, "  ") {
+		scrolledText = strings.ReplaceAll(scrolledText, "  ", " ")
+	}
+
+	// CRITICAL FIX: Don't trim leading spaces when horizontal scrolling is active
+	// Those leading spaces are intentional results of scrolling to show them
+	if !hasHorizontalScrolling {
+		scrolledText = strings.TrimSpace(scrolledText)
+	} else {
+		// Only trim trailing spaces when horizontal scrolling is active
+		scrolledText = strings.TrimRight(scrolledText, " \t")
+	}
+
 	// Detect if text contains ANSI escape codes (styling)
-	hasANSI := strings.Contains(text, "\x1b")
+	hasANSI := strings.Contains(scrolledText, "\x1b")
 
 	// Choose appropriate width measurement function
 	var measureWidth func(string) int
@@ -1573,13 +1775,22 @@ func (t *Table) applyCellConstraints(text string, constraint CellConstraint) str
 		truncateFunc = ansiTruncateWithRunewidth
 	}
 
-	// First, truncate the text if it's too long
-	if measureWidth(text) > width {
-		text = truncateFunc(text, width, "...")
+	// Check if we need to truncate
+	if measureWidth(scrolledText) > width {
+		// Determine if we should show ellipsis
+		showEllipsis := t.shouldShowEllipsis(originalText, columnIndex, scrolledText, isCurrentRow)
+
+		if showEllipsis {
+			scrolledText = truncateFunc(scrolledText, width, "...")
+		} else {
+			// No ellipsis - we're at the end of the content
+
+			scrolledText = truncateFunc(scrolledText, width, "")
+		}
 	}
 
 	// Then apply alignment and padding to exact width
-	actualWidth := measureWidth(text)
+	actualWidth := measureWidth(scrolledText)
 	if actualWidth < width {
 		padding := width - actualWidth
 
@@ -1588,7 +1799,7 @@ func (t *Table) applyCellConstraints(text string, constraint CellConstraint) str
 			paddingSpaces := strings.Repeat(" ", padding)
 
 			// Extract background color from the styled text to apply to padding
-			backgroundStyle := extractBackgroundStyle(text)
+			backgroundStyle := extractBackgroundStyle(scrolledText)
 			var styledPadding string
 			if backgroundStyle != "" {
 				// Apply same background to padding spaces
@@ -1599,7 +1810,7 @@ func (t *Table) applyCellConstraints(text string, constraint CellConstraint) str
 
 			switch constraint.Alignment {
 			case AlignRight:
-				text = styledPadding + text
+				scrolledText = styledPadding + scrolledText
 			case AlignCenter:
 				leftPad := padding / 2
 				rightPad := padding - leftPad
@@ -1615,26 +1826,77 @@ func (t *Table) applyCellConstraints(text string, constraint CellConstraint) str
 					rightStyledPadding = rightPaddingSpaces
 				}
 
-				text = leftStyledPadding + text + rightStyledPadding
+				scrolledText = leftStyledPadding + scrolledText + rightStyledPadding
 			default: // AlignLeft
-				text = text + styledPadding
+				scrolledText = scrolledText + styledPadding
 			}
 		} else {
 			// For plain text, use regular padding
 			switch constraint.Alignment {
 			case AlignRight:
-				text = strings.Repeat(" ", padding) + text
+				scrolledText = strings.Repeat(" ", padding) + scrolledText
 			case AlignCenter:
 				leftPad := padding / 2
 				rightPad := padding - leftPad
-				text = strings.Repeat(" ", leftPad) + text + strings.Repeat(" ", rightPad)
+				scrolledText = strings.Repeat(" ", leftPad) + scrolledText + strings.Repeat(" ", rightPad)
 			default: // AlignLeft
-				text = text + strings.Repeat(" ", padding)
+				scrolledText = scrolledText + strings.Repeat(" ", padding)
 			}
 		}
 	}
 
-	return text
+	return scrolledText
+}
+
+// shouldShowEllipsis determines if ellipsis should be shown based on scroll position and scope
+func (t *Table) shouldShowEllipsis(originalText string, columnIndex int, scrolledText string, isCurrentRow bool) bool {
+	// Check if this specific row/column combination is actually being scrolled
+	var isBeingScrolled bool
+	if t.horizontalScrollScope == "current" {
+		// Current row mode: only the cursor row in the focused column is scrolled
+		isBeingScrolled = isCurrentRow && columnIndex == t.currentColumn
+	} else {
+		// All rows mode: all rows in the focused column are scrolled
+		isBeingScrolled = columnIndex == t.currentColumn
+	}
+
+	// If this row/column is not being scrolled, use normal ellipsis logic
+	if !isBeingScrolled {
+		return true // Show ellipsis for non-scrolled cells that are truncated
+	}
+
+	scrollOffset := t.horizontalScrollOffsets[columnIndex]
+
+	// If no scrolling, use normal ellipsis logic
+	if scrollOffset <= 0 {
+		return true
+	}
+
+	// Get the column width to determine how much content is visible
+	columnWidth := 25 // Default, should get from actual column
+	if columnIndex < len(t.columns) {
+		columnWidth = t.columns[columnIndex].Width
+	}
+
+	// Check if we're at the end of the content based on scroll mode
+	switch t.horizontalScrollMode {
+	case "word":
+		words := strings.Fields(originalText)
+		// If we've scrolled past or to the last few words, don't show ellipsis
+		return scrollOffset < len(words)-2
+	case "smart":
+		boundaries := t.findSmartBoundariesInSegments(t.parseTextWithANSI(originalText))
+		// If we're at the last boundary, don't show ellipsis
+		return scrollOffset < len(boundaries)-1
+	default: // "character"
+		runes := []rune(originalText)
+		remainingContentLength := len(runes) - scrollOffset
+
+		// If the remaining content (after scrolling) can't fill the column width,
+		// then we're near the end and shouldn't show ellipsis
+		// Reserve 3 characters for the ellipsis itself
+		return remainingContentLength > columnWidth
+	}
 }
 
 // extractBackgroundStyle extracts background color codes from ANSI styled text
@@ -1817,6 +2079,21 @@ func (t *Table) SetHeaderVisibility(visible bool) tea.Cmd {
 // SetBorderVisibility sets border visibility
 func (t *Table) SetBorderVisibility(visible bool) tea.Cmd {
 	return BorderVisibilityCmd(visible)
+}
+
+// SetTopBorderVisibility sets top border visibility
+func (t *Table) SetTopBorderVisibility(visible bool) tea.Cmd {
+	return TopBorderVisibilityCmd(visible)
+}
+
+// SetBottomBorderVisibility sets bottom border visibility
+func (t *Table) SetBottomBorderVisibility(visible bool) tea.Cmd {
+	return BottomBorderVisibilityCmd(visible)
+}
+
+// SetHeaderSeparatorVisibility sets header separator visibility
+func (t *Table) SetHeaderSeparatorVisibility(visible bool) tea.Cmd {
+	return HeaderSeparatorVisibilityCmd(visible)
 }
 
 // SetCellFormatter sets a cell formatter for a specific column
@@ -2155,6 +2432,72 @@ func (t *Table) constructBottomBorder() string {
 	return strings.Join(parts, "")
 }
 
+// constructTopBorder constructs the top border like the bottom border but with top characters
+func (t *Table) constructTopBorder() string {
+	var parts []string
+	borderStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(t.config.Theme.BorderColor))
+
+	// Left corner
+	parts = append(parts, borderStyle.Render(t.config.Theme.BorderChars.TopLeft))
+
+	// Add indicator column border if component renderer is enabled
+	if t.componentRenderer != nil {
+		indicatorWidth := 4
+		// Horizontal line for indicator column width
+		parts = append(parts, borderStyle.Render(strings.Repeat(t.config.Theme.BorderChars.Horizontal, indicatorWidth)))
+		// Column separator
+		parts = append(parts, borderStyle.Render(t.config.Theme.BorderChars.TopT))
+	}
+
+	// Column borders
+	for i, col := range t.columns {
+		// Horizontal line for column width
+		parts = append(parts, borderStyle.Render(strings.Repeat(t.config.Theme.BorderChars.Horizontal, col.Width)))
+
+		// Column separator or right corner
+		if i < len(t.columns)-1 {
+			parts = append(parts, borderStyle.Render(t.config.Theme.BorderChars.TopT))
+		} else {
+			parts = append(parts, borderStyle.Render(t.config.Theme.BorderChars.TopRight))
+		}
+	}
+
+	return strings.Join(parts, "")
+}
+
+// constructHeaderSeparator constructs the separator border between header and data
+func (t *Table) constructHeaderSeparator() string {
+	var parts []string
+	borderStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(t.config.Theme.BorderColor))
+
+	// Left T-junction
+	parts = append(parts, borderStyle.Render(t.config.Theme.BorderChars.LeftT))
+
+	// Add indicator column border if component renderer is enabled
+	if t.componentRenderer != nil {
+		indicatorWidth := 4
+		// Horizontal line for indicator column width
+		parts = append(parts, borderStyle.Render(strings.Repeat(t.config.Theme.BorderChars.Horizontal, indicatorWidth)))
+		// Column separator (cross)
+		parts = append(parts, borderStyle.Render(t.config.Theme.BorderChars.Cross))
+	}
+
+	// Column borders
+	for i, col := range t.columns {
+		// Horizontal line for column width
+		parts = append(parts, borderStyle.Render(strings.Repeat(t.config.Theme.BorderChars.Horizontal, col.Width)))
+
+		// Column separator or right T-junction
+		if i < len(t.columns)-1 {
+			parts = append(parts, borderStyle.Render(t.config.Theme.BorderChars.Cross))
+		} else {
+			parts = append(parts, borderStyle.Render(t.config.Theme.BorderChars.RightT))
+		}
+	}
+
+	return strings.Join(parts, "")
+}
+
 // ================================
 // COMPONENT-BASED RENDERING METHODS
 // ================================
@@ -2218,4 +2561,610 @@ func stripANSI(s string) string {
 		result += string(r)
 	}
 	return result
+}
+
+// SetTopBorderSpaceRemoval controls whether top border space is completely removed
+func (t *Table) SetTopBorderSpaceRemoval(remove bool) tea.Cmd {
+	return TopBorderSpaceRemovalCmd(remove)
+}
+
+// SetBottomBorderSpaceRemoval controls whether bottom border space is completely removed
+func (t *Table) SetBottomBorderSpaceRemoval(remove bool) tea.Cmd {
+	return BottomBorderSpaceRemovalCmd(remove)
+}
+
+// applyHorizontalScroll applies horizontal scrolling offset to text content with ANSI awareness
+func (t *Table) applyHorizontalScroll(text string, columnIndex int) string {
+	// Skip scrolling for special column indices (headers, indicators, loading cells)
+	if columnIndex < 0 {
+		return text
+	}
+
+	// If scope is "current", only apply scrolling to the current row
+	if t.horizontalScrollScope == "current" {
+		// We need to know if this is the current row - this will be handled in renderRow
+		// For now, let the calling code handle this logic
+	}
+
+	// Get scroll offset for this column
+	scrollOffset := t.horizontalScrollOffsets[columnIndex]
+	if scrollOffset <= 0 {
+		return text // No scrolling needed
+	}
+
+	// Clean text for processing (same as in applyCellConstraints)
+	cleanText := strings.ReplaceAll(text, "\n", " ")
+	cleanText = strings.ReplaceAll(cleanText, "\r", " ")
+	cleanText = strings.ReplaceAll(cleanText, "\t", " ")
+	for strings.Contains(cleanText, "  ") {
+		cleanText = strings.ReplaceAll(cleanText, "  ", " ")
+	}
+	cleanText = strings.TrimSpace(cleanText)
+
+	// Use simpler, more robust ANSI-aware scrolling
+	return t.applySimpleANSIAwareScroll(cleanText, scrollOffset)
+}
+
+// applySimpleANSIAwareScroll applies horizontal scrolling with simple approach
+func (t *Table) applySimpleANSIAwareScroll(text string, scrollOffset int) string {
+	if scrollOffset <= 0 {
+		return text
+	}
+
+	// For styled text, strip ANSI codes to prevent scrolling from getting stuck
+	plainText := text
+	if strings.Contains(text, "\x1b") {
+		plainText = stripANSI(text)
+	}
+
+	// Apply scrolling to the plain text based on mode
+	switch t.horizontalScrollMode {
+	case "word":
+		words := strings.Fields(plainText)
+		if scrollOffset >= len(words) {
+			return ""
+		}
+		return strings.Join(words[scrollOffset:], " ")
+	case "smart":
+		runes := []rune(plainText)
+		boundaries := []int{0}
+
+		for i, r := range runes {
+			if i > 0 {
+				prev := runes[i-1]
+				if strings.ContainsRune(".,;:!?-", prev) && r == ' ' {
+					boundaries = append(boundaries, i+1)
+				}
+				if r >= 'A' && r <= 'Z' && prev >= 'a' && prev <= 'z' {
+					boundaries = append(boundaries, i)
+				}
+				if prev == ' ' && r != ' ' {
+					boundaries = append(boundaries, i)
+				}
+			}
+		}
+
+		if scrollOffset >= len(boundaries) {
+			return ""
+		}
+		boundaryPos := boundaries[scrollOffset]
+		if boundaryPos >= len(runes) {
+			return ""
+		}
+		return string(runes[boundaryPos:])
+	default: // "character"
+		runes := []rune(plainText)
+		if scrollOffset >= len(runes) {
+			return ""
+		}
+		return string(runes[scrollOffset:])
+	}
+}
+
+// applyCharacterScrollWithANSI scrolls text character by character while preserving ANSI styling
+func (t *Table) applyCharacterScrollWithANSI(text string, offset int) string {
+	if offset <= 0 {
+		return text
+	}
+
+	// Parse text into segments (visible chars and ANSI codes)
+	segments := t.parseTextWithANSI(text)
+	if len(segments) == 0 {
+		return ""
+	}
+
+	// Find the scroll position in terms of visible characters
+	visibleCount := 0
+	startSegmentIndex := 0
+	startCharOffset := 0
+
+	for i, segment := range segments {
+		if segment.IsANSI {
+			continue // Skip ANSI codes when counting
+		}
+
+		segmentLength := runewidth.StringWidth(segment.Text)
+		if visibleCount+segmentLength > offset {
+			// We found the segment where scrolling starts
+			startSegmentIndex = i
+			startCharOffset = offset - visibleCount
+			break
+		}
+		visibleCount += segmentLength
+
+		// If we've reached the end without finding enough characters
+		if i == len(segments)-1 {
+			return "" // Scrolled past end
+		}
+	}
+
+	// Build the scrolled text starting from the calculated position
+	return t.buildScrolledText(segments, startSegmentIndex, startCharOffset)
+}
+
+// applyWordScrollWithANSI scrolls text word by word while preserving ANSI styling
+func (t *Table) applyWordScrollWithANSI(text string, offset int) string {
+	if offset <= 0 {
+		return text
+	}
+
+	// Parse text into segments
+	segments := t.parseTextWithANSI(text)
+
+	// Find word boundaries in visible text only
+	wordBoundaries := t.findWordBoundariesInSegments(segments)
+
+	if offset >= len(wordBoundaries) {
+		return "" // Scrolled past end
+	}
+
+	// Find the segment and position for the target word boundary
+	targetPosition := wordBoundaries[offset]
+	return t.scrollToVisiblePosition(segments, targetPosition)
+}
+
+// applySmartScrollWithANSI scrolls to meaningful boundaries while preserving ANSI styling
+func (t *Table) applySmartScrollWithANSI(text string, offset int) string {
+	if offset <= 0 {
+		return text
+	}
+
+	// Parse text into segments
+	segments := t.parseTextWithANSI(text)
+
+	// Find smart boundaries in visible text only
+	smartBoundaries := t.findSmartBoundariesInSegments(segments)
+
+	if offset >= len(smartBoundaries) {
+		return "" // Scrolled past end
+	}
+
+	// Find the segment and position for the target boundary
+	targetPosition := smartBoundaries[offset]
+	return t.scrollToVisiblePosition(segments, targetPosition)
+}
+
+// findSmartBoundariesInSegments finds meaningful scroll positions in text
+func (t *Table) findSmartBoundariesInSegments(segments []TextSegment) []int {
+	var boundaries []int
+	boundaries = append(boundaries, 0) // Always start at beginning
+
+	for _, segment := range segments {
+		// Add boundary after punctuation
+		if strings.ContainsRune(".,;:!?-", segment.Rune) && segment.Next != nil && segment.Next.IsSpace {
+			boundaries = append(boundaries, segment.Next.Index)
+		}
+		// Add boundary at word starts after spaces
+		if segment.IsSpace && segment.Next != nil && !segment.Next.IsSpace {
+			boundaries = append(boundaries, segment.Next.Index)
+		}
+		// Add boundary at uppercase letters (camelCase support)
+		if segment.Rune >= 'A' && segment.Rune <= 'Z' && segment.Prev != nil && segment.Prev.IsLower {
+			boundaries = append(boundaries, segment.Index)
+		}
+	}
+
+	return boundaries
+}
+
+// scrollToVisiblePosition scrolls to a specific position in the text
+func (t *Table) scrollToVisiblePosition(segments []TextSegment, targetPosition int) string {
+	var result strings.Builder
+	currentPosition := 0
+
+	for _, segment := range segments {
+		if segment.IsANSI {
+			result.WriteString(segment.Text)
+			continue
+		}
+
+		segmentLength := runewidth.StringWidth(segment.Text)
+		if currentPosition+segmentLength > targetPosition {
+			// We found the segment where scrolling starts
+			result.WriteString(segment.Text[targetPosition-currentPosition:])
+			break
+		}
+		currentPosition += segmentLength
+	}
+
+	return result.String()
+}
+
+// parseTextWithANSI parses text into segments (visible chars and ANSI codes)
+func (t *Table) parseTextWithANSI(text string) []TextSegment {
+	var segments []TextSegment
+	runes := []rune(text)
+
+	i := 0
+	for i < len(runes) {
+		r := runes[i]
+
+		if r == '\x1b' && i+1 < len(runes) && runes[i+1] == '[' {
+			// Found ANSI escape sequence
+			start := i
+			i += 2 // Skip \x1b[
+
+			// Find the end of the ANSI sequence
+			for i < len(runes) && runes[i] != 'm' {
+				i++
+			}
+			if i < len(runes) {
+				i++ // Include the 'm'
+			}
+
+			// Add ANSI segment
+			segments = append(segments, TextSegment{
+				Text:   string(runes[start:i]),
+				IsANSI: true,
+				Index:  start,
+			})
+		} else {
+			// Regular character
+			segments = append(segments, TextSegment{
+				Text:    string(r),
+				IsANSI:  false,
+				IsSpace: r == ' ' || r == '\t',
+				Index:   i,
+				Rune:    r,
+				IsLower: r >= 'a' && r <= 'z',
+			})
+			i++
+		}
+	}
+
+	// Link segments with Next/Prev pointers
+	for i := range segments {
+		if i > 0 {
+			segments[i].Prev = &segments[i-1]
+		}
+		if i < len(segments)-1 {
+			segments[i].Next = &segments[i+1]
+		}
+	}
+
+	return segments
+}
+
+// buildScrolledText builds the scrolled text from segments
+func (t *Table) buildScrolledText(segments []TextSegment, startSegmentIndex, startCharOffset int) string {
+	var result strings.Builder
+	activeStyles := make(map[string]string) // Track active ANSI styles
+
+	// First pass: collect all ANSI styles that should be active at the start position
+	visibleChars := 0
+	for i, segment := range segments {
+		if segment.IsANSI {
+			// Parse and store the style
+			if styleType, styleValue := t.parseANSIStyle(segment.Text); styleType != "" {
+				activeStyles[styleType] = styleValue
+			}
+			continue
+		}
+
+		segmentLength := runewidth.StringWidth(segment.Text)
+		if i >= startSegmentIndex {
+			break
+		}
+		visibleChars += segmentLength
+	}
+
+	// Apply accumulated styles at the start
+	for _, styleValue := range activeStyles {
+		result.WriteString(styleValue)
+	}
+
+	// Second pass: build the visible text starting from the scroll position
+	for i, segment := range segments {
+		if i < startSegmentIndex {
+			continue
+		}
+
+		if segment.IsANSI {
+			result.WriteString(segment.Text)
+			continue
+		}
+
+		if i == startSegmentIndex && startCharOffset > 0 {
+			// Handle partial segment at start position
+			runes := []rune(segment.Text)
+			if startCharOffset < len(runes) {
+				result.WriteString(string(runes[startCharOffset:]))
+			}
+		} else {
+			// Include full segment
+			result.WriteString(segment.Text)
+		}
+	}
+
+	return result.String()
+}
+
+// parseANSIStyle parses an ANSI escape sequence and returns style type and value
+func (t *Table) parseANSIStyle(ansiCode string) (string, string) {
+	// Simple ANSI parsing - can be extended for more complex cases
+	if strings.Contains(ansiCode, "38;5;") {
+		return "foreground", ansiCode
+	}
+	if strings.Contains(ansiCode, "48;5;") {
+		return "background", ansiCode
+	}
+	if strings.Contains(ansiCode, "1m") {
+		return "bold", ansiCode
+	}
+	if strings.Contains(ansiCode, "3m") {
+		return "italic", ansiCode
+	}
+	return "", ""
+}
+
+// findWordBoundariesInSegments finds word boundaries in visible text only
+func (t *Table) findWordBoundariesInSegments(segments []TextSegment) []int {
+	var boundaries []int
+	boundaries = append(boundaries, 0) // Always start at beginning
+
+	visiblePos := 0
+	inWord := false
+
+	for _, segment := range segments {
+		if segment.IsANSI {
+			continue // Skip ANSI codes
+		}
+
+		for _, r := range segment.Text {
+			isSpace := r == ' ' || r == '\t'
+
+			if inWord && isSpace {
+				// End of word - add boundary at next non-space
+				inWord = false
+			} else if !inWord && !isSpace {
+				// Start of word
+				boundaries = append(boundaries, visiblePos)
+				inWord = true
+			}
+
+			if !isSpace {
+				visiblePos++
+			}
+		}
+	}
+
+	return boundaries
+}
+
+// ================================
+// HORIZONTAL SCROLLING HELPERS
+// ================================
+
+// handleHorizontalScrollLeft scrolls left in current scroll mode
+func (t *Table) handleHorizontalScrollLeft() tea.Cmd {
+	if t.horizontalScrollOffsets[t.currentColumn] > 0 {
+		t.horizontalScrollOffsets[t.currentColumn]--
+	}
+	return nil
+}
+
+// handleHorizontalScrollRight scrolls right in current scroll mode
+func (t *Table) handleHorizontalScrollRight() tea.Cmd {
+	// Get max scroll for current column
+	maxScroll := t.getMaxScrollForColumn(t.currentColumn)
+	if t.horizontalScrollOffsets[t.currentColumn] < maxScroll {
+		t.horizontalScrollOffsets[t.currentColumn]++
+	}
+	return nil
+}
+
+// handleHorizontalScrollWordLeft scrolls left by word
+func (t *Table) handleHorizontalScrollWordLeft() tea.Cmd {
+	oldMode := t.horizontalScrollMode
+	t.horizontalScrollMode = "word"
+	defer func() { t.horizontalScrollMode = oldMode }()
+
+	if t.horizontalScrollOffsets[t.currentColumn] > 0 {
+		t.horizontalScrollOffsets[t.currentColumn]--
+	}
+	return nil
+}
+
+// handleHorizontalScrollWordRight scrolls right by word
+func (t *Table) handleHorizontalScrollWordRight() tea.Cmd {
+	oldMode := t.horizontalScrollMode
+	t.horizontalScrollMode = "word"
+	defer func() { t.horizontalScrollMode = oldMode }()
+
+	maxScroll := t.getMaxScrollForColumn(t.currentColumn)
+	if t.horizontalScrollOffsets[t.currentColumn] < maxScroll {
+		t.horizontalScrollOffsets[t.currentColumn]++
+	}
+	return nil
+}
+
+// handleHorizontalScrollSmartLeft scrolls left by smart boundaries
+func (t *Table) handleHorizontalScrollSmartLeft() tea.Cmd {
+	oldMode := t.horizontalScrollMode
+	t.horizontalScrollMode = "smart"
+	defer func() { t.horizontalScrollMode = oldMode }()
+
+	if t.horizontalScrollOffsets[t.currentColumn] > 0 {
+		t.horizontalScrollOffsets[t.currentColumn]--
+	}
+	return nil
+}
+
+// handleHorizontalScrollSmartRight scrolls right by smart boundaries
+func (t *Table) handleHorizontalScrollSmartRight() tea.Cmd {
+	oldMode := t.horizontalScrollMode
+	t.horizontalScrollMode = "smart"
+	defer func() { t.horizontalScrollMode = oldMode }()
+
+	maxScroll := t.getMaxScrollForColumn(t.currentColumn)
+	if t.horizontalScrollOffsets[t.currentColumn] < maxScroll {
+		t.horizontalScrollOffsets[t.currentColumn]++
+	}
+	return nil
+}
+
+// handleNextColumn switches to next column for scrolling
+func (t *Table) handleNextColumn() tea.Cmd {
+	t.currentColumn = (t.currentColumn + 1) % len(t.columns)
+	return nil
+}
+
+// handlePrevColumn switches to previous column for scrolling
+func (t *Table) handlePrevColumn() tea.Cmd {
+	t.currentColumn = (t.currentColumn - 1 + len(t.columns)) % len(t.columns)
+	return nil
+}
+
+// handleToggleScrollMode cycles through scroll modes
+func (t *Table) handleToggleScrollMode() tea.Cmd {
+	switch t.horizontalScrollMode {
+	case "character":
+		t.horizontalScrollMode = "word"
+	case "word":
+		t.horizontalScrollMode = "smart"
+	case "smart":
+		t.horizontalScrollMode = "character"
+	}
+	return nil
+}
+
+// handleResetScrolling resets all scroll offsets
+func (t *Table) handleResetScrolling() tea.Cmd {
+	t.horizontalScrollOffsets = make(map[int]int)
+	return nil
+}
+
+// getMaxScrollForColumn calculates the maximum scroll offset for a column
+func (t *Table) getMaxScrollForColumn(columnIndex int) int {
+	if columnIndex < 0 || columnIndex >= len(t.columns) {
+		return 0
+	}
+
+	// Get sample text from visible items to calculate max scroll
+	maxScroll := 0
+	for _, item := range t.visibleItems {
+		if row, ok := item.Item.(TableRow); ok && columnIndex < len(row.Cells) {
+			cellText := row.Cells[columnIndex]
+			switch t.horizontalScrollMode {
+			case "word":
+				words := strings.Fields(cellText)
+				if len(words) > maxScroll {
+					maxScroll = len(words) - 1
+				}
+			case "smart":
+				boundaries := t.findSmartBoundariesInSegments(t.parseTextWithANSI(cellText))
+				if len(boundaries) > maxScroll {
+					maxScroll = len(boundaries) - 1
+				}
+			default: // "character"
+				runes := []rune(cellText)
+				if len(runes) > maxScroll {
+					maxScroll = len(runes) - t.columns[columnIndex].Width + 5 // Keep some buffer
+				}
+			}
+		}
+	}
+
+	if maxScroll < 0 {
+		maxScroll = 0
+	}
+	return maxScroll
+}
+
+// handleToggleScrollScope toggles between "all" and "current" scroll scope
+func (t *Table) handleToggleScrollScope() tea.Cmd {
+	switch t.horizontalScrollScope {
+	case "all":
+		t.horizontalScrollScope = "current"
+	case "current":
+		t.horizontalScrollScope = "all"
+	}
+	return nil
+}
+
+// applyHorizontalScrollWithScope applies horizontal scrolling with scope awareness
+func (t *Table) applyHorizontalScrollWithScope(text string, columnIndex int, isCurrentRow bool) string {
+	// Skip scrolling for special column indices (headers, indicators, loading cells)
+	if columnIndex < 0 {
+		return text
+	}
+
+	// If scope is "current", only apply scrolling to the current row
+	if t.horizontalScrollScope == "current" && !isCurrentRow {
+		return text // Don't scroll non-current rows
+	}
+
+	// Get scroll offset for this column
+	scrollOffset := t.horizontalScrollOffsets[columnIndex]
+	if scrollOffset <= 0 {
+		return text // No scrolling needed
+	}
+
+	// Clean text for processing (same as in applyCellConstraints)
+	cleanText := strings.ReplaceAll(text, "\n", " ")
+	cleanText = strings.ReplaceAll(cleanText, "\r", " ")
+	cleanText = strings.ReplaceAll(cleanText, "\t", " ")
+	for strings.Contains(cleanText, "  ") {
+		cleanText = strings.ReplaceAll(cleanText, "  ", " ")
+	}
+	cleanText = strings.TrimSpace(cleanText)
+
+	// Use simpler, more robust ANSI-aware scrolling
+	return t.applySimpleANSIAwareScroll(cleanText, scrollOffset)
+}
+
+// TestHorizontalScrollRight is a temporary public method for testing horizontal scrolling
+func (t *Table) TestHorizontalScrollRight() tea.Cmd {
+	return t.handleHorizontalScrollRight()
+}
+
+// TestResetHorizontalScroll is a temporary public method for testing
+func (t *Table) TestResetHorizontalScroll() {
+	t.horizontalScrollOffsets = make(map[int]int)
+}
+
+// TestGetScrollState is a temporary public method for debugging
+func (t *Table) TestGetScrollState() (map[int]int, string, string, int) {
+	return t.horizontalScrollOffsets, t.horizontalScrollMode, t.horizontalScrollScope, t.currentColumn
+}
+
+// TestSetScrollMode is a temporary public method for testing
+func (t *Table) TestSetScrollMode(mode string) {
+	t.horizontalScrollMode = mode
+}
+
+// GetHorizontalScrollState returns the current horizontal scrolling state
+func (t *Table) GetHorizontalScrollState() (mode string, scope string, currentColumn int, offsets map[int]int) {
+	// Return copies to prevent external modification
+	offsetsCopy := make(map[int]int)
+	for k, v := range t.horizontalScrollOffsets {
+		offsetsCopy[k] = v
+	}
+
+	return t.horizontalScrollMode, t.horizontalScrollScope, t.currentColumn, offsetsCopy
+}
+
+// SetResetScrollOnNavigation controls whether horizontal scroll offsets reset when navigating between rows
+func (t *Table) SetResetScrollOnNavigation(enabled bool) {
+	t.config.ResetScrollOnNavigation = enabled
 }

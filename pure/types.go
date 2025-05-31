@@ -499,10 +499,22 @@ type TableConfig struct {
 	// Core table configuration
 	Columns     []TableColumn
 	ShowHeader  bool
-	ShowBorders bool
+	ShowBorders bool // Global border control (affects all borders when true)
+
+	// Granular border configuration
+	ShowTopBorder       bool // Control top border independently
+	ShowBottomBorder    bool // Control bottom border independently
+	ShowHeaderSeparator bool // Control header separator border independently
+
+	// Space removal for borders (when true, completely removes the line space)
+	RemoveTopBorderSpace    bool // When true, don't allocate space for top border at all
+	RemoveBottomBorderSpace bool // When true, don't allocate space for bottom border at all
 
 	// Highlighting configuration
 	FullRowHighlighting bool // Enable full row highlighting mode
+
+	// Horizontal scrolling configuration
+	ResetScrollOnNavigation bool // When true, reset horizontal scroll offsets when navigating between rows
 
 	// Viewport configuration
 	ViewportConfig ViewportConfig

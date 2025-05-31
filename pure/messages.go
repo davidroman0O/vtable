@@ -285,6 +285,31 @@ type BorderVisibilityMsg struct {
 	Visible bool
 }
 
+// TopBorderVisibilityMsg sets top border visibility
+type TopBorderVisibilityMsg struct {
+	Visible bool
+}
+
+// BottomBorderVisibilityMsg sets bottom border visibility
+type BottomBorderVisibilityMsg struct {
+	Visible bool
+}
+
+// HeaderSeparatorVisibilityMsg sets header separator visibility
+type HeaderSeparatorVisibilityMsg struct {
+	Visible bool
+}
+
+// TopBorderSpaceRemovalMsg controls whether top border space is completely removed
+type TopBorderSpaceRemovalMsg struct {
+	Remove bool
+}
+
+// BottomBorderSpaceRemovalMsg controls whether bottom border space is completely removed
+type BottomBorderSpaceRemovalMsg struct {
+	Remove bool
+}
+
 // ===== Formatter Messages =====
 
 // CellFormatterSetMsg sets a cell formatter for a specific column

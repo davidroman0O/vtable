@@ -465,6 +465,41 @@ func BorderVisibilityCmd(visible bool) tea.Cmd {
 	}
 }
 
+// TopBorderVisibilityCmd returns a command to set top border visibility
+func TopBorderVisibilityCmd(visible bool) tea.Cmd {
+	return func() tea.Msg {
+		return TopBorderVisibilityMsg{Visible: visible}
+	}
+}
+
+// BottomBorderVisibilityCmd returns a command to set bottom border visibility
+func BottomBorderVisibilityCmd(visible bool) tea.Cmd {
+	return func() tea.Msg {
+		return BottomBorderVisibilityMsg{Visible: visible}
+	}
+}
+
+// HeaderSeparatorVisibilityCmd returns a command to set header separator visibility
+func HeaderSeparatorVisibilityCmd(visible bool) tea.Cmd {
+	return func() tea.Msg {
+		return HeaderSeparatorVisibilityMsg{Visible: visible}
+	}
+}
+
+// TopBorderSpaceRemovalCmd returns a command to control top border space removal
+func TopBorderSpaceRemovalCmd(remove bool) tea.Cmd {
+	return func() tea.Msg {
+		return TopBorderSpaceRemovalMsg{Remove: remove}
+	}
+}
+
+// BottomBorderSpaceRemovalCmd returns a command to control bottom border space removal
+func BottomBorderSpaceRemovalCmd(remove bool) tea.Cmd {
+	return func() tea.Msg {
+		return BottomBorderSpaceRemovalMsg{Remove: remove}
+	}
+}
+
 // CellFormatterSetCmd returns a command to set a cell formatter
 func CellFormatterSetCmd(columnIndex int, formatter SimpleCellFormatter) tea.Cmd {
 	return func() tea.Msg {

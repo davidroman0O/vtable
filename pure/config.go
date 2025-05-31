@@ -27,14 +27,19 @@ func DefaultListConfig() ListConfig {
 // DefaultTableConfig returns a sensible default configuration for tables
 func DefaultTableConfig() TableConfig {
 	return TableConfig{
-		Columns:         []TableColumn{},
-		ShowHeader:      true,
-		ShowBorders:     true,
-		ViewportConfig:  DefaultViewportConfig(),
-		Theme:           DefaultTheme(),
-		AnimationConfig: DefaultAnimationConfig(),
-		SelectionMode:   SelectionSingle,
-		KeyMap:          DefaultNavigationKeyMap(),
+		Columns:                 []TableColumn{},
+		ShowHeader:              true,
+		ShowBorders:             true,
+		ShowTopBorder:           true,  // Default to enabled when borders are on
+		ShowBottomBorder:        true,  // Default to enabled when borders are on
+		ShowHeaderSeparator:     true,  // Default to enabled when borders are on
+		RemoveTopBorderSpace:    false, // Default to preserving space
+		RemoveBottomBorderSpace: false, // Default to preserving space
+		ViewportConfig:          DefaultViewportConfig(),
+		Theme:                   DefaultTheme(),
+		AnimationConfig:         DefaultAnimationConfig(),
+		SelectionMode:           SelectionSingle,
+		KeyMap:                  DefaultNavigationKeyMap(),
 	}
 }
 
@@ -388,6 +393,36 @@ func (b *TableConfigBuilder) WithHeaderVisible(visible bool) *TableConfigBuilder
 // WithBordersVisible sets border visibility
 func (b *TableConfigBuilder) WithBordersVisible(visible bool) *TableConfigBuilder {
 	b.config.ShowBorders = visible
+	return b
+}
+
+// WithTopBorderVisible sets top border visibility
+func (b *TableConfigBuilder) WithTopBorderVisible(visible bool) *TableConfigBuilder {
+	b.config.ShowTopBorder = visible
+	return b
+}
+
+// WithBottomBorderVisible sets bottom border visibility
+func (b *TableConfigBuilder) WithBottomBorderVisible(visible bool) *TableConfigBuilder {
+	b.config.ShowBottomBorder = visible
+	return b
+}
+
+// WithHeaderSeparatorVisible sets header separator visibility
+func (b *TableConfigBuilder) WithHeaderSeparatorVisible(visible bool) *TableConfigBuilder {
+	b.config.ShowHeaderSeparator = visible
+	return b
+}
+
+// WithTopBorderSpaceRemoved controls whether top border space is completely removed
+func (b *TableConfigBuilder) WithTopBorderSpaceRemoved(removed bool) *TableConfigBuilder {
+	b.config.RemoveTopBorderSpace = removed
+	return b
+}
+
+// WithBottomBorderSpaceRemoved controls whether bottom border space is completely removed
+func (b *TableConfigBuilder) WithBottomBorderSpaceRemoved(removed bool) *TableConfigBuilder {
+	b.config.RemoveBottomBorderSpace = removed
 	return b
 }
 
