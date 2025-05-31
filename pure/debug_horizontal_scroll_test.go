@@ -156,7 +156,7 @@ func TestDebugHorizontalScrolling_StepByStep(t *testing.T) {
 	fmt.Printf("View():\n%s\n", initialView)
 	fmt.Printf("Horizontal scroll offsets: %v\n", table.horizontalScrollOffsets)
 	fmt.Printf("Horizontal scroll mode: %s\n", table.horizontalScrollMode)
-	fmt.Printf("Horizontal scroll scope: %s\n", table.horizontalScrollScope)
+	fmt.Printf("Scroll all rows: %v\n", table.scrollAllRows)
 	fmt.Printf("Current column: %d\n\n", table.currentColumn)
 
 	// Test character scrolling step by step
@@ -575,28 +575,28 @@ func TestDebugHorizontalScrolling_ExactDemoSetup(t *testing.T) {
 	table.Focus() // CRITICAL: Focus the table
 
 	// Apply the EXACT same formatters as the demo
-	nameFormatter := func(cellValue string, rowIndex int, column TableColumn, ctx RenderContext, isCursor bool, isSelected bool) string {
+	nameFormatter := func(cellValue string, rowIndex int, column TableColumn, ctx RenderContext, isCursor bool, isSelected bool, isActiveCell bool) string {
 		style := lipgloss.NewStyle().Foreground(lipgloss.Color("39")) // Blue
 		return style.Render(cellValue)
 	}
 
-	valueFormatter := func(cellValue string, rowIndex int, column TableColumn, ctx RenderContext, isCursor bool, isSelected bool) string {
+	valueFormatter := func(cellValue string, rowIndex int, column TableColumn, ctx RenderContext, isCursor bool, isSelected bool, isActiveCell bool) string {
 		style := lipgloss.NewStyle().Foreground(lipgloss.Color("46")) // Green for demo value 42
 		return style.Render(cellValue)
 	}
 
-	statusFormatter := func(cellValue string, rowIndex int, column TableColumn, ctx RenderContext, isCursor bool, isSelected bool) string {
+	statusFormatter := func(cellValue string, rowIndex int, column TableColumn, ctx RenderContext, isCursor bool, isSelected bool, isActiveCell bool) string {
 		style := lipgloss.NewStyle().Foreground(lipgloss.Color("46")) // Green
 		statusText := "✓ " + cellValue
 		return style.Render(statusText)
 	}
 
-	categoryFormatter := func(cellValue string, rowIndex int, column TableColumn, ctx RenderContext, isCursor bool, isSelected bool) string {
+	categoryFormatter := func(cellValue string, rowIndex int, column TableColumn, ctx RenderContext, isCursor bool, isSelected bool, isActiveCell bool) string {
 		style := lipgloss.NewStyle().Foreground(lipgloss.Color("201")) // Purple
 		return style.Render(cellValue)
 	}
 
-	descriptionFormatter := func(cellValue string, rowIndex int, column TableColumn, ctx RenderContext, isCursor bool, isSelected bool) string {
+	descriptionFormatter := func(cellValue string, rowIndex int, column TableColumn, ctx RenderContext, isCursor bool, isSelected bool, isActiveCell bool) string {
 		// Simple description formatting like demo
 		style := lipgloss.NewStyle().Foreground(lipgloss.Color("245")) // Gray
 		return style.Render(cellValue)
@@ -864,7 +864,7 @@ func TestDebugHorizontalScrolling_IsolateStylingBug(t *testing.T) {
 	table2.Focus()
 
 	// Add ONLY the Description formatter to isolate the problem
-	descriptionFormatter := func(cellValue string, rowIndex int, column TableColumn, ctx RenderContext, isCursor bool, isSelected bool) string {
+	descriptionFormatter := func(cellValue string, rowIndex int, column TableColumn, ctx RenderContext, isCursor bool, isSelected bool, isActiveCell bool) string {
 		style := lipgloss.NewStyle().Foreground(lipgloss.Color("245")) // Gray
 		return style.Render(cellValue)
 	}
@@ -1465,7 +1465,7 @@ func TestDebugUserIssue_ItemFiveStuck(t *testing.T) {
 	table.EnableComponentRenderer()
 
 	// Add formatters like demo
-	nameFormatter := func(cellValue string, rowIndex int, column TableColumn, ctx RenderContext, isCursor bool, isSelected bool) string {
+	nameFormatter := func(cellValue string, rowIndex int, column TableColumn, ctx RenderContext, isCursor bool, isSelected bool, isActiveCell bool) string {
 		style := lipgloss.NewStyle().Foreground(lipgloss.Color("39")) // Blue
 		return style.Render(cellValue)
 	}
@@ -1663,12 +1663,12 @@ func TestDebugUserIssue_FixVerification(t *testing.T) {
 		}
 	}
 
-	// Check that default scope is now "all"
-	_, _, scrollScope, _ := table.TestGetScrollState()
-	fmt.Printf("✅ Default scroll scope is now: %s\n", scrollScope)
+	// Check that default scope is now "current row" (false = current row only)
+	_, _, scrollAllRows, _ := table.TestGetScrollState()
+	fmt.Printf("✅ Default scroll all rows is now: %v\n", scrollAllRows)
 
-	if scrollScope != "all" {
-		t.Errorf("Expected default scroll scope to be 'all', got '%s'", scrollScope)
+	if scrollAllRows {
+		t.Errorf("Expected default scroll all rows to be false (current row mode), got %v", scrollAllRows)
 	}
 
 	// Show initial state
@@ -1835,7 +1835,7 @@ func TestRowSpecificHorizontalScrolling(t *testing.T) {
 	table.horizontalScrollMode = "character"
 
 	fmt.Println("=== TEST 1: ALL ROWS MODE ===")
-	table.horizontalScrollScope = "all"
+	table.scrollAllRows = true
 
 	fmt.Println("Initial state (all rows mode):")
 	view := table.View()
@@ -1882,7 +1882,7 @@ func TestRowSpecificHorizontalScrolling(t *testing.T) {
 	table.horizontalScrollOffsets = make(map[int]int)
 
 	fmt.Println("\n=== TEST 2: CURSOR ROW MODE ===")
-	table.horizontalScrollScope = "current"
+	table.scrollAllRows = false
 
 	// Move cursor to row 2 (middle row)
 	table.viewport.CursorIndex = 2
@@ -2139,7 +2139,7 @@ func TestDebugCursorRowScrolling(t *testing.T) {
 	}
 
 	// Set up cursor row mode
-	table.horizontalScrollScope = "current"
+	table.scrollAllRows = false
 	table.currentColumn = 0
 	table.horizontalScrollMode = "character"
 
@@ -2148,7 +2148,7 @@ func TestDebugCursorRowScrolling(t *testing.T) {
 	table.viewport.CursorViewportIndex = 1
 
 	fmt.Printf("Table setup:\n")
-	fmt.Printf("  horizontalScrollScope: %s\n", table.horizontalScrollScope)
+	fmt.Printf("  scrollAllRows: %v\n", table.scrollAllRows)
 	fmt.Printf("  currentColumn: %d\n", table.currentColumn)
 	fmt.Printf("  viewport.CursorIndex: %d\n", table.viewport.CursorIndex)
 	fmt.Printf("  viewport.CursorViewportIndex: %d\n", table.viewport.CursorViewportIndex)
@@ -2172,7 +2172,7 @@ func TestDebugCursorRowScrolling(t *testing.T) {
 	fmt.Printf("Original text: %s\n", testText)
 
 	// Test scope="current" with isCurrentRow=true (should scroll)
-	table.horizontalScrollScope = "current"
+	table.scrollAllRows = false
 	result1 := table.applyHorizontalScrollWithScope(testText, 0, true)
 	fmt.Printf("Scope=current, isCurrentRow=true:  %s\n", result1)
 
@@ -2181,7 +2181,7 @@ func TestDebugCursorRowScrolling(t *testing.T) {
 	fmt.Printf("Scope=current, isCurrentRow=false: %s\n", result2)
 
 	// Test scope="all" with isCurrentRow=true (should scroll)
-	table.horizontalScrollScope = "all"
+	table.scrollAllRows = true
 	result3 := table.applyHorizontalScrollWithScope(testText, 0, true)
 	fmt.Printf("Scope=all, isCurrentRow=true:      %s\n", result3)
 
@@ -2400,7 +2400,7 @@ func TestHorizontalScrollingModesVerification(t *testing.T) {
 	}
 
 	fmt.Println("\n=== ALL ROWS MODE TEST ===")
-	table.horizontalScrollScope = "all"
+	table.scrollAllRows = true
 	table.currentColumn = 0
 	table.horizontalScrollOffsets[0] = 4
 
@@ -2411,7 +2411,7 @@ func TestHorizontalScrollingModesVerification(t *testing.T) {
 	table.horizontalScrollOffsets = make(map[int]int)
 
 	fmt.Println("\n=== CURSOR ROW MODE TEST ===")
-	table.horizontalScrollScope = "current"
+	table.scrollAllRows = false
 	table.viewport.CursorIndex = 1
 	table.viewport.CursorViewportIndex = 1
 	table.horizontalScrollOffsets[0] = 4

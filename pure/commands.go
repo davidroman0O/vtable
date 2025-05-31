@@ -500,6 +500,20 @@ func BottomBorderSpaceRemovalCmd(remove bool) tea.Cmd {
 	}
 }
 
+// ActiveCellIndicationModeSetCmd returns a command to set the active cell indication mode
+func ActiveCellIndicationModeSetCmd(enabled bool) tea.Cmd {
+	return func() tea.Msg {
+		return ActiveCellIndicationModeSetMsg{Enabled: enabled}
+	}
+}
+
+// ActiveCellBackgroundColorSetCmd returns a command to set the active cell background color
+func ActiveCellBackgroundColorSetCmd(color string) tea.Cmd {
+	return func() tea.Msg {
+		return ActiveCellBackgroundColorSetMsg{Color: color}
+	}
+}
+
 // CellFormatterSetCmd returns a command to set a cell formatter
 func CellFormatterSetCmd(columnIndex int, formatter SimpleCellFormatter) tea.Cmd {
 	return func() tea.Msg {

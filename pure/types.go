@@ -343,11 +343,14 @@ type PaddingConfig struct {
 	Bottom int
 }
 
-// Alignment constants
+// ================================
+// ALIGNMENT CONSTANTS
+// ================================
+
 const (
-	AlignLeft = iota
-	AlignCenter
-	AlignRight
+	AlignLeft   = 0
+	AlignCenter = 1
+	AlignRight  = 2
 )
 
 // ================================
@@ -515,6 +518,10 @@ type TableConfig struct {
 
 	// Horizontal scrolling configuration
 	ResetScrollOnNavigation bool // When true, reset horizontal scroll offsets when navigating between rows
+
+	// Active cell indication settings
+	ActiveCellIndicationEnabled bool   // Simple boolean to enable/disable active cell background
+	ActiveCellBackgroundColor   string // Background color for active cell (e.g., "226" for yellow)
 
 	// Viewport configuration
 	ViewportConfig ViewportConfig

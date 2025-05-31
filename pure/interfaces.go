@@ -75,6 +75,7 @@ type SimpleCellFormatter func(
 	ctx RenderContext,
 	isCursor bool,
 	isSelected bool,
+	isActiveCell bool,
 ) string
 
 // SimpleHeaderFormatter formats a header cell with automatic truncation

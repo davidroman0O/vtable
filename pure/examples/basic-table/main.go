@@ -583,6 +583,9 @@ var (
 // Current active theme
 var currentTheme = DefaultTheme
 
+// Global demo state for active cell custom formatting (not ideal but works for demo)
+var activeCellCustomGlobal = false
+
 // SetTheme changes the active theme
 func SetTheme(theme TableTheme) {
 	currentTheme = theme
@@ -676,8 +679,14 @@ func convertToVTableTheme(theme TableTheme) vtable.Theme {
 // ================================
 
 // NameCellFormatter formats the first column with proper selection/cursor handling
-func NameCellFormatter(cellValue string, rowIndex int, column vtable.TableColumn, ctx vtable.RenderContext, isCursor, isSelected bool) string {
+func NameCellFormatter(cellValue string, rowIndex int, column vtable.TableColumn, ctx vtable.RenderContext, isCursor, isSelected, isActiveCell bool) string {
 	style := lipgloss.NewStyle().Foreground(lipgloss.Color(currentTheme.PrimaryText))
+
+	// Handle active cell indication ONLY for brackets mode - NO BACKGROUND COLORS
+	if isActiveCell && activeCellCustomGlobal {
+		// Only add brackets for active cell - NO background styling
+		cellValue = "⭐[" + cellValue + "]" // Add star and brackets for active cell
+	}
 
 	// DON'T apply background styling here - let the table handle it properly
 	// This prevents the background from bleeding outside table boundaries
@@ -685,7 +694,7 @@ func NameCellFormatter(cellValue string, rowIndex int, column vtable.TableColumn
 }
 
 // ValueCellFormatter formats value cells with colors and selection handling
-func ValueCellFormatter(cellValue string, rowIndex int, column vtable.TableColumn, ctx vtable.RenderContext, isCursor, isSelected bool) string {
+func ValueCellFormatter(cellValue string, rowIndex int, column vtable.TableColumn, ctx vtable.RenderContext, isCursor, isSelected, isActiveCell bool) string {
 	// Parse value for color coding
 	var style lipgloss.Style
 	if strings.HasPrefix(cellValue, "Value ") {
@@ -704,12 +713,18 @@ func ValueCellFormatter(cellValue string, rowIndex int, column vtable.TableColum
 		style = lipgloss.NewStyle().Foreground(lipgloss.Color(currentTheme.PrimaryText))
 	}
 
+	// Handle active cell indication ONLY for brackets mode - NO BACKGROUND COLORS
+	if isActiveCell && activeCellCustomGlobal {
+		// Only add brackets for active cell - NO background styling
+		cellValue = "💰[" + cellValue + "]" // Add money emoji and brackets for active value cell
+	}
+
 	// DON'T apply background styling here - let the table handle it properly
 	return style.Render(cellValue)
 }
 
 // StatusCellFormatter formats status cells with icons, colors and selection handling
-func StatusCellFormatter(cellValue string, rowIndex int, column vtable.TableColumn, ctx vtable.RenderContext, isCursor, isSelected bool) string {
+func StatusCellFormatter(cellValue string, rowIndex int, column vtable.TableColumn, ctx vtable.RenderContext, isCursor, isSelected, isActiveCell bool) string {
 	// Convert status to visual representation
 	var statusText string
 	var style lipgloss.Style
@@ -729,12 +744,18 @@ func StatusCellFormatter(cellValue string, rowIndex int, column vtable.TableColu
 		statusText = currentTheme.UnknownIcon + " Unknown"
 	}
 
+	// Handle active cell indication ONLY for brackets mode - NO BACKGROUND COLORS
+	if isActiveCell && activeCellCustomGlobal {
+		// Only add brackets for active cell - NO background styling
+		statusText = "📊[" + statusText + "]" // Add chart emoji and brackets for active status cell
+	}
+
 	// DON'T apply background styling here - let the table handle it properly
 	return style.Render(statusText)
 }
 
 // CategoryCellFormatter formats category cells with colors and selection handling
-func CategoryCellFormatter(cellValue string, rowIndex int, column vtable.TableColumn, ctx vtable.RenderContext, isCursor, isSelected bool) string {
+func CategoryCellFormatter(cellValue string, rowIndex int, column vtable.TableColumn, ctx vtable.RenderContext, isCursor, isSelected, isActiveCell bool) string {
 	// Color code categories
 	var style lipgloss.Style
 	switch cellValue {
@@ -752,13 +773,25 @@ func CategoryCellFormatter(cellValue string, rowIndex int, column vtable.TableCo
 		style = lipgloss.NewStyle().Foreground(lipgloss.Color(currentTheme.SecondaryText))
 	}
 
+	// Handle active cell indication ONLY for brackets mode - NO BACKGROUND COLORS
+	if isActiveCell && activeCellCustomGlobal {
+		// Only add brackets for active cell - NO background styling
+		cellValue = "🏷️[" + cellValue + "]" // Add tag emoji and brackets for active category cell
+	}
+
 	// DON'T apply background styling here - let the table handle it properly
 	return style.Render(cellValue)
 }
 
 // DescriptionCellFormatter formats the description column with proper text handling
-func DescriptionCellFormatter(cellValue string, rowIndex int, column vtable.TableColumn, ctx vtable.RenderContext, isCursor, isSelected bool) string {
+func DescriptionCellFormatter(cellValue string, rowIndex int, column vtable.TableColumn, ctx vtable.RenderContext, isCursor, isSelected, isActiveCell bool) string {
 	style := lipgloss.NewStyle().Foreground(lipgloss.Color(currentTheme.SecondaryText)).Italic(true)
+
+	// Handle active cell indication ONLY for brackets mode - NO BACKGROUND COLORS
+	if isActiveCell && activeCellCustomGlobal {
+		// Only add brackets for active cell - NO background styling
+		cellValue = "📄[" + cellValue + "]" // Add document emoji and brackets for active description cell
+	}
 
 	// DON'T apply background styling here - let the table handle it properly
 	return style.Render(cellValue)
@@ -798,7 +831,7 @@ func createCustomHeaderFormatter() map[int]vtable.SimpleHeaderFormatter {
 
 // createWrappingNameFormatter creates a name formatter with text wrapping support
 func createWrappingNameFormatter() vtable.SimpleCellFormatter {
-	return func(cellValue string, rowIndex int, column vtable.TableColumn, ctx vtable.RenderContext, isCursor, isSelected bool) string {
+	return func(cellValue string, rowIndex int, column vtable.TableColumn, ctx vtable.RenderContext, isCursor, isSelected, isActiveCell bool) string {
 		style := lipgloss.NewStyle().Foreground(lipgloss.Color(currentTheme.PrimaryText))
 
 		// DON'T apply background styling here - let the table handle it properly
@@ -809,7 +842,7 @@ func createWrappingNameFormatter() vtable.SimpleCellFormatter {
 
 // createWrappingValueFormatter creates a value formatter with text wrapping support
 func createWrappingValueFormatter() vtable.SimpleCellFormatter {
-	return func(cellValue string, rowIndex int, column vtable.TableColumn, ctx vtable.RenderContext, isCursor, isSelected bool) string {
+	return func(cellValue string, rowIndex int, column vtable.TableColumn, ctx vtable.RenderContext, isCursor, isSelected, isActiveCell bool) string {
 		// Parse value for color coding (same as original)
 		var style lipgloss.Style
 		if strings.HasPrefix(cellValue, "Value ") {
@@ -836,7 +869,7 @@ func createWrappingValueFormatter() vtable.SimpleCellFormatter {
 
 // createWrappingStatusFormatter creates a status formatter with text wrapping support
 func createWrappingStatusFormatter() vtable.SimpleCellFormatter {
-	return func(cellValue string, rowIndex int, column vtable.TableColumn, ctx vtable.RenderContext, isCursor, isSelected bool) string {
+	return func(cellValue string, rowIndex int, column vtable.TableColumn, ctx vtable.RenderContext, isCursor, isSelected, isActiveCell bool) string {
 		// Convert status to visual representation (same icons as original)
 		var statusText string
 		var style lipgloss.Style
@@ -864,7 +897,7 @@ func createWrappingStatusFormatter() vtable.SimpleCellFormatter {
 
 // createWrappingCategoryFormatter creates a category formatter with text wrapping support
 func createWrappingCategoryFormatter() vtable.SimpleCellFormatter {
-	return func(cellValue string, rowIndex int, column vtable.TableColumn, ctx vtable.RenderContext, isCursor, isSelected bool) string {
+	return func(cellValue string, rowIndex int, column vtable.TableColumn, ctx vtable.RenderContext, isCursor, isSelected, isActiveCell bool) string {
 		// Color code categories (same as original)
 		var style lipgloss.Style
 		switch cellValue {
@@ -890,7 +923,7 @@ func createWrappingCategoryFormatter() vtable.SimpleCellFormatter {
 
 // createWrappingDescriptionFormatter creates a description formatter with text wrapping support
 func createWrappingDescriptionFormatter() vtable.SimpleCellFormatter {
-	return func(cellValue string, rowIndex int, column vtable.TableColumn, ctx vtable.RenderContext, isCursor, isSelected bool) string {
+	return func(cellValue string, rowIndex int, column vtable.TableColumn, ctx vtable.RenderContext, isCursor, isSelected, isActiveCell bool) string {
 		style := lipgloss.NewStyle().Foreground(lipgloss.Color(currentTheme.SecondaryText)).Italic(true)
 
 		// DON'T apply background styling here - let the table handle it properly
@@ -901,7 +934,7 @@ func createWrappingDescriptionFormatter() vtable.SimpleCellFormatter {
 
 // createFullRowCursorFormatter creates a formatter that highlights the entire row when cursor is on it
 func createFullRowCursorFormatter(baseFormatter vtable.SimpleCellFormatter) vtable.SimpleCellFormatter {
-	return func(cellValue string, rowIndex int, column vtable.TableColumn, ctx vtable.RenderContext, isCursor, isSelected bool) string {
+	return func(cellValue string, rowIndex int, column vtable.TableColumn, ctx vtable.RenderContext, isCursor, isSelected, isActiveCell bool) string {
 		// If this is the cursor row, apply enhanced highlighting to all cells in the row
 		if isCursor {
 			// Full row highlighting - bold with distinctive background
@@ -917,16 +950,16 @@ func createFullRowCursorFormatter(baseFormatter vtable.SimpleCellFormatter) vtab
 		}
 
 		// For non-cursor rows, use the base formatter without extra styling
-		return baseFormatter(cellValue, rowIndex, column, ctx, false, isSelected)
+		return baseFormatter(cellValue, rowIndex, column, ctx, false, isSelected, isActiveCell)
 	}
 }
 
 // createSelectionAwareFormatter creates a formatter that ensures selection highlighting is always applied
 func createSelectionAwareFormatter(baseFormatter vtable.SimpleCellFormatter) vtable.SimpleCellFormatter {
-	return func(cellValue string, rowIndex int, column vtable.TableColumn, ctx vtable.RenderContext, isCursor, isSelected bool) string {
+	return func(cellValue string, rowIndex int, column vtable.TableColumn, ctx vtable.RenderContext, isCursor, isSelected, isActiveCell bool) string {
 		// Use the base formatter - DON'T force background styling
 		// Let the table's built-in selection system handle backgrounds properly
-		return baseFormatter(cellValue, rowIndex, column, ctx, isCursor, isSelected)
+		return baseFormatter(cellValue, rowIndex, column, ctx, isCursor, isSelected, isActiveCell)
 	}
 }
 
@@ -987,6 +1020,10 @@ type AppModel struct {
 	showHeaderSeparator bool
 	removeTopSpace      bool
 	removeBottomSpace   bool
+
+	// Active cell indication demo state
+	activeCellDemoMode      string // "background", "custom", "brackets", "both"
+	activeCellCustomEnabled bool   // Controls when formatters apply custom styling
 }
 
 // Available themes list
@@ -1160,21 +1197,23 @@ func main() {
 		selectionModeEnabled: false,
 		scrollResetEnabled:   true, // Match the config setting
 
-		loadingChunks:       make(map[int]bool),
-		chunkHistory:        make([]string, 0),
-		themeIndex:          0,
-		columnOrderIndex:    0,
-		sortingEnabled:      false,
-		currentSortField:    "",
-		currentSortDir:      "",
-		filteringEnabled:    false,
-		currentFilter:       "",
-		currentFilterField:  "",
-		showTopBorder:       true,
-		showBottomBorder:    true,
-		showHeaderSeparator: true,
-		removeTopSpace:      false,
-		removeBottomSpace:   false,
+		loadingChunks:           make(map[int]bool),
+		chunkHistory:            make([]string, 0),
+		themeIndex:              0,
+		columnOrderIndex:        0,
+		sortingEnabled:          false,
+		currentSortField:        "",
+		currentSortDir:          "",
+		filteringEnabled:        false,
+		currentFilter:           "",
+		currentFilterField:      "",
+		showTopBorder:           true,
+		showBottomBorder:        true,
+		showHeaderSeparator:     true,
+		removeTopSpace:          false,
+		removeBottomSpace:       false,
+		activeCellDemoMode:      "background",
+		activeCellCustomEnabled: false,
 	}
 
 	// Run the interactive program
@@ -1212,6 +1251,149 @@ func (m AppModel) Init() tea.Cmd {
 
 func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	// Handle chunk loading messages for debug tracking
+	case vtable.ChunkLoadingStartedMsg:
+		m.loadingChunks[msg.ChunkStart] = true
+		historyEntry := fmt.Sprintf("Started loading chunk %d (size: %d)", msg.ChunkStart, msg.Request.Count)
+		m.chunkHistory = append(m.chunkHistory, historyEntry)
+		// Keep only last 10 entries
+		if len(m.chunkHistory) > 10 {
+			m.chunkHistory = m.chunkHistory[len(m.chunkHistory)-10:]
+		}
+		return m, nil
+
+	case vtable.ChunkLoadingCompletedMsg:
+		delete(m.loadingChunks, msg.ChunkStart)
+		historyEntry := fmt.Sprintf("Completed chunk %d (%d items)", msg.ChunkStart, msg.ItemCount)
+		m.chunkHistory = append(m.chunkHistory, historyEntry)
+		// Keep only last 10 entries
+		if len(m.chunkHistory) > 10 {
+			m.chunkHistory = m.chunkHistory[len(m.chunkHistory)-10:]
+		}
+		return m, nil
+
+	case vtable.ChunkUnloadedMsg:
+		historyEntry := fmt.Sprintf("Unloaded chunk %d", msg.ChunkStart)
+		m.chunkHistory = append(m.chunkHistory, historyEntry)
+		// Keep only last 10 entries
+		if len(m.chunkHistory) > 10 {
+			m.chunkHistory = m.chunkHistory[len(m.chunkHistory)-10:]
+		}
+		return m, nil
+
+	case vtable.SelectionResponseMsg:
+		// Update status based on selection
+		selectionCount := m.dataSource.GetSelectionCount()
+		state := m.table.GetState()
+		if msg.Success {
+			switch msg.Operation {
+			case "toggle":
+				m.statusMessage = fmt.Sprintf("Selected item at index %d - %d total selected (look for background highlighting)", state.CursorIndex, selectionCount)
+			case "selectAll":
+				m.statusMessage = fmt.Sprintf("Selected ALL %d items in datasource (look for background highlighting)", selectionCount)
+			case "clear":
+				m.statusMessage = "All selections cleared - indicators removed"
+			}
+		} else {
+			m.statusMessage = fmt.Sprintf("Selection failed: %v", msg.Error)
+		}
+		// Also pass to table
+		var cmd tea.Cmd
+		_, cmd = m.table.Update(msg)
+		return m, cmd
+
+	case vtable.PageUpMsg:
+		var cmd tea.Cmd
+		_, cmd = m.table.Update(msg)
+		state := m.table.GetState()
+		m.statusMessage = fmt.Sprintf("Page up - now at index %d", state.CursorIndex)
+		return m, cmd
+
+	case vtable.PageDownMsg:
+		var cmd tea.Cmd
+		_, cmd = m.table.Update(msg)
+		state := m.table.GetState()
+		m.statusMessage = fmt.Sprintf("Page down - now at index %d", state.CursorIndex)
+		return m, cmd
+
+	case vtable.JumpToMsg:
+		var cmd tea.Cmd
+		_, cmd = m.table.Update(msg)
+		state := m.table.GetState()
+		m.statusMessage = fmt.Sprintf("Jumped to index %d", state.CursorIndex)
+		return m, cmd
+
+	case vtable.JumpToStartMsg:
+		var cmd tea.Cmd
+		_, cmd = m.table.Update(msg)
+		m.statusMessage = "Jumped to start"
+		return m, cmd
+
+	case vtable.JumpToEndMsg:
+		var cmd tea.Cmd
+		_, cmd = m.table.Update(msg)
+		m.statusMessage = "Jumped to end"
+		return m, cmd
+
+	case vtable.CursorUpMsg, vtable.CursorDownMsg:
+		var cmd tea.Cmd
+		_, cmd = m.table.Update(msg)
+		state := m.table.GetState()
+		m.statusMessage = fmt.Sprintf("Position: %d/%d (Viewport: %d-%d)",
+			state.CursorIndex, m.table.GetTotalItems(),
+			state.ViewportStartIndex,
+			state.ViewportStartIndex+9) // viewport height is 10
+		return m, cmd
+
+	case vtable.DataTotalMsg:
+		historyEntry := fmt.Sprintf("Total items: %d", msg.Total)
+		m.chunkHistory = append(m.chunkHistory, historyEntry)
+		// Keep only last 10 entries
+		if len(m.chunkHistory) > 10 {
+			m.chunkHistory = m.chunkHistory[len(m.chunkHistory)-10:]
+		}
+		// Also pass to table
+		var cmd tea.Cmd
+		_, cmd = m.table.Update(msg)
+		return m, cmd
+
+	case vtable.DataRefreshMsg:
+		historyEntry := "Data refresh triggered"
+		m.chunkHistory = append(m.chunkHistory, historyEntry)
+		// Keep only last 10 entries
+		if len(m.chunkHistory) > 10 {
+			m.chunkHistory = m.chunkHistory[len(m.chunkHistory)-10:]
+		}
+		// Also pass to table
+		var cmd tea.Cmd
+		_, cmd = m.table.Update(msg)
+		return m, cmd
+
+	case vtable.DataLoadErrorMsg:
+		historyEntry := fmt.Sprintf("Data load error: %v", msg.Error)
+		m.chunkHistory = append(m.chunkHistory, historyEntry)
+		// Keep only last 10 entries
+		if len(m.chunkHistory) > 10 {
+			m.chunkHistory = m.chunkHistory[len(m.chunkHistory)-10:]
+		}
+		// Also pass to table
+		var cmd tea.Cmd
+		_, cmd = m.table.Update(msg)
+		return m, cmd
+
+	case vtable.DataChunkLoadedMsg:
+		// This is the actual chunk data loading completion
+		historyEntry := fmt.Sprintf("Loaded chunk %d (%d items)", msg.StartIndex, len(msg.Items))
+		m.chunkHistory = append(m.chunkHistory, historyEntry)
+		// Keep only last 10 entries
+		if len(m.chunkHistory) > 10 {
+			m.chunkHistory = m.chunkHistory[len(m.chunkHistory)-10:]
+		}
+		// Also pass to table
+		var cmd tea.Cmd
+		_, cmd = m.table.Update(msg)
+		return m, cmd
+
 	case tea.KeyMsg:
 		// Handle input mode for JumpToIndex
 		if m.inputMode {
@@ -1679,8 +1861,8 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			_, cmd = m.table.Update(msg)
 
 			// Get the new state to show in status
-			_, newScope, _, _ := m.table.GetHorizontalScrollState()
-			if newScope == "all" {
+			_, scrollAllRows, _, _ := m.table.GetHorizontalScrollState()
+			if scrollAllRows {
 				m.statusMessage = "Horizontal scroll scope: ALL ROWS move together (press V to change to current row only)"
 			} else {
 				m.statusMessage = "Horizontal scroll scope: CURRENT ROW ONLY moves (press V to change to all rows)"
@@ -1704,6 +1886,66 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Update the table configuration
 			m.table.SetResetScrollOnNavigation(m.scrollResetEnabled)
 			return m, nil
+
+		case "A":
+			// Toggle active cell indication mode (uppercase A for Active cell)
+			// Cycle through demo modes: background -> brackets -> both -> background
+
+			var cmds []tea.Cmd
+
+			switch m.activeCellDemoMode {
+			case "background":
+				// Switch to brackets mode
+				m.activeCellDemoMode = "brackets"
+				m.activeCellCustomEnabled = true
+				activeCellCustomGlobal = true // Enable brackets in formatters
+				// Disable built-in background mode
+				cmds = append(cmds, vtable.ActiveCellIndicationModeSetCmd(false))
+				m.statusMessage = "Active cell indication: BRACKETS [text] only - use C/arrow keys to change column"
+			case "brackets":
+				// Switch to both mode
+				m.activeCellDemoMode = "both"
+				m.activeCellCustomEnabled = true
+				activeCellCustomGlobal = true // Keep brackets in formatters
+				// Enable built-in background mode too
+				cmds = append(cmds, vtable.ActiveCellIndicationModeSetCmd(true))
+				m.statusMessage = "Active cell indication: BOTH (background + brackets) - use C/arrow keys to change column"
+			case "both":
+				// Switch back to background mode
+				m.activeCellDemoMode = "background"
+				m.activeCellCustomEnabled = false
+				activeCellCustomGlobal = false // Disable brackets in formatters
+				// Keep built-in background mode enabled
+				cmds = append(cmds, vtable.ActiveCellIndicationModeSetCmd(true))
+				m.statusMessage = "Active cell indication: BACKGROUND only (yellow override) - use C/arrow keys to change column"
+			default:
+				// Default to background mode
+				m.activeCellDemoMode = "background"
+				m.activeCellCustomEnabled = false
+				activeCellCustomGlobal = false // Disable brackets in formatters
+				// Enable built-in background mode
+				cmds = append(cmds, vtable.ActiveCellIndicationModeSetCmd(true))
+				m.statusMessage = "Active cell indication: BACKGROUND only (yellow override) - use C/arrow keys to change column"
+			}
+
+			if len(cmds) > 0 {
+				return m, tea.Batch(cmds...)
+			}
+			return m, nil
+
+		case "C":
+			// Cycle active column for testing (uppercase C for Column)
+			// Get current horizontal scroll state
+			_, _, currentCol, _ := m.table.GetHorizontalScrollState()
+			newCol := (currentCol + 1) % 5 // Cycle through 5 columns (0-4)
+
+			m.statusMessage = fmt.Sprintf("Active column changed to: %d (%s) - use arrow keys to scroll horizontally",
+				newCol, []string{"Name", "Value", "Status", "Category", "Description"}[newCol])
+
+			// Use the existing column navigation - simulate pressing "." to move to next column
+			var cmd tea.Cmd
+			_, cmd = m.table.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'.'}})
+			return m, cmd
 
 		default:
 			// Pass other keys to table
@@ -1747,7 +1989,8 @@ func (m AppModel) View() string {
 		view.WriteString("• Selection Highlighting: S=toggle selection background highlighting\n")
 		view.WriteString("• Full Row Highlighting: R=toggle full row highlighting\n")
 		view.WriteString("• Horizontal Scrolling: ←→=character • []=word • {}=smart • .,=change column • M=toggle mode • V=toggle scope • Backspace=reset (ANSI-aware)\n")
-		view.WriteString("• Scroll Reset: Z=toggle (reset scroll when navigating between rows)\n\n")
+		view.WriteString("• Scroll Reset: Z=toggle (reset scroll when navigating between rows)\n")
+		view.WriteString("• Active Cell Indication: A=toggle mode (background/brackets/both) • C=cycle active column\n\n")
 
 		view.WriteString("🔧 SYSTEM:\n")
 		view.WriteString("• Debug: d=toggle (chunk loading activity) • r=refresh • ?=help • q=quit\n\n")
@@ -1781,15 +2024,12 @@ func (m AppModel) View() string {
 			map[bool]string{true: "Enabled", false: "Disabled"}[m.scrollResetEnabled]))
 
 		// Get horizontal scrolling state from table
-		scrollMode, scrollScope, currentCol, scrollOffsets := m.table.GetHorizontalScrollState()
+		scrollMode, scrollAllRows, currentCol, scrollOffsets := m.table.GetHorizontalScrollState()
 
 		// Make scope description clearer
-		scopeDesc := map[string]string{
-			"all":     "all rows move together",
-			"current": "only cursor row moves",
-		}[scrollScope]
-		if scopeDesc == "" {
-			scopeDesc = scrollScope
+		scopeDesc := "current row only"
+		if scrollAllRows {
+			scopeDesc = "all rows move together"
 		}
 
 		view.WriteString(fmt.Sprintf("• Horizontal Scroll: Mode=%s • Scope=%s • Column=%d • Offsets=%v\n",
@@ -1841,6 +2081,28 @@ func (m AppModel) View() string {
 		// Show threshold flags
 		view.WriteString(fmt.Sprintf("\nThresholds: top=%v, bottom=%v",
 			state.IsAtTopThreshold, state.IsAtBottomThreshold))
+
+		// Show currently loading chunks
+		if len(m.loadingChunks) > 0 {
+			view.WriteString("\nLoading chunks: ")
+			var chunks []string
+			for chunk := range m.loadingChunks {
+				chunks = append(chunks, fmt.Sprintf("%d", chunk))
+			}
+			view.WriteString(strings.Join(chunks, ", "))
+		}
+
+		// Show recent chunk history
+		if len(m.chunkHistory) > 0 {
+			view.WriteString("\nRecent chunk activity:")
+			for _, entry := range m.chunkHistory {
+				view.WriteString(fmt.Sprintf("\n  • %s", entry))
+			}
+		}
+
+		if len(m.loadingChunks) == 0 && len(m.chunkHistory) == 0 {
+			view.WriteString("\nNo chunk activity yet - navigate around to see chunking!")
+		}
 	}
 
 	return view.String()
@@ -1921,6 +2183,9 @@ func CreateExampleTableWithDataSource(dataSource *ExampleTableDataSource) *vtabl
 		Theme:                   convertToVTableTheme(currentTheme),
 		SelectionMode:           vtable.SelectionMultiple,
 		ResetScrollOnNavigation: true, // Enable scroll reset for better UX
+		// Enable active cell indication with background color mode
+		ActiveCellIndicationEnabled: true,  // Use boolean instead of string
+		ActiveCellBackgroundColor:   "226", // Bright yellow background for active cell
 		KeyMap: vtable.NavigationKeyMap{
 			Up:        []string{"up", "k"},
 			Down:      []string{"down", "j"},

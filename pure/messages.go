@@ -582,3 +582,13 @@ type ResetMsg struct{}
 func Batch(messages ...interface{}) BatchMsg {
 	return BatchMsg{Messages: messages}
 }
+
+// ActiveCellIndicationModeSetMsg sets the active cell indication mode
+type ActiveCellIndicationModeSetMsg struct {
+	Enabled bool // Simple boolean: enabled or disabled
+}
+
+// ActiveCellBackgroundColorSetMsg sets the active cell background color
+type ActiveCellBackgroundColorSetMsg struct {
+	Color string // lipgloss color value
+}

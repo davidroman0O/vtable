@@ -84,7 +84,7 @@ type Table struct {
 	// Horizontal scrolling state
 	horizontalScrollOffsets map[int]int // Column index -> scroll offset
 	horizontalScrollMode    string      // "character", "word", "smart"
-	horizontalScrollScope   string      // "all", "current" - scroll all rows or just current row
+	scrollAllRows           bool        // true = scroll all rows together, false = only current row
 	currentColumn           int         // Currently focused column for scrolling
 	previousCursorIndex     int         // Track previous cursor position for scroll reset
 }
@@ -205,6 +205,11 @@ func NewTable(config TableConfig, dataSource DataSource[any]) *Table {
 		FixTableConfig(&config)
 	}
 
+	// Set default values for active cell indication if not specified
+	if config.ActiveCellBackgroundColor == "" {
+		config.ActiveCellBackgroundColor = "226" // Default bright yellow background
+	}
+
 	table := &Table{
 		dataSource:           dataSource,
 		chunks:               make(map[int]Chunk[any]),
@@ -224,7 +229,7 @@ func NewTable(config TableConfig, dataSource DataSource[any]) *Table {
 		// Initialize horizontal scrolling state
 		horizontalScrollOffsets: make(map[int]int),
 		horizontalScrollMode:    "character",                        // Default to character-by-character
-		horizontalScrollScope:   "all",                              // Default to scroll all rows together (more intuitive)
+		scrollAllRows:           false,                              // Default to scroll all rows together
 		currentColumn:           0,                                  // Start with first column
 		previousCursorIndex:     config.ViewportConfig.InitialIndex, // Track for scroll reset
 		viewport: ViewportState{
@@ -474,6 +479,15 @@ func (t *Table) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case FullRowHighlightEnableMsg:
 		t.config.FullRowHighlighting = msg.Enabled
+		return t, nil
+
+	case ActiveCellIndicationModeSetMsg:
+		t.config.ActiveCellIndicationEnabled = msg.Enabled
+		return t, nil
+
+	case ActiveCellBackgroundColorSetMsg:
+		t.config.ActiveCellBackgroundColor = msg.Color
+		return t, nil
 		return t, nil
 
 	// ===== Configuration Messages =====
@@ -828,16 +842,10 @@ func (t *Table) handleScrollResetOnNavigation() {
 		return
 	}
 
-	// Reset scroll offsets based on scope
-	if t.horizontalScrollScope == "current" {
-		// Current row mode: only reset if we moved away from the row that had scrolling
-		// The previousCursorIndex row had scrolling, so reset it
-		t.horizontalScrollOffsets = make(map[int]int)
-	} else {
-		// All rows mode: reset scroll offsets when moving between any rows
-		// This prevents confusing behavior where content appears pre-scrolled
-		t.horizontalScrollOffsets = make(map[int]int)
-	}
+	// Reset scroll offsets when ResetScrollOnNavigation is enabled
+	// The scrollAllRows scope only affects which cells get scrolled during rendering,
+	// not whether to reset on navigation
+	t.horizontalScrollOffsets = make(map[int]int)
 
 	// Update the previous cursor position
 	t.previousCursorIndex = t.viewport.CursorIndex
@@ -1473,7 +1481,8 @@ func (t *Table) renderRow(item Data[any], absoluteIndex int, isCursor bool) stri
 			// Apply cell formatter to original content (NO prefix contamination!)
 			var formattedContent string
 			if formatter, exists := t.cellFormatters[i]; exists {
-				formattedContent = formatter(cellValue, absoluteIndex, col, t.renderContext, isCursor, item.Selected)
+				isActiveCell := t.isActiveCell(i, isCursor)
+				formattedContent = formatter(cellValue, absoluteIndex, col, t.renderContext, isCursor, item.Selected, isActiveCell)
 			} else {
 				formattedContent = cellValue
 			}
@@ -1500,8 +1509,18 @@ func (t *Table) renderRow(item Data[any], absoluteIndex int, isCursor bool) stri
 				selectionStyle := t.config.Theme.SelectedStyle
 				styledCell = selectionStyle.Render(plainContent)
 			} else if isCursor {
-				// Apply cursor styling to formatted content
-				styledCell = t.config.Theme.CursorStyle.Render(constrainedContent)
+				// Check if this is an active cell that should override cursor styling
+				isActiveCell := t.isActiveCell(i, isCursor)
+				if isActiveCell && t.config.ActiveCellIndicationEnabled {
+					// Active cell background overrides cursor background
+					activeCellStyle := lipgloss.NewStyle().
+						Background(lipgloss.Color(t.config.ActiveCellBackgroundColor)).
+						Foreground(t.config.Theme.CursorStyle.GetForeground())
+					styledCell = activeCellStyle.Render(stripANSI(constrainedContent))
+				} else {
+					// Apply normal cursor styling to formatted content
+					styledCell = t.config.Theme.CursorStyle.Render(constrainedContent)
+				}
 			} else {
 				// Use the formatted and constrained content as-is
 				styledCell = constrainedContent
@@ -1541,7 +1560,8 @@ func (t *Table) renderRow(item Data[any], absoluteIndex int, isCursor bool) stri
 		// Use regular formatter or default
 		if formatter, exists := t.cellFormatters[i]; exists {
 			// Apply formatter first
-			formattedContent := formatter(cellValue, absoluteIndex, col, t.renderContext, isCursor, item.Selected)
+			isActiveCell := t.isActiveCell(i, isCursor)
+			formattedContent := formatter(cellValue, absoluteIndex, col, t.renderContext, isCursor, item.Selected, isActiveCell)
 
 			// CRITICAL: Apply width constraints to the formatted content
 			constraint := CellConstraint{
@@ -1624,7 +1644,8 @@ func (t *Table) renderCellsForRow(row TableRow, absoluteIndex int, isCursor, isS
 		// Use regular formatter or default
 		var finalCellValue string
 		if formatter, exists := t.cellFormatters[i]; exists {
-			formattedValue := formatter(cellValue, absoluteIndex, col, t.renderContext, isCursor, isSelected)
+			isActiveCell := t.isActiveCell(i, isCursor)
+			formattedValue := formatter(cellValue, absoluteIndex, col, t.renderContext, isCursor, isSelected, isActiveCell)
 
 			// Apply full row highlighting if enabled (overrides formatter styling)
 			if t.config.FullRowHighlighting && isCursor {
@@ -1716,12 +1737,12 @@ func (t *Table) applyCellConstraintsWithRowInfo(text string, constraint CellCons
 	// 1. On the cursor row (isCurrentRow = true)
 	// 2. AND in the currently focused column (columnIndex == t.currentColumn)
 	var shouldApplyHorizontalScrolling bool
-	if t.horizontalScrollScope == "current" {
-		// Cursor row mode: only scroll the cell at cursor row + focused column
-		shouldApplyHorizontalScrolling = isCurrentRow && columnIndex == t.currentColumn
-	} else {
+	if t.scrollAllRows {
 		// All rows mode: scroll all cells in the focused column
 		shouldApplyHorizontalScrolling = columnIndex == t.currentColumn
+	} else {
+		// Current row mode: only scroll the cell at cursor row + focused column
+		shouldApplyHorizontalScrolling = isCurrentRow && columnIndex == t.currentColumn
 	}
 
 	// Apply horizontal scrolling first (before any constraints)
@@ -1845,6 +1866,11 @@ func (t *Table) applyCellConstraintsWithRowInfo(text string, constraint CellCons
 		}
 	}
 
+	// Apply active cell indication for built-in modes (brackets, background)
+	// Note: Custom mode is handled in the formatter itself
+	isActiveCellForIndication := t.isActiveCell(columnIndex, isCurrentRow)
+	scrolledText = t.applyActiveCellIndication(scrolledText, isActiveCellForIndication)
+
 	return scrolledText
 }
 
@@ -1852,12 +1878,12 @@ func (t *Table) applyCellConstraintsWithRowInfo(text string, constraint CellCons
 func (t *Table) shouldShowEllipsis(originalText string, columnIndex int, scrolledText string, isCurrentRow bool) bool {
 	// Check if this specific row/column combination is actually being scrolled
 	var isBeingScrolled bool
-	if t.horizontalScrollScope == "current" {
-		// Current row mode: only the cursor row in the focused column is scrolled
-		isBeingScrolled = isCurrentRow && columnIndex == t.currentColumn
-	} else {
+	if t.scrollAllRows {
 		// All rows mode: all rows in the focused column are scrolled
 		isBeingScrolled = columnIndex == t.currentColumn
+	} else {
+		// Current row mode: only the cursor row in the focused column is scrolled
+		isBeingScrolled = isCurrentRow && columnIndex == t.currentColumn
 	}
 
 	// If this row/column is not being scrolled, use normal ellipsis logic
@@ -2133,7 +2159,7 @@ func (t *Table) SetHeaderFormatterForColumn(columnIndex int, formatter SimpleHea
 // CreateSimpleCellFormatter creates a SimpleCellFormatter from a basic formatting function
 // This is a helper to make it easier to create formatters that just need to transform the cell value
 func CreateSimpleCellFormatter(formatFunc func(cellValue string) string) SimpleCellFormatter {
-	return func(cellValue string, rowIndex int, column TableColumn, ctx RenderContext, isCursor bool, isSelected bool) string {
+	return func(cellValue string, rowIndex int, column TableColumn, ctx RenderContext, isCursor bool, isSelected bool, isActiveCell bool) string {
 		// Apply the basic formatting
 		formatted := formatFunc(cellValue)
 
@@ -2581,7 +2607,7 @@ func (t *Table) applyHorizontalScroll(text string, columnIndex int) string {
 	}
 
 	// If scope is "current", only apply scrolling to the current row
-	if t.horizontalScrollScope == "current" {
+	if t.scrollAllRows {
 		// We need to know if this is the current row - this will be handled in renderRow
 		// For now, let the calling code handle this logic
 	}
@@ -3091,14 +3117,9 @@ func (t *Table) getMaxScrollForColumn(columnIndex int) int {
 	return maxScroll
 }
 
-// handleToggleScrollScope toggles between "all" and "current" scroll scope
+// handleToggleScrollScope toggles between all rows and current row scroll scope
 func (t *Table) handleToggleScrollScope() tea.Cmd {
-	switch t.horizontalScrollScope {
-	case "all":
-		t.horizontalScrollScope = "current"
-	case "current":
-		t.horizontalScrollScope = "all"
-	}
+	t.scrollAllRows = !t.scrollAllRows
 	return nil
 }
 
@@ -3110,7 +3131,7 @@ func (t *Table) applyHorizontalScrollWithScope(text string, columnIndex int, isC
 	}
 
 	// If scope is "current", only apply scrolling to the current row
-	if t.horizontalScrollScope == "current" && !isCurrentRow {
+	if !t.scrollAllRows && !isCurrentRow {
 		return text // Don't scroll non-current rows
 	}
 
@@ -3144,8 +3165,8 @@ func (t *Table) TestResetHorizontalScroll() {
 }
 
 // TestGetScrollState is a temporary public method for debugging
-func (t *Table) TestGetScrollState() (map[int]int, string, string, int) {
-	return t.horizontalScrollOffsets, t.horizontalScrollMode, t.horizontalScrollScope, t.currentColumn
+func (t *Table) TestGetScrollState() (map[int]int, string, bool, int) {
+	return t.horizontalScrollOffsets, t.horizontalScrollMode, t.scrollAllRows, t.currentColumn
 }
 
 // TestSetScrollMode is a temporary public method for testing
@@ -3154,17 +3175,58 @@ func (t *Table) TestSetScrollMode(mode string) {
 }
 
 // GetHorizontalScrollState returns the current horizontal scrolling state
-func (t *Table) GetHorizontalScrollState() (mode string, scope string, currentColumn int, offsets map[int]int) {
+func (t *Table) GetHorizontalScrollState() (mode string, scrollAllRows bool, currentColumn int, offsets map[int]int) {
 	// Return copies to prevent external modification
 	offsetsCopy := make(map[int]int)
 	for k, v := range t.horizontalScrollOffsets {
 		offsetsCopy[k] = v
 	}
 
-	return t.horizontalScrollMode, t.horizontalScrollScope, t.currentColumn, offsetsCopy
+	return t.horizontalScrollMode, t.scrollAllRows, t.currentColumn, offsetsCopy
 }
 
 // SetResetScrollOnNavigation controls whether horizontal scroll offsets reset when navigating between rows
 func (t *Table) SetResetScrollOnNavigation(enabled bool) {
 	t.config.ResetScrollOnNavigation = enabled
+}
+
+// ================================
+// ACTIVE CELL HELPERS
+// ================================
+
+// isActiveCell determines if a cell at the given position is the active cell for horizontal scrolling
+func (t *Table) isActiveCell(columnIndex int, isCurrentRow bool) bool {
+	// Skip for special columns (headers, indicators, loading cells)
+	if columnIndex < 0 || columnIndex >= len(t.columns) {
+		return false
+	}
+
+	// Check if this is the focused column for horizontal scrolling
+	if columnIndex != t.currentColumn {
+		return false
+	}
+
+	// Apply scope-aware logic
+	switch t.scrollAllRows {
+	case true:
+		// All rows mode: all cells in the focused column can be considered active
+		// But we might want to limit this to just show the focused column without row restriction
+		return true
+	case false:
+		// Current row mode: only the cell at cursor row + focused column is active
+		return isCurrentRow
+	default:
+		return false
+	}
+}
+
+// applyActiveCellIndication applies the configured active cell indication to content
+func (t *Table) applyActiveCellIndication(content string, isActiveCell bool) string {
+	if !isActiveCell || !t.config.ActiveCellIndicationEnabled {
+		return content
+	}
+
+	// When enabled, apply background color that should override cursor background
+	style := lipgloss.NewStyle().Background(lipgloss.Color(t.config.ActiveCellBackgroundColor))
+	return style.Render(content)
 }
