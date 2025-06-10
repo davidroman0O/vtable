@@ -1,6 +1,7 @@
 package vtable
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -469,4 +470,168 @@ func BenchmarkHorizontalScrolling(b *testing.B) {
 		table.horizontalScrollOffsets[0] = i % 50
 		_ = table.View()
 	}
+}
+
+func TestHorizontalScrollPreventionOnNonTruncatedCells(t *testing.T) {
+	fmt.Println("\n=== HORIZONTAL SCROLL PREVENTION ON NON-TRUNCATED CELLS ===")
+
+	// Create test data with varying content lengths
+	dataSource := &HorizontalScrollTestDataSource{
+		data: []TableRow{
+			{
+				ID:    "short-1",
+				Cells: []string{"Short"}, // Fits in column (width 25)
+			},
+			{
+				ID:    "medium-1",
+				Cells: []string{"Medium length text"}, // Fits in column (width 25)
+			},
+			{
+				ID:    "long-1",
+				Cells: []string{"This is a very long text that definitely exceeds the column width"}, // Exceeds column (width 25)
+			},
+		},
+	}
+
+	columns := []TableColumn{
+		{Title: "Content", Field: "content", Width: 25, Alignment: AlignLeft},
+	}
+
+	config := TableConfig{
+		Columns:        columns,
+		ShowHeader:     true,
+		ShowBorders:    true,
+		ViewportConfig: ViewportConfig{Height: 10, ChunkSize: 10},
+		Theme:          DefaultTheme(),
+		SelectionMode:  SelectionNone,
+	}
+
+	table := NewTable(config, dataSource)
+	table.Focus()
+
+	// Initialize
+	initCmd := table.Init()
+	if initCmd != nil {
+		msg := initCmd()
+		if msg != nil {
+			table.Update(msg)
+		}
+	}
+	totalCmd := dataSource.GetTotal()
+	if totalCmd != nil {
+		msg := totalCmd()
+		if msg != nil {
+			table.Update(msg)
+		}
+	}
+	chunkCmd := dataSource.LoadChunk(DataRequest{Start: 0, Count: 3})
+	if chunkCmd != nil {
+		msg := chunkCmd()
+		if msg != nil {
+			table.Update(msg)
+		}
+	}
+
+	// Focus on the only column
+	table.currentColumn = 0
+	table.horizontalScrollMode = "character"
+
+	// Test 1: Check max scroll for column with mixed content
+	maxScroll := table.getMaxScrollForColumn(0)
+	fmt.Printf("Max scroll for mixed content column: %d\n", maxScroll)
+
+	if maxScroll == 0 {
+		t.Errorf("Expected max scroll > 0 since we have long content that exceeds column width")
+	}
+
+	// Test 2: Try scrolling and verify only long content is affected
+	fmt.Println("\n=== Testing scroll behavior on different content lengths ===")
+
+	// Before scrolling
+	fmt.Println("Before scrolling:")
+	view := table.View()
+	fmt.Printf("%s\n", view)
+
+	// Apply some scrolling
+	table.horizontalScrollOffsets[0] = 5
+
+	fmt.Println("After scrolling 5 characters:")
+	viewAfterScroll := table.View()
+	fmt.Printf("%s\n", viewAfterScroll)
+
+	// Verify that short content is not affected by scrolling
+	if strings.Contains(viewAfterScroll, "hort") && !strings.Contains(viewAfterScroll, "Short") {
+		t.Error("Short content should not be scrolled since it fits completely in the column")
+	}
+
+	// Test 3: Create table with ONLY short content that fits
+	fmt.Println("\n=== Testing column with only non-truncated content ===")
+
+	shortDataSource := &HorizontalScrollTestDataSource{
+		data: []TableRow{
+			{ID: "short-1", Cells: []string{"Short"}},
+			{ID: "short-2", Cells: []string{"Medium"}},
+			{ID: "short-3", Cells: []string{"Text"}},
+		},
+	}
+
+	shortTable := NewTable(config, shortDataSource)
+	shortTable.Focus()
+
+	// Initialize short table
+	initCmd2 := shortTable.Init()
+	if initCmd2 != nil {
+		msg := initCmd2()
+		if msg != nil {
+			shortTable.Update(msg)
+		}
+	}
+	totalCmd2 := shortDataSource.GetTotal()
+	if totalCmd2 != nil {
+		msg := totalCmd2()
+		if msg != nil {
+			shortTable.Update(msg)
+		}
+	}
+	chunkCmd2 := shortDataSource.LoadChunk(DataRequest{Start: 0, Count: 3})
+	if chunkCmd2 != nil {
+		msg := chunkCmd2()
+		if msg != nil {
+			shortTable.Update(msg)
+		}
+	}
+
+	shortTable.currentColumn = 0
+
+	// Check max scroll for short content only
+	maxScrollShort := shortTable.getMaxScrollForColumn(0)
+	fmt.Printf("Max scroll for short content only: %d\n", maxScrollShort)
+
+	if maxScrollShort != 0 {
+		t.Errorf("Expected max scroll = 0 for content that fits completely in column, got %d", maxScrollShort)
+	}
+
+	// Test 4: Try to scroll and verify nothing happens
+	fmt.Printf("Initial scroll offset: %d\n", shortTable.horizontalScrollOffsets[0])
+
+	// Try scrolling right multiple times - should not increase since max scroll is 0
+	for i := 0; i < 5; i++ {
+		shortTable.handleHorizontalScrollRight()
+		actualOffset := shortTable.horizontalScrollOffsets[0]
+		fmt.Printf("After scroll attempt %d, offset: %d\n", i+1, actualOffset)
+
+		if actualOffset > 0 {
+			t.Errorf("Expected scroll offset to remain 0 for non-truncated content, got %d on attempt %d", actualOffset, i+1)
+			break
+		}
+	}
+
+	finalOffset := shortTable.horizontalScrollOffsets[0]
+	fmt.Printf("Final scroll offset after 5 attempts: %d\n", finalOffset)
+
+	if finalOffset != 0 {
+		t.Errorf("Expected final scroll offset to be 0 for non-truncated content, got %d", finalOffset)
+	}
+
+	fmt.Println("✅ Horizontal scroll prevention test completed successfully!")
 }

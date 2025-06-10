@@ -3086,29 +3086,79 @@ func (t *Table) getMaxScrollForColumn(columnIndex int) int {
 		return 0
 	}
 
-	// Get sample text from visible items to calculate max scroll
+	column := t.columns[columnIndex]
+	columnWidth := column.Width
+
+	// Check if any content in this column actually needs scrolling
+	hasScrollableContent := false
 	maxScroll := 0
+
 	for _, item := range t.visibleItems {
 		if row, ok := item.Item.(TableRow); ok && columnIndex < len(row.Cells) {
 			cellText := row.Cells[columnIndex]
+
+			// Apply the same text cleaning as in applyCellConstraintsWithRowInfo
+			cleanText := strings.ReplaceAll(cellText, "\n", " ")
+			cleanText = strings.ReplaceAll(cleanText, "\r", " ")
+			cleanText = strings.ReplaceAll(cleanText, "\t", " ")
+			for strings.Contains(cleanText, "  ") {
+				cleanText = strings.ReplaceAll(cleanText, "  ", " ")
+			}
+			cleanText = strings.TrimSpace(cleanText)
+
+			// Check if content actually exceeds column width (is truncated)
+			var measureWidth func(string) int
+			if strings.Contains(cleanText, "\x1b") {
+				measureWidth = lipgloss.Width // ANSI-aware measurement
+			} else {
+				measureWidth = runewidth.StringWidth // Unicode-aware measurement
+			}
+
+			contentWidth := measureWidth(cleanText)
+			if contentWidth <= columnWidth {
+				// Content fits completely - no scrolling needed for this cell
+				continue
+			}
+
+			// Content is truncated - calculate scroll potential
+			hasScrollableContent = true
+
 			switch t.horizontalScrollMode {
 			case "word":
-				words := strings.Fields(cellText)
-				if len(words) > maxScroll {
-					maxScroll = len(words) - 1
+				words := strings.Fields(cleanText)
+				if len(words) > 1 { // Only allow scrolling if there are multiple words
+					wordScroll := len(words) - 1
+					if wordScroll > maxScroll {
+						maxScroll = wordScroll
+					}
 				}
 			case "smart":
-				boundaries := t.findSmartBoundariesInSegments(t.parseTextWithANSI(cellText))
-				if len(boundaries) > maxScroll {
-					maxScroll = len(boundaries) - 1
+				boundaries := t.findSmartBoundariesInSegments(t.parseTextWithANSI(cleanText))
+				if len(boundaries) > 1 { // Only allow scrolling if there are multiple boundaries
+					smartScroll := len(boundaries) - 1
+					if smartScroll > maxScroll {
+						maxScroll = smartScroll
+					}
 				}
 			default: // "character"
-				runes := []rune(cellText)
-				if len(runes) > maxScroll {
-					maxScroll = len(runes) - t.columns[columnIndex].Width + 5 // Keep some buffer
+				runes := []rune(cleanText)
+				// Calculate how many characters we can scroll while still showing useful content
+				// We want to ensure the user can scroll to see all the content that was truncated
+				charactersHidden := len(runes) - columnWidth
+				if charactersHidden > 0 {
+					// Allow scrolling to reveal all hidden content, plus a small buffer
+					charScroll := charactersHidden + 3 // Small buffer to see the end clearly
+					if charScroll > maxScroll {
+						maxScroll = charScroll
+					}
 				}
 			}
 		}
+	}
+
+	// Only allow scrolling if we found content that actually needs it
+	if !hasScrollableContent {
+		return 0
 	}
 
 	if maxScroll < 0 {
