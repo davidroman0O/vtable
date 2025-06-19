@@ -1,14 +1,19 @@
+// Package viewport provides the logic for managing the visible area of a component,
+// handling scrolling, cursor movement, and calculating which data chunks are
+// needed to display the current view. It is a core dependency for components
+// like List and Table that virtualize their data.
 package viewport
 
 import (
 	"github.com/davidroman0O/vtable/core"
 )
 
-// ================================
-// NAVIGATION CALCULATION FUNCTIONS
-// ================================
-
-// CalculateCursorUp calculates the new viewport state after moving cursor up one position
+// CalculateCursorUp computes the new viewport state after moving the cursor up by
+// one position. It handles two main scrolling behaviors:
+//  1. Threshold-based: If the cursor is at the top scroll threshold, the viewport
+//     scrolls up, keeping the cursor at the threshold.
+//  2. Edge-based: If thresholds are disabled, the cursor moves within the viewport
+//     until it hits the top edge, at which point the viewport scrolls.
 func CalculateCursorUp(viewport core.ViewportState, viewportConfig core.ViewportConfig, totalItems int) core.ViewportState {
 	if totalItems <= 0 || viewport.CursorIndex <= 0 {
 		return viewport
@@ -75,7 +80,10 @@ func CalculateCursorUp(viewport core.ViewportState, viewportConfig core.Viewport
 	return result
 }
 
-// CalculateCursorDown calculates the new viewport state after moving cursor down one position
+// CalculateCursorDown computes the new viewport state after moving the cursor
+// down by one position. It mirrors the logic of `CalculateCursorUp`, handling
+// both threshold-based and edge-based scrolling to move the viewport and cursor
+// correctly.
 func CalculateCursorDown(viewport core.ViewportState, viewportConfig core.ViewportConfig, totalItems int) core.ViewportState {
 	if totalItems <= 0 || viewport.CursorIndex >= totalItems-1 {
 		return viewport
@@ -150,7 +158,10 @@ func CalculateCursorDown(viewport core.ViewportState, viewportConfig core.Viewpo
 	return result
 }
 
-// CalculatePageMovement calculates cursor movement for page up/down operations
+// CalculatePageMovement is a helper function that calculates the new cursor index
+// after a page-up or page-down movement. It takes the current index, the page
+// size, the total number of items, and the direction (-1 for up, 1 for down),
+// returning the new index clamped within the dataset boundaries.
 func CalculatePageMovement(currentIndex int, pageSize int, totalItems int, direction int) int {
 	newIndex := currentIndex + (direction * pageSize)
 
@@ -164,7 +175,11 @@ func CalculatePageMovement(currentIndex int, pageSize int, totalItems int, direc
 	return newIndex
 }
 
-// CalculatePageUp calculates viewport state for page up with threshold awareness
+// CalculatePageUp computes the new viewport state after a "page up" action.
+// It moves the cursor up by one viewport height and repositions the viewport
+// accordingly. It respects scroll thresholds, attempting to place the cursor
+// at the top threshold if enabled; otherwise, it places it at the top of the
+// new viewport.
 func CalculatePageUp(viewport core.ViewportState, viewportConfig core.ViewportConfig, totalItems int) core.ViewportState {
 	if totalItems <= 0 || viewport.CursorIndex <= 0 {
 		return viewport
@@ -200,7 +215,10 @@ func CalculatePageUp(viewport core.ViewportState, viewportConfig core.ViewportCo
 	return result
 }
 
-// CalculatePageDown calculates viewport state for page down with threshold awareness
+// CalculatePageDown computes the new viewport state after a "page down" action.
+// It moves the cursor down by one viewport height. Like `CalculatePageUp`, it
+// intelligently positions the cursor and viewport based on whether scroll
+// thresholds are enabled, ensuring a smooth and predictable user experience.
 func CalculatePageDown(viewport core.ViewportState, viewportConfig core.ViewportConfig, totalItems int) core.ViewportState {
 	if totalItems <= 0 || viewport.CursorIndex >= totalItems-1 {
 		return viewport
@@ -247,7 +265,9 @@ func CalculatePageDown(viewport core.ViewportState, viewportConfig core.Viewport
 	return result
 }
 
-// CalculateJumpToEnd calculates viewport state for jumping to the end of the dataset
+// CalculateJumpToEnd computes the viewport state required to jump directly to the
+// last item in the dataset. It places the cursor on the final item and adjusts
+// the viewport to show the end of the list.
 func CalculateJumpToEnd(viewportConfig core.ViewportConfig, totalItems int) core.ViewportState {
 	if totalItems <= 0 {
 		return core.ViewportState{}
@@ -272,7 +292,9 @@ func CalculateJumpToEnd(viewportConfig core.ViewportConfig, totalItems int) core
 	return result
 }
 
-// CalculateJumpToStart calculates viewport state for jumping to the start of the dataset
+// CalculateJumpToStart computes the viewport state required to jump directly to the
+// first item in the dataset. It resets the cursor and viewport to their starting
+// positions at index 0.
 func CalculateJumpToStart(viewportConfig core.ViewportConfig, totalItems int) core.ViewportState {
 	if totalItems <= 0 {
 		return core.ViewportState{}
@@ -290,8 +312,11 @@ func CalculateJumpToStart(viewportConfig core.ViewportConfig, totalItems int) co
 	return result
 }
 
-// CalculateJumpTo calculates optimal viewport state for jumping to an arbitrary index
-// This function ensures proper threshold positioning and centering when possible
+// CalculateJumpTo computes the optimal viewport state for jumping to an arbitrary
+// index. The function's goal is to position the viewport such that the target
+// index is centered, providing context to the user. If centering is not
+// possible due to proximity to the dataset's start or end, it positions the
+// viewport as close to center as possible while respecting thresholds.
 func CalculateJumpTo(targetIndex int, viewportConfig core.ViewportConfig, totalItems int) core.ViewportState {
 	if totalItems <= 0 {
 		return core.ViewportState{}

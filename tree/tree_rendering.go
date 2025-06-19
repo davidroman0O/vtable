@@ -8,70 +8,100 @@ import (
 	"github.com/davidroman0O/vtable/core"
 )
 
-// ================================
-// COMPONENT-BASED TREE RENDERING
-// ================================
-// A flexible rendering system where each part of a tree item is a distinct,
-// optional component that can be customized and reordered as needed.
-// This is specialized for trees - lists and tables have their own systems.
+// This file implements a flexible, component-based rendering system specialized
+// for the Tree component. Each part of a tree item's visual representation
+// (e.g., cursor, indentation, expand/collapse symbol, content) is a distinct,
+// optional component. This allows for extensive customization and reordering of
+// how tree items are displayed. This system is distinct from the rendering
+// pipelines for the List and Table components.
 
-// TreeRenderComponent represents a single rendering component for tree items
+// TreeRenderComponent defines the contract for a single, modular part of a
+// rendered tree item. Implementations of this interface are responsible for
+// generating a specific piece of the final string output, such as the cursor
+// indicator or the indentation.
 type TreeRenderComponent interface {
-	// Render generates the string content for this component
+	// Render generates the string content for this component based on the
+	// provided context.
 	Render(ctx TreeComponentContext) string
-	// GetType returns the component type for identification
+	// GetType returns the component's unique type identifier, used for ordering
+	// and configuration.
 	GetType() TreeComponentType
-	// IsEnabled returns whether this component should be rendered
+	// IsEnabled returns whether this component should be rendered.
 	IsEnabled() bool
-	// SetEnabled enables or disables this component
+	// SetEnabled allows enabling or disabling this component at runtime.
 	SetEnabled(enabled bool)
 }
 
-// TreeComponentType identifies different types of tree rendering components
+// TreeComponentType is a string identifier for a specific type of tree
+// rendering component. It is used to define the rendering order and to configure
+// individual components.
 type TreeComponentType string
 
+// Constants defining the available component types for the tree.
 const (
-	TreeComponentCursor      TreeComponentType = "cursor"
-	TreeComponentPreSpacing  TreeComponentType = "pre_spacing"
+	// TreeComponentCursor handles the rendering of the cursor indicator.
+	TreeComponentCursor TreeComponentType = "cursor"
+	// TreeComponentPreSpacing adds spacing before the main content.
+	TreeComponentPreSpacing TreeComponentType = "pre_spacing"
+	// TreeComponentIndentation renders the indentation based on the node's depth.
 	TreeComponentIndentation TreeComponentType = "indentation"
-	TreeComponentTreeSymbol  TreeComponentType = "tree_symbol"
-	TreeComponentEnumerator  TreeComponentType = "enumerator"
-	TreeComponentContent     TreeComponentType = "content"
+	// TreeComponentTreeSymbol renders the expand/collapse/leaf symbol.
+	TreeComponentTreeSymbol TreeComponentType = "tree_symbol"
+	// TreeComponentEnumerator renders a prefix like a bullet or number.
+	TreeComponentEnumerator TreeComponentType = "enumerator"
+	// TreeComponentContent renders the main item content.
+	TreeComponentContent TreeComponentType = "content"
+	// TreeComponentPostSpacing adds spacing after the main content.
 	TreeComponentPostSpacing TreeComponentType = "post_spacing"
-	TreeComponentBackground  TreeComponentType = "background"
+	// TreeComponentBackground applies background styling as a final step.
+	TreeComponentBackground TreeComponentType = "background"
 )
 
-// TreeComponentContext provides all the context needed for tree component rendering
+// TreeComponentContext provides all the necessary data for a TreeRenderComponent
+// to render its output. It encapsulates item-specific data, tree structure
+// information, and global rendering settings.
 type TreeComponentContext struct {
-	// Item data
-	Item        core.Data[any]
-	Index       int
-	IsCursor    bool
-	IsSelected  bool
+	// Item is the core data for the node being rendered.
+	Item core.Data[any]
+	// Index is the absolute linear index of the item in the flattened view.
+	Index int
+	// IsCursor is true if this item is currently under the cursor.
+	IsCursor bool
+	// IsSelected is true if this item is currently selected.
+	IsSelected bool
+	// IsThreshold is true if this item is at a scroll threshold.
 	IsThreshold bool
 
-	// Tree-specific data
-	Depth       int
+	// Depth is the level of the node in the tree hierarchy (root is 0).
+	Depth int
+	// HasChildren is true if the node has child nodes.
 	HasChildren bool
-	IsExpanded  bool
-	ParentID    string
+	// IsExpanded is true if the node is currently expanded to show its children.
+	IsExpanded bool
+	// ParentID is the ID of the parent node.
+	ParentID string
 
-	// Rendering context
+	// RenderContext provides global rendering information like theming and
+	// utility functions.
 	RenderContext core.RenderContext
 
-	// Component-specific data (populated by other components during rendering)
+	// ComponentData is a map containing the rendered output of preceding
+	// components in the pipeline, allowing subsequent components to make layout
+	// decisions based on the width of earlier ones (e.g., for text wrapping).
 	ComponentData map[TreeComponentType]string
 
-	// Tree-specific configuration
+	// TreeConfig holds the current rendering configuration for the tree.
 	TreeConfig TreeRenderConfig
 }
 
-// TreeRenderConfig contains configuration for component-based tree rendering
+// TreeRenderConfig holds the complete configuration for the component-based
+// rendering pipeline of the tree. It defines which components are active, their
+// order, and their individual settings.
 type TreeRenderConfig struct {
-	// Component order - defines which components render and in what order
+	// ComponentOrder defines the sequence in which the components are rendered.
 	ComponentOrder []TreeComponentType
 
-	// Component configurations
+	// Component configurations for each part of the tree item.
 	CursorConfig      TreeCursorConfig
 	PreSpacingConfig  TreeSpacingConfig
 	IndentationConfig TreeIndentationConfig
@@ -82,99 +112,165 @@ type TreeRenderConfig struct {
 	BackgroundConfig  TreeBackgroundConfig
 }
 
-// Individual component configurations for trees
+// TreeCursorConfig configures the appearance and behavior of the cursor component.
 type TreeCursorConfig struct {
-	Enabled         bool
-	CursorIndicator string
-	NormalSpacing   string
-	Style           lipgloss.Style
-	ShowOnlyAtRoot  bool // Only show cursor indicator at root level
-}
-
-type TreeSpacingConfig struct {
+	// Enabled toggles the rendering of this component.
 	Enabled bool
+	// CursorIndicator is the string shown when the item is under the cursor.
+	CursorIndicator string
+	// NormalSpacing is the string used for alignment when the item is not under
+	// the cursor.
+	NormalSpacing string
+	// Style is the lipgloss style applied to the component's output.
+	Style lipgloss.Style
+	// ShowOnlyAtRoot, if true, restricts the cursor indicator to only be shown
+	// for root-level nodes.
+	ShowOnlyAtRoot bool
+}
+
+// TreeSpacingConfig configures a spacing component, used for adding horizontal
+// space (padding) within the rendered item line.
+type TreeSpacingConfig struct {
+	// Enabled toggles the rendering of this component.
+	Enabled bool
+	// Spacing is the string to be rendered, typically composed of spaces.
 	Spacing string
-	Style   lipgloss.Style
+	// Style is the lipgloss style applied to the spacing.
+	Style lipgloss.Style
 }
 
+// TreeIndentationConfig configures the component responsible for rendering the
+// indentation that visually represents the tree's hierarchy.
 type TreeIndentationConfig struct {
-	Enabled        bool
-	IndentString   string // What to use for each level of indentation
-	IndentSize     int    // How many spaces per level
-	Style          lipgloss.Style
+	// Enabled toggles the rendering of this component.
+	Enabled bool
+	// IndentString is the string repeated for each level of indentation when
+	// UseConnectors is false.
+	IndentString string
+	// IndentSize is the number of spaces used for each indentation level if
+	// IndentString is empty.
+	IndentSize int
+	// Style is the lipgloss style for the indentation.
+	Style lipgloss.Style
+	// ConnectorStyle is the style applied to box-drawing characters if
+	// UseConnectors is true.
 	ConnectorStyle lipgloss.Style
-	UseConnectors  bool // Whether to use box-drawing characters
+	// UseConnectors, if true, renders indentation using box-drawing characters
+	// to create a classic tree look.
+	UseConnectors bool
 }
 
+// TreeSymbolConfig configures the component that displays symbols indicating a
+// node's state (expanded, collapsed, or leaf).
 type TreeSymbolConfig struct {
-	Enabled         bool
-	ExpandedSymbol  string
+	// Enabled toggles the rendering of this component.
+	Enabled bool
+	// ExpandedSymbol is the string shown for an expanded node (e.g., "▼").
+	ExpandedSymbol string
+	// CollapsedSymbol is the string shown for a collapsed node (e.g., "▶").
 	CollapsedSymbol string
-	LeafSymbol      string
-	Style           lipgloss.Style
-	ShowForLeaves   bool   // Whether to show symbols for leaf nodes
-	SymbolSpacing   string // Spacing after symbol
+	// LeafSymbol is the string shown for a node with no children.
+	LeafSymbol string
+	// Style is the lipgloss style applied to the symbol.
+	Style lipgloss.Style
+	// ShowForLeaves, if true, renders the LeafSymbol for nodes without children.
+	ShowForLeaves bool
+	// SymbolSpacing is a string (usually a space) added after the symbol for
+	// padding.
+	SymbolSpacing string
 }
 
+// TreeEnumeratorConfig configures the component that renders an enumerator
+// (e.g., bullet, number) for each tree item.
 type TreeEnumeratorConfig struct {
-	Enabled    bool
+	// Enabled toggles the rendering of this component.
+	Enabled bool
+	// Enumerator is the function that generates the enumerator string.
 	Enumerator TreeEnumeratorFunc
-	Style      lipgloss.Style
-	Alignment  TreeEnumeratorAlignment
-	MaxWidth   int
+	// Style is the lipgloss style applied to the enumerator.
+	Style lipgloss.Style
+	// Alignment controls the horizontal alignment of the enumerator string.
+	Alignment TreeEnumeratorAlignment
+	// MaxWidth is the maximum width for the enumerator, used for alignment.
+	MaxWidth int
 }
 
+// TreeContentConfig configures the component that renders the main content of
+// the tree item.
 type TreeContentConfig struct {
-	Enabled   bool
+	// Enabled toggles the rendering of this component.
+	Enabled bool
+	// Formatter is the function that generates the content string from the item data.
 	Formatter TreeItemFormatter
-	Style     lipgloss.Style
-	WrapText  bool
-	MaxWidth  int
+	// Style is the lipgloss style applied to the content.
+	Style lipgloss.Style
+	// WrapText enables or disables text wrapping for the content.
+	WrapText bool
+	// MaxWidth is the width at which text wrapping will occur.
+	MaxWidth int
 }
 
+// TreeBackgroundConfig configures the component that applies a background style
+// to the rendered item, acting as a post-processing step.
 type TreeBackgroundConfig struct {
-	Enabled           bool
-	Style             lipgloss.Style
+	// Enabled toggles the rendering of this component.
+	Enabled bool
+	// Style is the background style to apply.
+	Style lipgloss.Style
+	// ApplyToComponents specifies which other components the background should
+	// be applied to when using `TreeBackgroundSelectiveComponents` mode.
 	ApplyToComponents []TreeComponentType
-	Mode              TreeBackgroundMode
+	// Mode determines how the background style is applied.
+	Mode TreeBackgroundMode
 }
 
+// TreeEnumeratorAlignment defines the horizontal alignment for the enumerator.
 type TreeEnumeratorAlignment int
 
+// Constants for enumerator alignment.
 const (
 	TreeAlignmentNone TreeEnumeratorAlignment = iota
 	TreeAlignmentLeft
 	TreeAlignmentRight
 )
 
+// TreeBackgroundMode defines how the background style is applied to an item.
 type TreeBackgroundMode int
 
+// Constants for background styling modes.
 const (
+	// TreeBackgroundEntireLine applies the style to the entire rendered line.
 	TreeBackgroundEntireLine TreeBackgroundMode = iota
+	// TreeBackgroundSelectiveComponents applies the style only to a specified
+	// subset of components.
 	TreeBackgroundSelectiveComponents
+	// TreeBackgroundContentOnly applies the style only to the main content.
 	TreeBackgroundContentOnly
+	// TreeBackgroundIndicatorOnly applies the style only to the cursor indicator.
 	TreeBackgroundIndicatorOnly
 )
 
-// TreeEnumeratorFunc is like ListEnumerator but with tree-specific context
+// TreeEnumeratorFunc is a function type for generating an enumerator string,
+// receiving tree-specific context like depth and expansion state.
 type TreeEnumeratorFunc func(item core.Data[any], index int, depth int, hasChildren, isExpanded bool, ctx core.RenderContext) string
 
-// TreeItemFormatter is like ItemFormatter but with tree-specific context
+// TreeItemFormatter is a function type for rendering the main content of a tree
+// item, receiving full tree-specific context.
 type TreeItemFormatter func(item core.Data[any], index int, depth int, hasChildren, isExpanded bool, ctx core.RenderContext, isCursor, isTopThreshold, isBottomThreshold bool) string
 
-// ================================
-// COMPONENT IMPLEMENTATIONS
-// ================================
-
-// TreeCursorComponent handles cursor indicator rendering for trees
+// TreeCursorComponent is a render component responsible for displaying the cursor
+// indicator for a tree item. It shows a specific string when the item is under
+// the cursor and a different string otherwise to ensure alignment.
 type TreeCursorComponent struct {
 	config TreeCursorConfig
 }
 
+// NewTreeCursorComponent creates a new cursor component with the given configuration.
 func NewTreeCursorComponent(config TreeCursorConfig) *TreeCursorComponent {
 	return &TreeCursorComponent{config: config}
 }
 
+// Render returns the cursor indicator string based on the context.
 func (c *TreeCursorComponent) Render(ctx TreeComponentContext) string {
 	// Check if we should only show cursor at root level
 	if c.config.ShowOnlyAtRoot && ctx.Depth > 0 && ctx.IsCursor {
@@ -187,52 +283,66 @@ func (c *TreeCursorComponent) Render(ctx TreeComponentContext) string {
 	return c.config.Style.Render(c.config.NormalSpacing)
 }
 
+// GetType returns the unique type identifier for this component.
 func (c *TreeCursorComponent) GetType() TreeComponentType {
 	return TreeComponentCursor
 }
 
+// IsEnabled checks if the component is configured to be rendered.
 func (c *TreeCursorComponent) IsEnabled() bool {
 	return c.config.Enabled
 }
 
+// SetEnabled allows enabling or disabling this component at runtime.
 func (c *TreeCursorComponent) SetEnabled(enabled bool) {
 	c.config.Enabled = enabled
 }
 
-// TreePreSpacingComponent handles spacing before tree content
+// TreePreSpacingComponent is a render component that adds a fixed-width space
+// before the main content, useful for creating indentation or alignment.
 type TreePreSpacingComponent struct {
 	config TreeSpacingConfig
 }
 
+// NewTreePreSpacingComponent creates a new pre-spacing component.
 func NewTreePreSpacingComponent(config TreeSpacingConfig) *TreePreSpacingComponent {
 	return &TreePreSpacingComponent{config: config}
 }
 
+// Render returns the configured spacing string.
 func (c *TreePreSpacingComponent) Render(ctx TreeComponentContext) string {
 	return c.config.Style.Render(c.config.Spacing)
 }
 
+// GetType returns the unique type identifier for this component.
 func (c *TreePreSpacingComponent) GetType() TreeComponentType {
 	return TreeComponentPreSpacing
 }
 
+// IsEnabled checks if the component is configured to be rendered.
 func (c *TreePreSpacingComponent) IsEnabled() bool {
 	return c.config.Enabled
 }
 
+// SetEnabled allows enabling or disabling this component at runtime.
 func (c *TreePreSpacingComponent) SetEnabled(enabled bool) {
 	c.config.Enabled = enabled
 }
 
-// TreeIndentationComponent handles tree indentation
+// TreeIndentationComponent is a render component that generates the indentation
+// string for a tree node, visually representing its depth in the hierarchy. It
+// can use either simple spacing or box-drawing characters for a connected look.
 type TreeIndentationComponent struct {
 	config TreeIndentationConfig
 }
 
+// NewTreeIndentationComponent creates a new indentation component.
 func NewTreeIndentationComponent(config TreeIndentationConfig) *TreeIndentationComponent {
 	return &TreeIndentationComponent{config: config}
 }
 
+// Render generates the indentation string based on the node's depth and the
+// component's configuration.
 func (c *TreeIndentationComponent) Render(ctx TreeComponentContext) string {
 	if ctx.Depth == 0 {
 		return ""
@@ -279,27 +389,34 @@ func (c *TreeIndentationComponent) Render(ctx TreeComponentContext) string {
 	return c.config.Style.Render(indent.String())
 }
 
+// GetType returns the unique type identifier for this component.
 func (c *TreeIndentationComponent) GetType() TreeComponentType {
 	return TreeComponentIndentation
 }
 
+// IsEnabled checks if the component is configured to be rendered.
 func (c *TreeIndentationComponent) IsEnabled() bool {
 	return c.config.Enabled
 }
 
+// SetEnabled allows enabling or disabling this component at runtime.
 func (c *TreeIndentationComponent) SetEnabled(enabled bool) {
 	c.config.Enabled = enabled
 }
 
-// TreeSymbolComponent handles tree expansion/collapse symbols
+// TreeSymbolComponent is a render component that displays a symbol indicating
+// the state of a tree node (e.g., expanded, collapsed, or a leaf).
 type TreeSymbolComponent struct {
 	config TreeSymbolConfig
 }
 
+// NewTreeSymbolComponent creates a new tree symbol component.
 func NewTreeSymbolComponent(config TreeSymbolConfig) *TreeSymbolComponent {
 	return &TreeSymbolComponent{config: config}
 }
 
+// Render generates the symbol string based on the node's state (e.g., has
+// children, is expanded).
 func (c *TreeSymbolComponent) Render(ctx TreeComponentContext) string {
 	var symbol string
 
@@ -320,27 +437,35 @@ func (c *TreeSymbolComponent) Render(ctx TreeComponentContext) string {
 	return c.config.Style.Render(symbol)
 }
 
+// GetType returns the unique type identifier for this component.
 func (c *TreeSymbolComponent) GetType() TreeComponentType {
 	return TreeComponentTreeSymbol
 }
 
+// IsEnabled checks if the component is configured to be rendered.
 func (c *TreeSymbolComponent) IsEnabled() bool {
 	return c.config.Enabled
 }
 
+// SetEnabled allows enabling or disabling this component at runtime.
 func (c *TreeSymbolComponent) SetEnabled(enabled bool) {
 	c.config.Enabled = enabled
 }
 
-// TreeEnumeratorComponent handles enumeration for tree items
+// TreeEnumeratorComponent is a render component that displays an enumerator, such
+// as a bullet point or number, next to the tree item. The appearance is
+// determined by a provided `TreeEnumeratorFunc`.
 type TreeEnumeratorComponent struct {
 	config TreeEnumeratorConfig
 }
 
+// NewTreeEnumeratorComponent creates a new enumerator component for trees.
 func NewTreeEnumeratorComponent(config TreeEnumeratorConfig) *TreeEnumeratorComponent {
 	return &TreeEnumeratorComponent{config: config}
 }
 
+// Render generates the enumerator string using the configured function and
+// applies any specified alignment.
 func (c *TreeEnumeratorComponent) Render(ctx TreeComponentContext) string {
 	if c.config.Enumerator == nil {
 		return ""
@@ -374,27 +499,36 @@ func (c *TreeEnumeratorComponent) Render(ctx TreeComponentContext) string {
 	return c.config.Style.Render(enumText)
 }
 
+// GetType returns the unique type identifier for this component.
 func (c *TreeEnumeratorComponent) GetType() TreeComponentType {
 	return TreeComponentEnumerator
 }
 
+// IsEnabled checks if the component is configured to be rendered.
 func (c *TreeEnumeratorComponent) IsEnabled() bool {
 	return c.config.Enabled && c.config.Enumerator != nil
 }
 
+// SetEnabled allows enabling or disabling this component at runtime.
 func (c *TreeEnumeratorComponent) SetEnabled(enabled bool) {
 	c.config.Enabled = enabled
 }
 
-// TreeContentComponent handles the main tree item content
+// TreeContentComponent is the render component responsible for displaying the
+// main content of the tree item. It uses a provided formatter or a default
+// formatting logic and can handle text wrapping.
 type TreeContentComponent struct {
 	config TreeContentConfig
 }
 
+// NewTreeContentComponent creates a new content component for trees.
 func NewTreeContentComponent(config TreeContentConfig) *TreeContentComponent {
 	return &TreeContentComponent{config: config}
 }
 
+// Render generates the item's main content string. If text wrapping is enabled,
+// it will wrap the text and indent subsequent lines to align with the start of
+// the content.
 func (c *TreeContentComponent) Render(ctx TreeComponentContext) string {
 	var content string
 
@@ -450,52 +584,67 @@ func (c *TreeContentComponent) Render(ctx TreeComponentContext) string {
 	return c.config.Style.Render(content)
 }
 
+// GetType returns the unique type identifier for this component.
 func (c *TreeContentComponent) GetType() TreeComponentType {
 	return TreeComponentContent
 }
 
+// IsEnabled checks if the component is configured to be rendered.
 func (c *TreeContentComponent) IsEnabled() bool {
 	return c.config.Enabled
 }
 
+// SetEnabled allows enabling or disabling this component at runtime.
 func (c *TreeContentComponent) SetEnabled(enabled bool) {
 	c.config.Enabled = enabled
 }
 
-// TreePostSpacingComponent handles spacing after tree content
+// TreePostSpacingComponent is a render component that adds a fixed-width space
+// after the main content.
 type TreePostSpacingComponent struct {
 	config TreeSpacingConfig
 }
 
+// NewTreePostSpacingComponent creates a new post-spacing component.
 func NewTreePostSpacingComponent(config TreeSpacingConfig) *TreePostSpacingComponent {
 	return &TreePostSpacingComponent{config: config}
 }
 
+// Render returns the configured spacing string.
 func (c *TreePostSpacingComponent) Render(ctx TreeComponentContext) string {
 	return c.config.Style.Render(c.config.Spacing)
 }
 
+// GetType returns the unique type identifier for this component.
 func (c *TreePostSpacingComponent) GetType() TreeComponentType {
 	return TreeComponentPostSpacing
 }
 
+// IsEnabled checks if the component is configured to be rendered.
 func (c *TreePostSpacingComponent) IsEnabled() bool {
 	return c.config.Enabled
 }
 
+// SetEnabled allows enabling or disabling this component at runtime.
 func (c *TreePostSpacingComponent) SetEnabled(enabled bool) {
 	c.config.Enabled = enabled
 }
 
-// TreeBackgroundComponent handles background styling for tree items
+// TreeBackgroundComponent is a special render component that applies a background
+// style as a post-processing step. It can apply the style to the entire line or
+// to a select subset of the other rendered components.
 type TreeBackgroundComponent struct {
 	config TreeBackgroundConfig
 }
 
+// NewTreeBackgroundComponent creates a new background component for trees.
 func NewTreeBackgroundComponent(config TreeBackgroundConfig) *TreeBackgroundComponent {
 	return &TreeBackgroundComponent{config: config}
 }
 
+// Render applies the background style according to the configured mode. It does
+// not return its own content but rather modifies the combined output of other
+// components.
 func (c *TreeBackgroundComponent) Render(ctx TreeComponentContext) string {
 	switch c.config.Mode {
 	case TreeBackgroundEntireLine:
@@ -587,28 +736,31 @@ func (c *TreeBackgroundComponent) Render(ctx TreeComponentContext) string {
 	}
 }
 
+// GetType returns the unique type identifier for this component.
 func (c *TreeBackgroundComponent) GetType() TreeComponentType {
 	return TreeComponentBackground
 }
 
+// IsEnabled checks if the component is configured to be rendered.
 func (c *TreeBackgroundComponent) IsEnabled() bool {
 	return c.config.Enabled
 }
 
+// SetEnabled allows enabling or disabling this component at runtime.
 func (c *TreeBackgroundComponent) SetEnabled(enabled bool) {
 	c.config.Enabled = enabled
 }
 
-// ================================
-// TREE COMPONENT RENDERER
-// ================================
-
-// TreeComponentRenderer orchestrates the rendering of all tree components
+// TreeComponentRenderer manages the rendering pipeline for a tree item. It holds
+// all the individual render components and processes them in a defined order to
+// construct the final string for a single tree item.
 type TreeComponentRenderer struct {
 	components map[TreeComponentType]TreeRenderComponent
 	config     TreeRenderConfig
 }
 
+// NewTreeComponentRenderer creates a new renderer with a given configuration,
+// initializing all the necessary components for tree rendering.
 func NewTreeComponentRenderer(config TreeRenderConfig) *TreeComponentRenderer {
 	renderer := &TreeComponentRenderer{
 		components: make(map[TreeComponentType]TreeRenderComponent),
@@ -628,31 +780,33 @@ func NewTreeComponentRenderer(config TreeRenderConfig) *TreeComponentRenderer {
 	return renderer
 }
 
-// SetComponentOrder sets the rendering order of components
+// SetComponentOrder defines the sequence in which the components are rendered.
 func (r *TreeComponentRenderer) SetComponentOrder(order []TreeComponentType) {
 	r.config.ComponentOrder = order
 }
 
-// EnableComponent enables a specific component
+// EnableComponent activates a specific component in the rendering pipeline.
 func (r *TreeComponentRenderer) EnableComponent(componentType TreeComponentType) {
 	if comp, exists := r.components[componentType]; exists {
 		comp.SetEnabled(true)
 	}
 }
 
-// DisableComponent disables a specific component
+// DisableComponent deactivates a specific component.
 func (r *TreeComponentRenderer) DisableComponent(componentType TreeComponentType) {
 	if comp, exists := r.components[componentType]; exists {
 		comp.SetEnabled(false)
 	}
 }
 
-// GetComponent returns a component by type
+// GetComponent retrieves a specific component from the renderer, allowing for
+// direct configuration changes.
 func (r *TreeComponentRenderer) GetComponent(componentType TreeComponentType) TreeRenderComponent {
 	return r.components[componentType]
 }
 
-// UpdateConfig updates the renderer configuration
+// UpdateConfig applies a new configuration to the renderer, recreating all
+// its internal components to reflect the changes.
 func (r *TreeComponentRenderer) UpdateConfig(config TreeRenderConfig) {
 	r.config = config
 	// Recreate components with new config
@@ -666,7 +820,10 @@ func (r *TreeComponentRenderer) UpdateConfig(config TreeRenderConfig) {
 	r.components[TreeComponentBackground] = NewTreeBackgroundComponent(config.BackgroundConfig)
 }
 
-// Render renders all components in the specified order
+// Render executes the full rendering pipeline for a single tree item. It iterates
+// through the components in the configured order, calls their `Render` methods,
+// and assembles the final string. It handles special cases like the background
+// component, which modifies the output of other components.
 func (r *TreeComponentRenderer) Render(
 	item core.Data[any],
 	index int,
@@ -724,11 +881,8 @@ func (r *TreeComponentRenderer) Render(
 	return result.String()
 }
 
-// ================================
-// PRESET CONFIGURATIONS
-// ================================
-
-// DefaultTreeRenderConfig returns sensible defaults for component-based tree rendering
+// DefaultTreeRenderConfig returns a sensible default configuration for a
+// component-based tree, featuring a cursor, indentation, tree symbols, and content.
 func DefaultTreeRenderConfig() TreeRenderConfig {
 	return TreeRenderConfig{
 		ComponentOrder: []TreeComponentType{
@@ -794,14 +948,16 @@ func DefaultTreeRenderConfig() TreeRenderConfig {
 	}
 }
 
-// StandardTreeConfig creates a config for standard trees with box-drawing characters
+// StandardTreeConfig provides a pre-configured `TreeRenderConfig` that uses
+// box-drawing characters for a classic, connected tree appearance.
 func StandardTreeConfig() TreeRenderConfig {
 	config := DefaultTreeRenderConfig()
 	config.IndentationConfig.UseConnectors = true
 	return config
 }
 
-// MinimalTreeConfig creates a config for minimal trees
+// MinimalTreeConfig provides a pre-configured `TreeRenderConfig` with only
+// indentation and content enabled, for a clean, simple look.
 func MinimalTreeConfig() TreeRenderConfig {
 	config := DefaultTreeRenderConfig()
 	config.ComponentOrder = []TreeComponentType{
@@ -813,7 +969,8 @@ func MinimalTreeConfig() TreeRenderConfig {
 	return config
 }
 
-// EnumeratedTreeConfig creates a config for trees with enumeration
+// EnumeratedTreeConfig creates a `TreeRenderConfig` that includes an enumerator
+// component, allowing for numbered or bulleted tree items.
 func EnumeratedTreeConfig(enumerator TreeEnumeratorFunc) TreeRenderConfig {
 	config := DefaultTreeRenderConfig()
 	config.ComponentOrder = []TreeComponentType{
@@ -828,7 +985,9 @@ func EnumeratedTreeConfig(enumerator TreeEnumeratorFunc) TreeRenderConfig {
 	return config
 }
 
-// BackgroundStyledTreeConfig creates a config with background styling
+// BackgroundStyledTreeConfig creates a `TreeRenderConfig` that applies a
+// background style to tree items. The mode determines whether the style applies
+// to the entire line or just specific components.
 func BackgroundStyledTreeConfig(style lipgloss.Style, mode TreeBackgroundMode) TreeRenderConfig {
 	config := DefaultTreeRenderConfig()
 	config.BackgroundConfig.Enabled = true
@@ -837,11 +996,10 @@ func BackgroundStyledTreeConfig(style lipgloss.Style, mode TreeBackgroundMode) T
 	return config
 }
 
-// ================================
-// INTEGRATION WITH EXISTING SYSTEM
-// ================================
-
-// ComponentBasedTreeFormatter creates a TreeItemFormatter that uses the component system
+// ComponentBasedTreeFormatter creates a `TreeItemFormatter` function from a
+// `TreeRenderConfig`. This allows the component-based rendering pipeline to be
+// used as a standard formatter, providing an integration point with systems
+// that expect a single formatting function.
 func ComponentBasedTreeFormatter(config TreeRenderConfig) TreeItemFormatter {
 	renderer := NewTreeComponentRenderer(config)
 	return func(
@@ -856,17 +1014,15 @@ func ComponentBasedTreeFormatter(config TreeRenderConfig) TreeItemFormatter {
 	}
 }
 
-// EnhancedTreeFormatter creates a TreeItemFormatter using the component system
-// This is the main entry point for tree rendering
+// EnhancedTreeFormatter is an alias for `ComponentBasedTreeFormatter`. It serves
+// as the primary entry point for using the component-based rendering system.
 func EnhancedTreeFormatter(config TreeRenderConfig) TreeItemFormatter {
 	return ComponentBasedTreeFormatter(config)
 }
 
-// ================================
-// UTILITY FUNCTIONS
-// ================================
-
-// FormatTreeItemContent formats tree item content with default behavior
+// FormatTreeItemContent provides a default way to format the main content of a
+// tree item. It converts the item's data to a string and appends indicators
+// for states like error, loading, or selection based on the render context.
 func FormatTreeItemContent(
 	item core.Data[any],
 	index int,

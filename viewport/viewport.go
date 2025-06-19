@@ -1,12 +1,17 @@
+// Package viewport provides the logic for managing the visible area of a component,
+// handling scrolling, cursor movement, and calculating which data chunks are
+// needed to display the current view. It is a core dependency for components
+// like List and Table that virtualize their data.
 package viewport
 
 import "github.com/davidroman0O/vtable/core"
 
-// ================================
-// VIEWPORT TYPES
-// ================================
-
-// BoundingArea represents the area around the viewport where chunks should be loaded
+// BoundingArea represents the area around the viewport where data chunks should
+// be pre-emptively loaded to ensure smooth scrolling. It is defined by absolute
+// item indices and chunk boundaries.
+//
+// Deprecated: This struct is defined in the core package. This local definition
+// is redundant and will be removed in a future version. Use core.BoundingArea instead.
 type BoundingArea struct {
 	StartIndex int // Absolute start index of bounding area
 	EndIndex   int // Absolute end index of bounding area (inclusive)
@@ -14,11 +19,10 @@ type BoundingArea struct {
 	ChunkEnd   int // Last chunk index in bounding area
 }
 
-// ================================
-// VIEWPORT CALCULATION FUNCTIONS
-// ================================
-
-// UpdateViewportBounds calculates viewport boundary flags
+// UpdateViewportBounds calculates and updates the boundary flags of the viewport state.
+// These flags (e.g., `IsAtTopThreshold`, `AtDatasetEnd`) are essential for
+// controlling scroll behavior and providing feedback to the user. The function
+// operates on a copy of the state, ensuring immutability.
 func UpdateViewportBounds(viewport core.ViewportState, viewportConfig core.ViewportConfig, totalItems int) core.ViewportState {
 	height := viewportConfig.Height
 	topThreshold := viewportConfig.TopThreshold
@@ -52,7 +56,10 @@ func UpdateViewportBounds(viewport core.ViewportState, viewportConfig core.Viewp
 	return result
 }
 
-// CalculateBoundingArea calculates the bounding area around the current viewport automatically
+// CalculateBoundingArea determines the range of data that should be loaded into
+// memory, based on the current viewport position and the configured buffer sizes
+// (`BoundingAreaBefore` and `BoundingAreaAfter`). This "bounding area" is larger
+// than the visible viewport, allowing for seamless scrolling as data is pre-fetched.
 func CalculateBoundingArea(viewport core.ViewportState, viewportConfig core.ViewportConfig, totalItems int) core.BoundingArea {
 	if totalItems == 0 {
 		return core.BoundingArea{}
@@ -96,7 +103,10 @@ func CalculateBoundingArea(viewport core.ViewportState, viewportConfig core.View
 	}
 }
 
-// UpdateViewportPosition calculates viewport position based on cursor index
+// UpdateViewportPosition recalculates the viewport's start index based on the
+// absolute cursor position. If the cursor has moved outside the visible area,
+// this function adjusts the viewport to bring the cursor back into view. It's
+// a key function for ensuring the cursor remains visible during navigation.
 func UpdateViewportPosition(viewport core.ViewportState, viewportConfig core.ViewportConfig, totalItems int) core.ViewportState {
 	if totalItems == 0 {
 		return viewport

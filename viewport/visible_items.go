@@ -1,3 +1,7 @@
+// Package viewport provides the logic for managing the visible area of a component,
+// handling scrolling, cursor movement, and calculating which data chunks are
+// needed to display the current view. It is a core dependency for components
+// like List and Table that virtualize their data.
 package viewport
 
 import (
@@ -7,18 +11,19 @@ import (
 	"github.com/davidroman0O/vtable/data"
 )
 
-// ================================
-// VISIBLE ITEMS FUNCTIONS
-// ================================
-
-// VisibleItemsResult represents the result of calculating visible items
+// VisibleItemsResult holds the outcome of calculating the set of items that
+// should be currently visible in the viewport. It includes the slice of items
+// (which may contain placeholders), an adjusted viewport state, and a count of
+// any placeholders that were created.
 type VisibleItemsResult struct {
-	Items               []core.Data[any]
-	AdjustedViewport    core.ViewportState
-	PlaceholdersCreated int
+	Items               []core.Data[any]   // The slice of items to be displayed.
+	AdjustedViewport    core.ViewportState // The viewport state, possibly corrected for boundary conditions.
+	PlaceholdersCreated int                // The number of placeholder items created due to missing data.
 }
 
-// CreateLoadingPlaceholder creates a loading placeholder item
+// CreateLoadingPlaceholder generates a placeholder `core.Data` item that indicates
+// its content is currently being loaded. This is used to populate the viewport
+// while waiting for a data chunk to arrive.
 func CreateLoadingPlaceholder(index int) core.Data[any] {
 	return core.Data[any]{
 		ID:   fmt.Sprintf("loading-%d", index),
@@ -26,7 +31,9 @@ func CreateLoadingPlaceholder(index int) core.Data[any] {
 	}
 }
 
-// CreateMissingPlaceholder creates a missing item placeholder
+// CreateMissingPlaceholder generates a placeholder `core.Data` item for data that
+// could not be found, even after a load attempt. This indicates a potential
+// inconsistency between the expected total items and the actual data available.
 func CreateMissingPlaceholder(index int) core.Data[any] {
 	return core.Data[any]{
 		ID:   fmt.Sprintf("missing-%d", index),
@@ -34,7 +41,12 @@ func CreateMissingPlaceholder(index int) core.Data[any] {
 	}
 }
 
-// CalculateVisibleItemsFromChunks calculates visible items from loaded chunks
+// CalculateVisibleItemsFromChunks constructs the slice of items that should be
+// visible in the viewport based on the current set of loaded data chunks. If an
+// item is not found in the loaded chunks, it can trigger an immediate load via
+// the `ensureChunkLoaded` callback and, if still unavailable, will generate a
+// placeholder item. The function returns the final slice of items and an
+// adjusted viewport state.
 func CalculateVisibleItemsFromChunks(
 	viewport core.ViewportState,
 	config core.ViewportConfig,
@@ -116,7 +128,10 @@ func CalculateVisibleItemsFromChunks(
 	}
 }
 
-// ValidateVisibleItemsBounds ensures cursor stays within visible items bounds
+// ValidateVisibleItemsBounds corrects the cursor position if it falls outside
+// the bounds of the currently visible items. This is a crucial safety check to
+// prevent out-of-bounds panics when the number of visible items changes, for
+// example, after a data refresh or filter operation.
 func ValidateVisibleItemsBounds(viewport core.ViewportState, visibleItemsCount int) core.ViewportState {
 	result := viewport
 
