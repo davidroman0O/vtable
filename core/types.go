@@ -788,6 +788,8 @@ type ListCursorConfig struct {
 	CursorIndicator string
 	NormalSpacing   string
 	Style           lipgloss.Style
+	Alignment       ListEnumeratorAlignment
+	MaxWidth        int
 
 	// Background styling for different states
 	CursorBackground   lipgloss.Style // Background when this item has cursor

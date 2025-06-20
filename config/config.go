@@ -41,6 +41,8 @@ func DefaultListRenderConfig() core.ListRenderConfig {
 			CursorIndicator: "► ",
 			NormalSpacing:   "  ",
 			Style:           lipgloss.NewStyle(),
+			Alignment:       core.ListAlignmentNone,
+			MaxWidth:        0,
 		},
 		PreSpacingConfig: core.ListSpacingConfig{
 			Enabled: false,

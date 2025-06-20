@@ -12,6 +12,7 @@ import (
 	"github.com/davidroman0O/vtable/config"
 	"github.com/davidroman0O/vtable/core"
 	"github.com/davidroman0O/vtable/render"
+	"github.com/mattn/go-runewidth"
 )
 
 // ListCursorComponent is a render component responsible for displaying the cursor
@@ -34,6 +35,32 @@ func (c *ListCursorComponent) Render(ctx core.ListComponentContext) string {
 		content = c.config.CursorIndicator
 	} else {
 		content = c.config.NormalSpacing
+	}
+
+	// Apply alignment if configured
+	if c.config.MaxWidth > 0 {
+		// Use proper width measurement (same as content component)
+		var measureWidth func(string) int
+		if strings.Contains(content, "\x1b") {
+			// For styled text: use lipgloss for ANSI-aware width measurement
+			measureWidth = lipgloss.Width
+		} else {
+			// For plain text: use runewidth for proper Unicode handling
+			measureWidth = runewidth.StringWidth
+		}
+
+		currentWidth := measureWidth(content)
+		if currentWidth < c.config.MaxWidth {
+			padding := c.config.MaxWidth - currentWidth
+			switch c.config.Alignment {
+			case core.ListAlignmentRight:
+				content = strings.Repeat(" ", padding) + content
+			case core.ListAlignmentLeft:
+				content = content + strings.Repeat(" ", padding)
+			default: // ListAlignmentNone - default to left alignment
+				content = content + strings.Repeat(" ", padding)
+			}
+		}
 	}
 
 	// Apply component styling first
@@ -225,6 +252,39 @@ func (c *ListContentComponent) Render(ctx core.ListComponentContext) string {
 			content = strings.Join(lines, "\n"+strings.Repeat(" ", indentSize))
 		} else if len(lines) == 1 {
 			content = lines[0]
+		}
+	} else if c.config.MaxWidth > 0 {
+		// Handle width constraints when wrapping is disabled - apply truncation
+		// Clean up content first (same as table system)
+		content = strings.ReplaceAll(content, "\n", " ")
+		content = strings.ReplaceAll(content, "\r", " ")
+		content = strings.ReplaceAll(content, "\t", " ")
+		for strings.Contains(content, "  ") {
+			content = strings.ReplaceAll(content, "  ", " ")
+		}
+		content = strings.TrimSpace(content)
+
+		// Apply width constraints with proper truncation (same as table system)
+		// Detect if text contains ANSI escape codes (styling)
+		hasANSI := strings.Contains(content, "\x1b")
+
+		// Choose appropriate width measurement function
+		var measureWidth func(string) int
+		var truncateFunc func(string, int, string) string
+
+		if hasANSI {
+			// For styled text: use lipgloss for ANSI-aware width measurement
+			measureWidth = lipgloss.Width
+			truncateFunc = ansiTruncateList
+		} else {
+			// For plain text: use runewidth for proper Unicode handling
+			measureWidth = runewidth.StringWidth
+			truncateFunc = ansiTruncateWithRunewidthList
+		}
+
+		// Check if we need to truncate
+		if measureWidth(content) > c.config.MaxWidth {
+			content = truncateFunc(content, c.config.MaxWidth, "...")
 		}
 	}
 
@@ -683,3 +743,90 @@ const (
 	// BackgroundStyleCustom allows applying the background to a custom set of components.
 	BackgroundStyleCustom = core.ListBackgroundSelectiveComponents
 )
+
+// ansiTruncateList truncates text accounting for ANSI escape codes (like lipgloss ansi.Truncate)
+func ansiTruncateList(text string, maxWidth int, suffix string) string {
+	if maxWidth <= 0 {
+		return ""
+	}
+
+	textWidth := lipgloss.Width(text)
+	if textWidth <= maxWidth {
+		return text
+	}
+
+	suffixWidth := lipgloss.Width(suffix)
+	if maxWidth <= suffixWidth {
+		// If there's no room for content, just return dots
+		return strings.Repeat(".", maxWidth)
+	}
+
+	// We need to truncate - account for ANSI codes
+	targetWidth := maxWidth - suffixWidth
+	var result strings.Builder
+	var currentWidth int
+	inAnsi := false
+
+	for _, r := range text {
+		if r == '\x1b' {
+			inAnsi = true
+			result.WriteRune(r)
+			continue
+		}
+
+		if inAnsi {
+			result.WriteRune(r)
+			if r == 'm' {
+				inAnsi = false
+			}
+			continue
+		}
+
+		charWidth := lipgloss.Width(string(r))
+		if currentWidth+charWidth > targetWidth {
+			break
+		}
+
+		result.WriteRune(r)
+		currentWidth += charWidth
+	}
+
+	result.WriteString(suffix)
+	return result.String()
+}
+
+// ansiTruncateWithRunewidthList truncates text accounting for Unicode width using runewidth
+func ansiTruncateWithRunewidthList(text string, maxWidth int, suffix string) string {
+	if maxWidth <= 0 {
+		return ""
+	}
+
+	textWidth := runewidth.StringWidth(text)
+	if textWidth <= maxWidth {
+		return text
+	}
+
+	suffixWidth := runewidth.StringWidth(suffix)
+	if maxWidth <= suffixWidth {
+		// If there's no room for content, just return dots
+		return strings.Repeat(".", maxWidth)
+	}
+
+	// We need to truncate - account for Unicode width
+	targetWidth := maxWidth - suffixWidth
+	var result strings.Builder
+	var currentWidth int
+
+	for _, r := range text {
+		charWidth := runewidth.RuneWidth(r)
+		if currentWidth+charWidth > targetWidth {
+			break
+		}
+
+		result.WriteRune(r)
+		currentWidth += charWidth
+	}
+
+	result.WriteString(suffix)
+	return result.String()
+}
