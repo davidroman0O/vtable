@@ -548,6 +548,11 @@ func (l *List) GetState() core.ViewportState {
 	return l.viewport
 }
 
+// GetTotalItems returns the total number of items in the dataset.
+func (l *List) GetTotalItems() int {
+	return l.totalItems
+}
+
 // GetSelectionCount returns the number of currently selected items.
 func (l *List) GetSelectionCount() int {
 	return data.GetSelectionCount(l.chunks)
