@@ -375,8 +375,11 @@ func main() {
 	listConfig.MaxWidth = 500
 	listConfig.SelectionMode = core.SelectionMultiple
 
+	// Set the formatter in the config (Option 3 approach)
+	listConfig.RenderConfig.ContentConfig.Formatter = styledPersonFormatter
+
 	// Create list with beautiful styled formatter
-	vtableList := list.NewList(listConfig, dataSource, styledPersonFormatter)
+	vtableList := list.NewList(listConfig, dataSource)
 
 	app := &App{
 		list:           vtableList,

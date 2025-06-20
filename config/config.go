@@ -17,13 +17,12 @@ import (
 // It initializes the list with a standard viewport, styles, selection mode, and keymap.
 func DefaultListConfig() core.ListConfig {
 	return core.ListConfig{
-		ViewportConfig:  DefaultViewportConfig(),
-		StyleConfig:     DefaultStyleConfig(),
-		RenderConfig:    DefaultListRenderConfig(), // Will be set by list package
-		AnimationConfig: core.DefaultAnimationConfig(),
-		SelectionMode:   core.SelectionSingle,
-		KeyMap:          core.DefaultNavigationKeyMap(),
-		MaxWidth:        80,
+		ViewportConfig: DefaultViewportConfig(),
+		StyleConfig:    DefaultStyleConfig(),
+		RenderConfig:   DefaultListRenderConfig(), // Will be set by list package
+		SelectionMode:  core.SelectionSingle,
+		KeyMap:         core.DefaultNavigationKeyMap(),
+		MaxWidth:       80,
 	}
 }
 
@@ -214,15 +213,12 @@ func ValidateTableConfig(config *core.TableConfig) []error {
 }
 
 // ValidateListConfig checks a ListConfig for valid values and returns a slice
-// of errors. It validates the viewport, animation, and display settings.
+// of errors. It validates the viewport and display settings.
 func ValidateListConfig(config *core.ListConfig) []error {
 	var errors []error
 
 	// Validate viewport config
 	errors = append(errors, ValidateViewportConfig(&config.ViewportConfig)...)
-
-	// Validate animation config
-	errors = append(errors, ValidateAnimationConfig(&config.AnimationConfig)...)
 
 	// Validate max width
 	if config.MaxWidth <= 0 {
@@ -317,13 +313,10 @@ func FixTableConfig(config *core.TableConfig) {
 }
 
 // FixListConfig corrects common issues in a ListConfig by fixing its
-// child configurations (viewport, animation) and validating its own properties.
+// child configurations (viewport) and validating its own properties.
 func FixListConfig(config *core.ListConfig) {
 	// Fix viewport config
 	FixViewportConfig(&config.ViewportConfig)
-
-	// Fix animation config
-	FixAnimationConfig(&config.AnimationConfig)
 
 	// Fix max width
 	if config.MaxWidth <= 0 {
@@ -381,12 +374,6 @@ func (b *ListConfigBuilder) WithSelectionMode(mode core.SelectionMode) *ListConf
 // WithMaxWidth sets the maximum width of the list in the configuration.
 func (b *ListConfigBuilder) WithMaxWidth(width int) *ListConfigBuilder {
 	b.config.MaxWidth = width
-	return b
-}
-
-// WithAnimationEnabled enables or disables animations in the configuration.
-func (b *ListConfigBuilder) WithAnimationEnabled(enabled bool) *ListConfigBuilder {
-	b.config.AnimationConfig.Enabled = enabled
 	return b
 }
 
@@ -485,13 +472,6 @@ func (b *TableConfigBuilder) WithBottomBorderSpaceRemoved(removed bool) *TableCo
 	return b
 }
 
-// WithAnimationEnabled enables or disables animations in the configuration.
-// TODO: animation system is not implemented yet
-// func (b *TableConfigBuilder) WithAnimationEnabled(enabled bool) *TableConfigBuilder {
-// 	b.config.AnimationConfig.Enabled = enabled
-// 	return b
-// }
-
 // Build returns the final, constructed core.TableConfig.
 func (b *TableConfigBuilder) Build() core.TableConfig {
 	return b.config
@@ -525,7 +505,6 @@ func MergeListConfigs(base, override core.ListConfig) core.ListConfig {
 	}
 
 	result.SelectionMode = override.SelectionMode
-	result.AnimationConfig = override.AnimationConfig
 	result.StyleConfig = override.StyleConfig
 	result.KeyMap = override.KeyMap
 
@@ -575,12 +554,12 @@ func MergeTableConfigs(base, override core.TableConfig) core.TableConfig {
 func CloneListConfig(config core.ListConfig) core.ListConfig {
 	// Create a copy with the same values
 	return core.ListConfig{
-		ViewportConfig:  config.ViewportConfig,
-		StyleConfig:     config.StyleConfig,
-		AnimationConfig: config.AnimationConfig,
-		SelectionMode:   config.SelectionMode,
-		KeyMap:          config.KeyMap,
-		MaxWidth:        config.MaxWidth,
+		ViewportConfig: config.ViewportConfig,
+		StyleConfig:    config.StyleConfig,
+		RenderConfig:   config.RenderConfig,
+		SelectionMode:  config.SelectionMode,
+		KeyMap:         config.KeyMap,
+		MaxWidth:       config.MaxWidth,
 	}
 }
 

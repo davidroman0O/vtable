@@ -699,9 +699,6 @@ type ListConfig struct {
 	// RenderConfig defines the component-based rendering pipeline.
 	RenderConfig ListRenderConfig
 
-	// AnimationConfig controls animation behavior.
-	AnimationConfig AnimationConfig
-
 	// SelectionMode defines the selection behavior.
 	SelectionMode SelectionMode
 
@@ -791,6 +788,14 @@ type ListCursorConfig struct {
 	CursorIndicator string
 	NormalSpacing   string
 	Style           lipgloss.Style
+
+	// Background styling for different states
+	CursorBackground   lipgloss.Style // Background when this item has cursor
+	SelectedBackground lipgloss.Style // Background when this item is selected
+	NormalBackground   lipgloss.Style // Background for normal items
+	ApplyCursorBg      bool           // Apply cursor background
+	ApplySelectedBg    bool           // Apply selected background
+	ApplyNormalBg      bool           // Apply normal background
 }
 
 // ListSpacingConfig configures spacing components.
@@ -798,6 +803,14 @@ type ListSpacingConfig struct {
 	Enabled bool
 	Spacing string
 	Style   lipgloss.Style
+
+	// Background styling for different states
+	CursorBackground   lipgloss.Style // Background when this item has cursor
+	SelectedBackground lipgloss.Style // Background when this item is selected
+	NormalBackground   lipgloss.Style // Background for normal items
+	ApplyCursorBg      bool           // Apply cursor background
+	ApplySelectedBg    bool           // Apply selected background
+	ApplyNormalBg      bool           // Apply normal background
 }
 
 // ListEnumeratorConfig configures the enumerator component.
@@ -807,6 +820,14 @@ type ListEnumeratorConfig struct {
 	Style      lipgloss.Style
 	Alignment  ListEnumeratorAlignment
 	MaxWidth   int
+
+	// Background styling for different states
+	CursorBackground   lipgloss.Style // Background when this item has cursor
+	SelectedBackground lipgloss.Style // Background when this item is selected
+	NormalBackground   lipgloss.Style // Background for normal items
+	ApplyCursorBg      bool           // Apply cursor background
+	ApplySelectedBg    bool           // Apply selected background
+	ApplyNormalBg      bool           // Apply normal background
 }
 
 // ListContentConfig configures the main content component.
@@ -816,6 +837,14 @@ type ListContentConfig struct {
 	Style     lipgloss.Style
 	WrapText  bool
 	MaxWidth  int
+
+	// Background styling for different states
+	CursorBackground   lipgloss.Style // Background when this item has cursor
+	SelectedBackground lipgloss.Style // Background when this item is selected
+	NormalBackground   lipgloss.Style // Background for normal items
+	ApplyCursorBg      bool           // Apply cursor background
+	ApplySelectedBg    bool           // Apply selected background
+	ApplyNormalBg      bool           // Apply normal background
 }
 
 // ListBackgroundConfig configures the background styling component.

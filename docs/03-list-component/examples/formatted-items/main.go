@@ -256,8 +256,11 @@ func main() {
 	listConfig.ViewportConfig.Height = 8
 	listConfig.SelectionMode = core.SelectionMultiple
 
+	// Set the formatter in the config (Option 3 approach)
+	listConfig.RenderConfig.ContentConfig.Formatter = personFormatter
+
 	// Create list with custom person formatter
-	vtableList := list.NewList(listConfig, dataSource, personFormatter)
+	vtableList := list.NewList(listConfig, dataSource)
 
 	app := &App{
 		list:           vtableList,

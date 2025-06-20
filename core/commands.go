@@ -9,6 +9,7 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 )
 
 // CursorUpCmd creates a command that sends a CursorUpMsg to move the cursor up.
@@ -895,4 +896,46 @@ type FullRowHighlightToggleMsg struct{}
 // FullRowHighlightEnableMsg enables or disables full row highlighting mode.
 type FullRowHighlightEnableMsg struct {
 	Enabled bool
+}
+
+// AriaLabelCmd returns a command to set the ARIA label for accessibility.
+func AriaLabelCmd(label string) tea.Cmd {
+	return func() tea.Msg {
+		return AriaLabelSetMsg{Label: label}
+	}
+}
+
+// SetFullRowSelectionCmd returns a command to enable/disable full row selection styling
+func SetFullRowSelectionCmd(enabled bool, background lipgloss.Style) tea.Cmd {
+	return func() tea.Msg {
+		return SetFullRowSelectionMsg{
+			Enabled:    enabled,
+			Background: background,
+		}
+	}
+}
+
+// SetCursorRowStylingCmd returns a command to enable/disable full row cursor styling
+func SetCursorRowStylingCmd(enabled bool, background lipgloss.Style) tea.Cmd {
+	return func() tea.Msg {
+		return SetCursorRowStylingMsg{
+			Enabled:    enabled,
+			Background: background,
+		}
+	}
+}
+
+// SetComponentBackgroundCmd returns a command to configure background styling for a specific component
+func SetComponentBackgroundCmd(componentType ListComponentType, cursorBg, selectedBg, normalBg lipgloss.Style, applyCursor, applySelected, applyNormal bool) tea.Cmd {
+	return func() tea.Msg {
+		return SetComponentBackgroundMsg{
+			ComponentType: componentType,
+			CursorBg:      cursorBg,
+			SelectedBg:    selectedBg,
+			NormalBg:      normalBg,
+			ApplyCursor:   applyCursor,
+			ApplySelected: applySelected,
+			ApplyNormal:   applyNormal,
+		}
+	}
 }

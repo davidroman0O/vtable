@@ -29,10 +29,32 @@ func NewListCursorComponent(config core.ListCursorConfig) *ListCursorComponent {
 
 // Render returns the cursor indicator string based on the context.
 func (c *ListCursorComponent) Render(ctx core.ListComponentContext) string {
+	var content string
 	if ctx.IsCursor {
-		return c.config.Style.Render(c.config.CursorIndicator)
+		content = c.config.CursorIndicator
+	} else {
+		content = c.config.NormalSpacing
 	}
-	return c.config.Style.Render(c.config.NormalSpacing)
+
+	// Apply component styling first
+	styledContent := c.config.Style.Render(content)
+
+	// Apply background styling based on state while preserving text styling
+	if ctx.IsCursor && c.config.ApplyCursorBg {
+		// Use width-aware background styling that works with complex content
+		bgStyle := c.config.CursorBackground.Copy().Width(lipgloss.Width(styledContent))
+		return bgStyle.Render(styledContent)
+	} else if ctx.IsSelected && c.config.ApplySelectedBg {
+		// Use width-aware background styling that works with complex content
+		bgStyle := c.config.SelectedBackground.Copy().Width(lipgloss.Width(styledContent))
+		return bgStyle.Render(styledContent)
+	} else if c.config.ApplyNormalBg {
+		// Use width-aware background styling that works with complex content
+		bgStyle := c.config.NormalBackground.Copy().Width(lipgloss.Width(styledContent))
+		return bgStyle.Render(styledContent)
+	}
+
+	return styledContent
 }
 
 // GetType returns the unique type identifier for this component.
@@ -118,7 +140,19 @@ func (c *ListEnumeratorComponent) Render(ctx core.ListComponentContext) string {
 		}
 	}
 
-	return c.config.Style.Render(enumText)
+	// Apply component styling first
+	styledContent := c.config.Style.Render(enumText)
+
+	// Apply background styling based on state
+	if ctx.IsCursor && c.config.ApplyCursorBg {
+		return c.config.CursorBackground.Render(styledContent)
+	} else if ctx.IsSelected && c.config.ApplySelectedBg {
+		return c.config.SelectedBackground.Render(styledContent)
+	} else if c.config.ApplyNormalBg {
+		return c.config.NormalBackground.Render(styledContent)
+	}
+
+	return styledContent
 }
 
 // GetType returns the unique type identifier for this component.
@@ -194,7 +228,48 @@ func (c *ListContentComponent) Render(ctx core.ListComponentContext) string {
 		}
 	}
 
-	return c.config.Style.Render(content)
+	// Apply component styling first
+	styledContent := c.config.Style.Render(content)
+
+	// Apply background styling based on state with more aggressive approach
+	if ctx.IsCursor && c.config.ApplyCursorBg {
+		// Strip all existing styling and apply background
+		plainContent := stripAnsiCodes(styledContent)
+		return c.config.CursorBackground.Render(plainContent)
+	} else if ctx.IsSelected && c.config.ApplySelectedBg {
+		// Strip all existing styling and apply background
+		plainContent := stripAnsiCodes(styledContent)
+		return c.config.SelectedBackground.Render(plainContent)
+	} else if c.config.ApplyNormalBg {
+		// Strip all existing styling and apply background
+		plainContent := stripAnsiCodes(styledContent)
+		return c.config.NormalBackground.Render(plainContent)
+	}
+
+	return styledContent
+}
+
+// stripAnsiCodes removes ANSI escape sequences from a string to get plain text
+func stripAnsiCodes(s string) string {
+	// Simple regex to remove ANSI escape sequences
+	// This is a basic implementation - might need improvement for complex cases
+	result := ""
+	inEscape := false
+
+	for _, r := range s {
+		if r == '\033' { // ESC character
+			inEscape = true
+			continue
+		}
+		if inEscape {
+			if r == 'm' { // End of escape sequence
+				inEscape = false
+			}
+			continue
+		}
+		result += string(r)
+	}
+	return result
 }
 
 // GetType returns the unique type identifier for this component.
@@ -494,8 +569,8 @@ func (r *ListComponentRenderer) Render(
 	// Check if we have a background component and apply it if enabled
 	backgroundComp := r.components[core.ListComponentBackground]
 	if backgroundComp != nil && backgroundComp.IsEnabled() {
-		// Apply background styling - but only for cursor items to maintain expected behavior
-		if isCursor {
+		// Apply background styling for cursor items OR selected items
+		if isCursor || ctx.IsSelected {
 			return backgroundComp.Render(ctx)
 		}
 	}

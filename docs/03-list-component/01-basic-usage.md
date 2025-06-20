@@ -60,10 +60,10 @@ Map keys to VTable commands, then pass other messages to the list.
 
 ## What You Get
 
-✅ **Efficient rendering** - Only 5 items rendered regardless of data size  
-✅ **Smooth navigation** - Arrow keys and j/k work immediately  
-✅ **Memory efficient** - Constant memory usage  
-✅ **Responsive scrolling** - No lag with large datasets  
+**Efficient rendering** - Only 5 items rendered regardless of data size  
+**Smooth navigation** - Arrow keys and j/k work immediately  
+**Memory efficient** - Constant memory usage  
+**Responsive scrolling** - No lag with large datasets  
 
 ## Complete Example
 

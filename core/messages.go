@@ -7,6 +7,8 @@ package core
 
 import (
 	"time"
+
+	"github.com/charmbracelet/lipgloss"
 )
 
 // CursorUpMsg is a message sent to move the cursor up by one position.
@@ -540,4 +542,27 @@ type ActiveCellIndicationModeSetMsg struct {
 // the active cell in a table.
 type ActiveCellBackgroundColorSetMsg struct {
 	Color string // lipgloss color value
+}
+
+// SetFullRowSelectionMsg is a message to enable/disable full row selection background styling
+type SetFullRowSelectionMsg struct {
+	Enabled    bool
+	Background lipgloss.Style
+}
+
+// SetCursorRowStylingMsg is a message to enable/disable full row cursor background styling
+type SetCursorRowStylingMsg struct {
+	Enabled    bool
+	Background lipgloss.Style
+}
+
+// SetComponentBackgroundMsg is a message to configure background styling for a specific component
+type SetComponentBackgroundMsg struct {
+	ComponentType ListComponentType
+	CursorBg      lipgloss.Style
+	SelectedBg    lipgloss.Style
+	NormalBg      lipgloss.Style
+	ApplyCursor   bool
+	ApplySelected bool
+	ApplyNormal   bool
 }

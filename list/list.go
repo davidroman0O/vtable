@@ -6,11 +6,11 @@
 package list
 
 import (
-	"fmt"
 	"strings"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/davidroman0O/vtable/config"
 	"github.com/davidroman0O/vtable/core"
 	"github.com/davidroman0O/vtable/data"
@@ -35,9 +35,7 @@ type List struct {
 	config core.ListConfig // Holds all configuration for the list's behavior and appearance.
 
 	// Rendering
-	formatter         core.ItemFormatter[any]         // A function to custom-render a list item.
-	animatedFormatter core.ItemFormatterAnimated[any] // A function to render an item with animation.
-	renderContext     core.RenderContext              // Global context for rendering operations.
+	renderContext core.RenderContext // Global context for rendering operations.
 
 	// Selection state
 	selectedItems map[string]bool // A set of selected item IDs for quick lookups.
@@ -46,10 +44,8 @@ type List struct {
 	// Focus state
 	focused bool // True if the list is currently handling user input.
 
-	// Animation state
-	animationEngine core.AnimationEngine          // The engine that manages animations.
-	animations      map[string]core.ListAnimation // A map of active animations for list items.
-	lastError       error                         // The last error that occurred, for display purposes.
+	// Error handling
+	lastError error // The last error that occurred, for display purposes.
 
 	// Filtering and sorting
 	filters     map[string]any // A map of active filters applied to the data.
@@ -75,9 +71,9 @@ type List struct {
 
 // NewList creates a new List component with the given configuration and data
 // source. It initializes the list's state, validates the provided configuration,
-// and sets up the rendering context. An optional `ItemFormatter` can be provided
-// to customize how list items are displayed.
-func NewList(listConfig core.ListConfig, dataSource core.DataSource[any], formatter ...core.ItemFormatter[any]) *List {
+// and sets up the rendering context. Custom formatters and enumerators should be
+// configured through listConfig.RenderConfig for proper component system integration.
+func NewList(listConfig core.ListConfig, dataSource core.DataSource[any]) *List {
 	// Validate and fix config
 	errors := config.ValidateListConfig(&listConfig)
 	if len(errors) > 0 {
@@ -90,7 +86,6 @@ func NewList(listConfig core.ListConfig, dataSource core.DataSource[any], format
 		config:           listConfig,
 		selectedItems:    make(map[string]bool),
 		selectedOrder:    make([]string, 0),
-		animations:       make(map[string]core.ListAnimation),
 		filters:          make(map[string]any),
 		chunkAccessTime:  make(map[int]time.Time),
 		visibleItems:     make([]core.Data[any], 0), // Initialize visible items
@@ -106,11 +101,6 @@ func NewList(listConfig core.ListConfig, dataSource core.DataSource[any], format
 			AtDatasetStart:      true,
 			AtDatasetEnd:        false,
 		},
-	}
-
-	// Set formatter if provided
-	if len(formatter) > 0 {
-		list.formatter = formatter[0]
 	}
 
 	// Set up render context
@@ -138,9 +128,6 @@ func (l *List) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return l, l.Init()
 
 	case core.DestroyMsg:
-		if l.animationEngine != nil {
-			l.animationEngine.Cleanup()
-		}
 		return l, nil
 
 	case core.ResetMsg:
@@ -336,43 +323,7 @@ func (l *List) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		l.focused = false
 		return l, nil
 
-	// ===== Animation Messages =====
-	case core.GlobalAnimationTickMsg:
-		if l.animationEngine != nil {
-			cmd := l.animationEngine.ProcessGlobalTick(msg)
-			return l, cmd
-		}
-		return l, nil
-
-	case core.AnimationUpdateMsg:
-		// Handle animation updates
-		return l, nil
-
-	case core.AnimationConfigMsg:
-		l.config.AnimationConfig = msg.Config
-		if l.animationEngine != nil {
-			cmd := l.animationEngine.UpdateConfig(msg.Config)
-			return l, cmd
-		}
-		return l, nil
-
-	case core.ItemAnimationStartMsg:
-		l.animations[msg.ItemID] = msg.Animation
-		return l, nil
-
-	case core.ItemAnimationStopMsg:
-		delete(l.animations, msg.ItemID)
-		return l, nil
-
 	// ===== Configuration Messages =====
-	case core.FormatterSetMsg:
-		l.formatter = msg.Formatter
-		return l, nil
-
-	case core.AnimatedFormatterSetMsg:
-		l.animatedFormatter = msg.Formatter
-		return l, nil
-
 	case core.MaxWidthSetMsg:
 		l.config.MaxWidth = msg.Width
 		l.setupRenderContext()
@@ -434,6 +385,23 @@ func (l *List) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyMsg:
 		cmd := l.handleKeyPress(msg)
 		return l, cmd
+
+	case core.AriaLabelSetMsg:
+		l.renderContext.ScreenReader = true
+		// Store the label in metadata or render context as needed
+		return l, nil
+
+	case core.SetFullRowSelectionMsg:
+		l.SetFullRowSelection(msg.Enabled, msg.Background)
+		return l, nil
+
+	case core.SetCursorRowStylingMsg:
+		l.SetCursorRowStyling(msg.Enabled, msg.Background)
+		return l, nil
+
+	case core.SetComponentBackgroundMsg:
+		l.SetComponentBackgroundStyling(msg.ComponentType, msg.CursorBg, msg.SelectedBg, msg.NormalBg, msg.ApplyCursor, msg.ApplySelected, msg.ApplyNormal)
+		return l, nil
 	}
 
 	return l, nil
@@ -473,42 +441,19 @@ func (l *List) View() string {
 
 		var renderedItem string
 
-		// Always try to render actual data if available, even if chunk is "loading"
-		if l.formatter != nil {
-			//  // Use custom formatter if available
-			//  ctx := RenderContext{
-			//     MaxWidth:          l.config.MaxWidth,
-			//     MaxHeight:         1,
-			//     ErrorIndicator:    "❌",
-			//     LoadingIndicator:  "⏳",
-			//     DisabledIndicator: "🚫",
-			//     SelectedIndicator: "✅",
-			// }
-			// Use custom formatter
-			renderedItem = l.formatter(
-				item,
-				absoluteIndex,
-				// ctx,
-				l.renderContext,
-				isCursor,
-				l.viewport.IsAtTopThreshold,
-				l.viewport.IsAtBottomThreshold,
-			)
-		} else {
-			// Use enhanced rendering system with enumerators
-			enhancedFormatter := EnhancedListFormatter(l.config.RenderConfig)
-			ctx := l.renderContext
-			ctx.MaxWidth = l.config.RenderConfig.ContentConfig.MaxWidth
+		// Always use component-based rendering system
+		enhancedFormatter := EnhancedListFormatter(l.config.RenderConfig)
+		ctx := l.renderContext
+		ctx.MaxWidth = l.config.RenderConfig.ContentConfig.MaxWidth
 
-			renderedItem = enhancedFormatter(
-				item,
-				absoluteIndex,
-				ctx,
-				isCursor,
-				l.viewport.IsAtTopThreshold,
-				l.viewport.IsAtBottomThreshold,
-			)
-		}
+		renderedItem = enhancedFormatter(
+			item,
+			absoluteIndex,
+			ctx,
+			isCursor,
+			l.viewport.IsAtTopThreshold,
+			l.viewport.IsAtBottomThreshold,
+		)
 
 		// Apply item styling
 		renderedItem = l.applyItemStyle(renderedItem, isCursor, isSelected, item)
@@ -1077,10 +1022,10 @@ func (l *List) handleKeyPress(msg tea.KeyMsg) tea.Cmd {
 	return nil
 }
 
-// renderEmpty renders the view shown when the list has no items.
-func (l *List) renderEmpty() string {
-	return render.RenderEmptyState(l.config.StyleConfig, l.lastError)
-}
+// // renderEmpty renders the view shown when the list has no items.
+// func (l *List) renderEmpty() string {
+// 	return render.RenderEmptyState(l.config.StyleConfig, l.lastError)
+// }
 
 // renderItem renders a single item at a given index.
 func (l *List) renderItem(absoluteIndex, viewportIndex int) string {
@@ -1097,41 +1042,19 @@ func (l *List) renderItem(absoluteIndex, viewportIndex int) string {
 	isTopThreshold := isCursor && l.viewport.IsAtTopThreshold
 	isBottomThreshold := isCursor && l.viewport.IsAtBottomThreshold
 
-	// Use animated formatter if available and animations are enabled
-	if l.animatedFormatter != nil && l.config.AnimationConfig.Enabled {
-		animationState := make(map[string]any)
-		if animation, exists := l.animations[item.ID]; exists {
-			animationState = animation.State
-		}
+	// Always use component-based rendering system
+	enhancedFormatter := EnhancedListFormatter(l.config.RenderConfig)
+	ctx := l.renderContext
+	ctx.MaxWidth = l.config.RenderConfig.ContentConfig.MaxWidth
 
-		result := l.animatedFormatter(
-			item,
-			absoluteIndex,
-			l.renderContext,
-			animationState,
-			isCursor,
-			isTopThreshold,
-			isBottomThreshold,
-		)
-
-		return l.applyItemStyle(result.Content, isCursor, isSelected, item)
-	}
-
-	// Use regular formatter
-	var content string
-	if l.formatter != nil {
-		content = l.formatter(
-			item,
-			absoluteIndex,
-			l.renderContext,
-			isCursor,
-			isTopThreshold,
-			isBottomThreshold,
-		)
-	} else {
-		// Default formatting
-		content = fmt.Sprintf("%v", item.Item)
-	}
+	content := enhancedFormatter(
+		item,
+		absoluteIndex,
+		ctx,
+		isCursor,
+		isTopThreshold,
+		isBottomThreshold,
+	)
 
 	return l.applyItemStyle(content, isCursor, isSelected, item)
 }
@@ -1493,16 +1416,14 @@ func (l *List) SetIndentSize(size int) {
 	}
 }
 
-// SetFormatter sets a custom function for rendering an item's content.
-func (l *List) SetFormatter(formatter core.ItemFormatter[any]) core.ItemFormatter[any] {
-	previous := l.formatter
-	l.formatter = formatter
-	return previous
+// SetFormatter sets a custom function for rendering an item's content through the render config.
+func (l *List) SetFormatter(formatter core.ItemFormatter[any]) {
+	l.config.RenderConfig.ContentConfig.Formatter = formatter
 }
 
-// GetFormatter returns the currently configured item formatter.
+// GetFormatter returns the currently configured item formatter from the render config.
 func (l *List) GetFormatter() core.ItemFormatter[any] {
-	return l.formatter
+	return l.config.RenderConfig.ContentConfig.Formatter
 }
 
 // SetErrorIndicator sets the string used to indicate an error state.
@@ -1543,4 +1464,127 @@ func (l *List) GetDisabledIndicator() string {
 // GetSelectedIndicator returns the current selected indicator string.
 func (l *List) GetSelectedIndicator() string {
 	return l.renderContext.SelectedIndicator
+}
+
+// SetFullRowSelection enables full row background styling for selected items
+func (l *List) SetFullRowSelection(enabled bool, selectedBg lipgloss.Style) {
+	config := l.GetRenderConfig()
+
+	if enabled {
+		// Enable spacing components for better full row coverage
+		config.PreSpacingConfig.Enabled = true
+		config.PreSpacingConfig.Spacing = "" // No extra spacing, just enables the component
+		config.PostSpacingConfig.Enabled = true
+		config.PostSpacingConfig.Spacing = " " // Add trailing space for complete coverage
+
+		// Update component order to include spacing components
+		config.ComponentOrder = []core.ListComponentType{
+			core.ListComponentPreSpacing,
+			core.ListComponentCursor,
+			core.ListComponentEnumerator,
+			core.ListComponentContent,
+			core.ListComponentPostSpacing,
+		}
+	} else {
+		// Disable spacing components for partial selection
+		config.PreSpacingConfig.Enabled = false
+		config.PostSpacingConfig.Enabled = false
+
+		// Restore default component order
+		config.ComponentOrder = []core.ListComponentType{
+			core.ListComponentCursor,
+			core.ListComponentEnumerator,
+			core.ListComponentContent,
+		}
+	}
+
+	// Apply to all components
+	config.CursorConfig.ApplySelectedBg = enabled
+	config.CursorConfig.SelectedBackground = selectedBg
+
+	config.EnumeratorConfig.ApplySelectedBg = enabled
+	config.EnumeratorConfig.SelectedBackground = selectedBg
+
+	config.ContentConfig.ApplySelectedBg = enabled
+	config.ContentConfig.SelectedBackground = selectedBg
+
+	config.PreSpacingConfig.ApplySelectedBg = enabled
+	config.PreSpacingConfig.SelectedBackground = selectedBg
+
+	config.PostSpacingConfig.ApplySelectedBg = enabled
+	config.PostSpacingConfig.SelectedBackground = selectedBg
+
+	l.SetRenderConfig(config)
+}
+
+// SetCursorRowStyling enables full row background styling for cursor items
+func (l *List) SetCursorRowStyling(enabled bool, cursorBg lipgloss.Style) {
+	config := l.GetRenderConfig()
+
+	// Apply to all components
+	config.CursorConfig.ApplyCursorBg = enabled
+	config.CursorConfig.CursorBackground = cursorBg
+
+	config.EnumeratorConfig.ApplyCursorBg = enabled
+	config.EnumeratorConfig.CursorBackground = cursorBg
+
+	config.ContentConfig.ApplyCursorBg = enabled
+	config.ContentConfig.CursorBackground = cursorBg
+
+	config.PreSpacingConfig.ApplyCursorBg = enabled
+	config.PreSpacingConfig.CursorBackground = cursorBg
+
+	config.PostSpacingConfig.ApplyCursorBg = enabled
+	config.PostSpacingConfig.CursorBackground = cursorBg
+
+	l.SetRenderConfig(config)
+}
+
+// SetComponentBackgroundStyling enables background styling for a specific component
+func (l *List) SetComponentBackgroundStyling(componentType core.ListComponentType, cursorBg, selectedBg, normalBg lipgloss.Style, applyCursor, applySelected, applyNormal bool) {
+	config := l.GetRenderConfig()
+
+	switch componentType {
+	case core.ListComponentCursor:
+		config.CursorConfig.CursorBackground = cursorBg
+		config.CursorConfig.SelectedBackground = selectedBg
+		config.CursorConfig.NormalBackground = normalBg
+		config.CursorConfig.ApplyCursorBg = applyCursor
+		config.CursorConfig.ApplySelectedBg = applySelected
+		config.CursorConfig.ApplyNormalBg = applyNormal
+
+	case core.ListComponentEnumerator:
+		config.EnumeratorConfig.CursorBackground = cursorBg
+		config.EnumeratorConfig.SelectedBackground = selectedBg
+		config.EnumeratorConfig.NormalBackground = normalBg
+		config.EnumeratorConfig.ApplyCursorBg = applyCursor
+		config.EnumeratorConfig.ApplySelectedBg = applySelected
+		config.EnumeratorConfig.ApplyNormalBg = applyNormal
+
+	case core.ListComponentContent:
+		config.ContentConfig.CursorBackground = cursorBg
+		config.ContentConfig.SelectedBackground = selectedBg
+		config.ContentConfig.NormalBackground = normalBg
+		config.ContentConfig.ApplyCursorBg = applyCursor
+		config.ContentConfig.ApplySelectedBg = applySelected
+		config.ContentConfig.ApplyNormalBg = applyNormal
+
+	case core.ListComponentPreSpacing:
+		config.PreSpacingConfig.CursorBackground = cursorBg
+		config.PreSpacingConfig.SelectedBackground = selectedBg
+		config.PreSpacingConfig.NormalBackground = normalBg
+		config.PreSpacingConfig.ApplyCursorBg = applyCursor
+		config.PreSpacingConfig.ApplySelectedBg = applySelected
+		config.PreSpacingConfig.ApplyNormalBg = applyNormal
+
+	case core.ListComponentPostSpacing:
+		config.PostSpacingConfig.CursorBackground = cursorBg
+		config.PostSpacingConfig.SelectedBackground = selectedBg
+		config.PostSpacingConfig.NormalBackground = normalBg
+		config.PostSpacingConfig.ApplyCursorBg = applyCursor
+		config.PostSpacingConfig.ApplySelectedBg = applySelected
+		config.PostSpacingConfig.ApplyNormalBg = applyNormal
+	}
+
+	l.SetRenderConfig(config)
 }
