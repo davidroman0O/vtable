@@ -63,15 +63,15 @@ For complete understanding of VTable's architecture, data management, and virtua
 
 ## 🎨 Component-Based Rendering
 
-VTable includes an advanced component-based rendering system for maximum flexibility. See the [Enhanced List Example](pure/examples/enhanced-list/) for a complete demonstration of building custom layouts with render components.
+VTable includes an advanced component-based rendering system for maximum flexibility. See the [Enhanced List Example](examples/enhanced-list/) for a complete demonstration of building custom layouts with render components.
 
 ## ⌨️ API Reference
 
 Complete API documentation with all commands, messages, and configuration options is available in the source code:
 
-- **Commands & Messages**: [`pure/commands.go`](pure/commands.go)
-- **Configuration**: [`pure/config.go`](pure/config.go) and [`pure/types.go`](pure/types.go)
-- **Components**: Individual component documentation in the [`pure/`](pure/) directory
+- **Commands & Messages**: [`commands.go`](commands.go)
+- **Configuration**: [`config.go`](config.go) and [`types.go`](types.go)
+- **Components**: Individual component documentation in the [``]() directory
 
 ## 📁 Examples & Documentation
 
@@ -91,7 +91,7 @@ Complete documentation with step-by-step examples:
 6. [Table Styling](docs/05-table-component/06-table-styling.md) - Themes, borders, and visual customization
 
 ### Live Examples
-The [`pure/examples/`](pure/examples/) directory contains comprehensive working examples:
+The [`examples/`](examples/) directory contains comprehensive working examples:
 
 - **`basic-list`**: Simple list with asynchronous data loading
 - **`basic-table`**: Complete table features demonstration  
@@ -100,7 +100,7 @@ The [`pure/examples/`](pure/examples/) directory contains comprehensive working 
 
 ```bash
 # Run any example
-cd pure/examples/basic-table && go run .
+cd examples/basic-table && go run .
 ```
 
 ## 📄 License
