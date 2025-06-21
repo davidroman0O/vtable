@@ -1,627 +1,359 @@
-# vtable
-
-<p align="center">
-  <img src="./demo.gif" alt="VTable Demo" width="700">
+<!-- <p align="center">
+  <img src="https://github.com/davidroman/vtable/blob/main/assets/demo.gif?raw=true" alt="VTable Demo" width="800">
 </p>
 
 <p align="center">
-  <a href="https://pkg.go.dev/github.com/davidroman0O/vtable"><img src="https://pkg.go.dev/badge/github.com/davidroman0O/vtable.svg" alt="Go Reference"></a>
-  <a href="https://goreportcard.com/report/github.com/davidroman0O/vtable"><img src="https://goreportcard.com/badge/github.com/davidroman0O/vtable" alt="Go Report Card"></a>
-  <a href="https://github.com/davidroman0O/vtable/blob/main/LICENSE"><img src="https://img.shields.io/github/license/davidroman0O/vtable" alt="License"></a>
+  <a href="https://pkg.go.dev/github.com/davidroman/vtable/pure"><img src="https://pkg.go.dev/badge/github.com/davidroman/vtable/pure.svg" alt="Go Reference"></a>
+  <a href="https://goreportcard.com/report/github.com/davidroman/vtable/pure"><img src="https://goreportcard.com/badge/github.com/davidroman/vtable/pure" alt="Go Report Card"></a>
+  <a href="https://github.com/davidroman/vtable/blob/main/LICENSE"><img src="https://img.shields.io/github/license/davidroman/vtable" alt="License"></a>
   <img src="https://img.shields.io/badge/go-%3E%3D1.18-blue" alt="Go Version">
 </p>
 
-A high-performance virtualized table and list component for [Bubble Tea](https://github.com/charmbracelet/bubbletea) terminal applications. Handle millions of items efficiently through intelligent virtualization and chunked loading.
+# VTable
+
+A high-performance, feature-rich library of virtualized `List`, `Table`, and `Tree` components for [Bubble Tea](https://github.com/charmbracelet/bubbletea). It's designed to handle millions of items efficiently through intelligent virtualization and asynchronous, chunk-based data loading, while offering extensive customization options.
 
 ## ✨ Features
 
-### 🚀 Virtualization
-- **Memory efficient** - Only loads visible items, handles millions of records
-- **Chunk-based loading** - Loads data in configurable chunks (default 20-50 items)
-- **Smart caching** - Automatically manages 2-3 chunks in memory
-- **Threshold scrolling** - Configurable scroll trigger points for smooth navigation
+### 🚀 Core Engine
+- **High Performance**: Built for speed, using viewport virtualization (`Chunking`) to handle massive datasets without breaking a sweat.
+- **Asynchronous by Design**: All data operations (loading, sorting, filtering) are non-blocking and handled via `tea.Cmd`s, ensuring a perfectly responsive UI.
+- **Pure Go & Bubble Tea Native**: Implemented as standard `tea.Model`s for seamless integration into any Bubble Tea application.
+- **Stateful & Predictable**: Manages its own internal state, updated immutably through messages, making it easy to reason about.
+
+### 📦 Components
+- **`List`**: A powerful and customizable vertical list for homogenous items.
+- **`Table`**: A multi-column table with headers, borders, advanced formatters, and multiple horizontal scrolling modes.
+- **`TreeList`**: A hierarchical list for displaying tree-like data structures with node expansion and collapsing.
+
+### 🎨 Rendering & Styling
+- **Component-Based Rendering**: A highly flexible rendering pipeline. Build custom item/row layouts by assembling components like `Cursor`, `Enumerator`, `Content`, `Background`, and more.
+- **Advanced Formatters**: Full control over item/cell rendering with simple (`ItemFormatter`) or animated (`ItemFormatterAnimated`) formatters.
+- **Extensive Theming**: Easily configure `lipgloss` styles for every part of your component, from cursor and selection to borders and alternating rows.
+- **Granular Border Control**: Independently control visibility of top, bottom, and header-separator borders in tables.
+- **Advanced Horizontal Scrolling**: Sophisticated per-cell or global scrolling for tables with `character`, `word`, and `smart` modes.
+- **Active Cell Indication**: Highlight the currently active cell in a table with a background color or custom formatter logic.
 
 ### 📊 Data Management
-- **Multi-column sorting** - Sort by multiple fields with priority (SortFields, SortDirections)
-- **Real-time filtering** - Apply filters with automatic data refresh
-- **Dynamic updates** - Handle changing datasets with RefreshData()
-- **Chunk optimization** - Configurable chunk sizes for different dataset sizes
-
-### 🎨 Theming & Styling
-- **Built-in themes** - DefaultTheme(), DarkTheme(), HighContrastTheme()
-- **Border styles** - Multiple character sets (default, rounded, thick, double, ASCII)
-- **Custom formatters** - Full control over item rendering with ItemFormatter
-- **Animated formatters** - Delta-time animations with ItemFormatterAnimated
-
-### 🎮 Selection & Interaction
-- **Selection modes** - SelectionSingle, SelectionMultiple, SelectionNone
-- **Bulk operations** - SelectAll(), ClearSelection(), GetSelectedIndices()
-- **Platform keybindings** - Auto-detection for macOS, Linux, Windows
-- **Custom keymaps** - NavigationKeyMap with full customization
-
-### 🔍 Navigation & Search
-- **Jump methods** - JumpToIndex(), JumpToStart(), JumpToEnd()
-- **Search support** - Optional SearchableDataProvider interface
-- **Navigation controls** - MoveUp(), MoveDown(), PageUp(), PageDown()
-- **Viewport state** - Complete state tracking with ViewportState
-
-### 🎬 Animation System
-- **Delta-time rendering** - Frame-rate independent animations
-- **Global animation loop** - Efficient centralized animation management
-- **Dynamic control** - Enable/disable animations on-the-fly for performance
-- **Trigger-based updates** - TriggerTimer, TriggerEvent, TriggerConditional
-- **Configurable refresh rates** - SetTickInterval() for performance tuning
-- **Event-decoupled design** - Animations run independently of user input
-
-### 🛠️ Extensibility
-- **Generic data providers** - Type-safe DataProvider[T] interface
-- **Metadata system** - Rich TypedMetadata with type safety
-- **Event callbacks** - OnSelect, OnHighlight, OnScroll, OnFiltersChanged, OnSortChanged
-- **Component composition** - TeaTable and TeaList[T] components
+- **Asynchronous `DataSource`**: Your data source is completely decoupled from the UI. The components request data chunks as needed via commands.
+- **Multi-Column Sorting**: Sort by multiple fields with priority.
+- **Dynamic Filtering**: Apply complex filters to your data on the fly.
+- **Selection Modes**: Supports `SelectionSingle`, `SelectionMultiple`, and `SelectionNone`.
 
 ## 📦 Installation
 
 ```bash
-go get github.com/davidroman0O/vtable
+go get github.com/davidroman/vtable/pure
 ```
 
 ## 🚀 Quick Start
 
-### Basic Table
+`vtable` components are `tea.Model`s. You embed one in your own model and delegate `Update` calls to it. Interaction is done by sending `tea.Msg`s, which are created by `vtable`'s command functions (e.g., `vtable.CursorUpCmd()`).
+
+### Basic Table Example
 
 ```go
 package main
 
 import (
 	"fmt"
+	"time"
+
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/davidroman0O/vtable"
+	"github.com/davidroman/vtable/pure"
 )
 
-// 1. Define your data and implement DataProvider[vtable.TableRow]
-type MyProvider struct {
-	data []Person
-	selection map[int]bool
+// 1. Define your data source
+type MyDataSource struct {
+	items [][]string
 }
 
-func (p *MyProvider) GetTotal() int { return len(p.data) }
-func (p *MyProvider) GetSelectionMode() vtable.SelectionMode { return vtable.SelectionNone }
-// ... implement other required DataProvider methods
+func NewMyDataSource() *MyDataSource {
+	// Let's create a large dataset
+	items := make([][]string, 1000)
+	for i := 0; i < 1000; i++ {
+		items[i] = []string{fmt.Sprintf("Name %d", i+1), fmt.Sprintf("%d", 20+i%50), "Active"}
+	}
+	return &MyDataSource{items: items}
+}
 
-func (p *MyProvider) GetItems(request vtable.DataRequest) ([]vtable.Data[vtable.TableRow], error) {
-	// Return data as TableRow format
-	result := make([]vtable.Data[vtable.TableRow], len(p.data))
-	for i, person := range p.data {
-		result[i] = vtable.Data[vtable.TableRow]{
-			ID: fmt.Sprintf("person-%d", i),
-			Item: vtable.TableRow{
-				Cells: []string{person.Name, fmt.Sprintf("%d", person.Age)},
-			},
-			Metadata: vtable.NewTypedMetadata(),
+// GetTotal returns the total number of items
+func (ds *MyDataSource) GetTotal() tea.Cmd {
+	return func() tea.Msg {
+		return vtable.DataTotalMsg{Total: len(ds.items)}
+	}
+}
+
+// LoadChunk loads a slice of data asynchronously
+func (ds *MyDataSource) LoadChunk(request vtable.DataRequest) tea.Cmd {
+	return func() tea.Msg {
+		time.Sleep(50 * time.Millisecond) // Simulate latency
+		end := request.Start + request.Count
+		if end > len(ds.items) {
+			end = len(ds.items)
+		}
+		if request.Start >= end {
+			return vtable.DataChunkLoadedMsg{Items: []vtable.Data[any]{}}
+		}
+		
+		chunkItems := make([]vtable.Data[any], end-request.Start)
+		for i := request.Start; i < end; i++ {
+			chunkItems[i-request.Start] = vtable.Data[any]{
+				ID: fmt.Sprintf("row-%d", i),
+				Item: vtable.TableRow{ // For tables, the item is a TableRow
+					ID:    fmt.Sprintf("row-%d", i),
+					Cells: ds.items[i],
+				},
+			}
+		}
+		return vtable.DataChunkLoadedMsg{
+			StartIndex: request.Start,
+			Items:      chunkItems,
+			Request:    request,
 		}
 	}
-	return result, nil
+}
+
+// Implement other DataSource methods (stubs for this example)
+func (ds *MyDataSource) RefreshTotal() tea.Cmd { return ds.GetTotal() }
+func (ds *MyDataSource) SetSelected(index int, selected bool) tea.Cmd { return nil }
+func (ds *MyDataSource) SetSelectedByID(id string, selected bool) tea.Cmd { return nil }
+func (ds *MyDataSource) SelectAll() tea.Cmd { return nil }
+func (ds *MyDataSource) ClearSelection() tea.Cmd { return nil }
+func (ds *MyDataSource) SelectRange(startID, endID string) tea.Cmd { return nil }
+func (ds *MyDataSource) GetItemID(item any) string {
+	if row, ok := item.(vtable.TableRow); ok { return row.ID }
+	return ""
+}
+
+// 2. Define your application model
+type model struct {
+	table *vtable.Table
+}
+
+func initialModel() model {
+	ds := NewMyDataSource()
+	
+	// Define columns for the table
+	columns := []vtable.TableColumn{
+		{Title: "Name", Width: 20, Field: "name"},
+		{Title: "Age", Width: 10, Field: "age"},
+		{Title: "Status", Width: 15, Field: "status"},
+	}
+
+	config := vtable.DefaultTableConfig()
+	config.Columns = columns
+	config.ViewportConfig.Height = 20
+	config.ShowHeader = true
+	config.ShowBorders = true
+	
+	table := vtable.NewTable(config, ds)
+
+	return model{table: table}
+}
+
+func (m model) Init() tea.Cmd {
+	return m.table.Init()
+}
+
+func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	// Handle top-level keys
+	if msg, ok := msg.(tea.KeyMsg); ok {
+		switch msg.String() {
+		case "q", "ctrl+c":
+			return m, tea.Quit
+		}
+	}
+
+	// Delegate all other messages to the table component
+	var tableCmd tea.Cmd
+	newTableModel, tableCmd := m.table.Update(msg)
+	m.table = newTableModel.(*vtable.Table)
+	
+	return m, tableCmd
+}
+
+func (m model) View() string {
+	return m.table.View()
 }
 
 func main() {
-	// 2. Configure table columns
-	config := vtable.TableConfig{
-		Columns: []vtable.TableColumn{
-			{Title: "Name", Width: 20, Alignment: vtable.AlignLeft, Field: "name"},
-			{Title: "Age", Width: 5, Alignment: vtable.AlignRight, Field: "age"},
-		},
-		ShowHeader:  true,
-		ShowBorders: true,
-		ViewportConfig: vtable.ViewportConfig{
-			Height:               10,
-			TopThresholdIndex:    2,
-			BottomThresholdIndex: 7,
-			ChunkSize:            50,
-		},
-	}
-
-	// 3. Create table with theme
-	provider := &MyProvider{data: loadPeople()}
-	table, _ := vtable.NewTeaTable(config, provider, *vtable.DefaultTheme())
-	
-	// 4. Run
-	p := tea.NewProgram(table)
-	p.Run()
-}
-```
-
-### Basic List
-
-```go
-// 1. Implement DataProvider[YourType]
-type StringProvider struct {
-	items []string
-	selection map[int]bool
-}
-
-func (p *StringProvider) GetItems(request vtable.DataRequest) ([]vtable.Data[string], error) {
-	result := make([]vtable.Data[string], len(p.items))
-	for i, item := range p.items {
-		result[i] = vtable.Data[string]{
-			ID: fmt.Sprintf("item-%d", i),
-			Item: item,
-			Metadata: vtable.NewTypedMetadata(),
-		}
-	}
-	return result, nil
-}
-// ... implement other DataProvider methods
-
-// 2. Create formatter
-formatter := func(data vtable.Data[string], index int, ctx vtable.RenderContext, 
-	isCursor bool, isTopThreshold bool, isBottomThreshold bool) string {
-	prefix := "  "
-	if isCursor {
-		prefix = "> "
-	}
-	return fmt.Sprintf("%s%s", prefix, data.Item)
-}
-
-// 3. Create list
-config := vtable.DefaultViewportConfig()
-provider := &StringProvider{items: []string{"Item 1", "Item 2", "Item 3"}}
-list, _ := vtable.NewTeaList(config, provider, vtable.DefaultStyleConfig(), formatter)
-
-p := tea.NewProgram(list)
-p.Run()
-```
-
-## 🎮 Selection & Events
-
-### Multi-Selection
-
-```go
-// Enable in your DataProvider
-func (p *MyProvider) GetSelectionMode() vtable.SelectionMode {
-	return vtable.SelectionMultiple // or SelectionSingle, SelectionNone
-}
-
-// Handle in Update()
-switch msg.String() {
-case " ":
-	table.ToggleCurrentSelection()
-case "ctrl+a":
-	table.SelectAll()
-case "escape":
-	table.ClearSelection()
-}
-
-// Check selection
-selectedIndices := table.GetSelectedIndices()
-selectionCount := table.GetSelectionCount()
-```
-
-### Event Callbacks
-
-```go
-// Selection events
-table.OnSelect(func(row vtable.TableRow, index int) {
-	fmt.Printf("Selected row %d\n", index)
-})
-
-// Navigation events  
-table.OnHighlight(func(row vtable.TableRow, index int) {
-	// Update preview panel
-})
-
-// Scroll events
-table.OnScroll(func(state vtable.ViewportState) {
-	// Update scroll indicators
-})
-
-// Data change events
-table.OnFiltersChanged(func(filters map[string]any) {
-	// Update filter UI
-})
-
-table.OnSortChanged(func(field, direction string) {
-	// Update sort indicators
-})
-```
-
-## 🎨 Theming
-
-### Built-in Themes
-
-```go
-// Available themes
-table.SetTheme(*vtable.DefaultTheme())      // Light theme
-table.SetTheme(*vtable.DarkTheme())         // Dark theme  
-table.SetTheme(*vtable.HighContrastTheme()) // High contrast for accessibility
-```
-
-### Border Characters
-
-```go
-// Available border styles
-theme.BorderChars = vtable.DefaultBorderCharacters()  // ┌─┐│└─┘
-theme.BorderChars = vtable.RoundedBorderCharacters()  // ╭─╮│╰─╯
-theme.BorderChars = vtable.ThickBorderCharacters()    // ┏━┓┃┗━┛
-theme.BorderChars = vtable.DoubleBorderCharacters()   // ╔═╗║╚═╝
-theme.BorderChars = vtable.AsciiBoxCharacters()       // +-+|+-+
-```
-
-## 🎬 Animations
-
-### Real-time Animations
-
-```go
-// Create animated formatter
-animatedFormatter := func(data vtable.Data[Task], index int, ctx vtable.RenderContext,
-	animationState map[string]any, isCursor bool, isTopThreshold bool, isBottomThreshold bool) vtable.RenderResult {
-	
-	// Use delta time for smooth animations
-	deltaMs := ctx.DeltaTime.Milliseconds()
-	
-	// Animated content
-	counter, _ := animationState["counter"].(int)
-	spinnerFrames := []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
-	spinner := spinnerFrames[counter%len(spinnerFrames)]
-	
-	return vtable.RenderResult{
-		Content: fmt.Sprintf("%s %s", spinner, data.Item.Title),
-		RefreshTriggers: []vtable.RefreshTrigger{{
-			Type: vtable.TriggerTimer,
-			Interval: 100 * time.Millisecond,
-		}},
-		AnimationState: map[string]any{
-			"counter": counter + 1,
-		},
+	p := tea.NewProgram(initialModel(), tea.WithAltScreen())
+	if _, err := p.Run(); err != nil {
+		fmt.Println("Error running program:", err)
 	}
 }
-
-// Enable animations
-list.SetAnimatedFormatter(animatedFormatter)
-list.SetTickInterval(100 * time.Millisecond) // 10fps
 ```
 
-### Dynamic Animation Control
+## 📚 Core Concepts
 
-Control animations on-the-fly for performance optimization:
+### The `DataSource` Interface
 
-> **📝 Note:** Animations are **enabled by default** (`config.Enabled = true`), but the animation loop only starts when you actually use `SetAnimatedFormatter()`. If you never set an animated formatter, there's zero performance overhead.
-
-```go
-// Toggle animations during runtime
-func (m MyModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-    switch msg := msg.(type) {
-    case tea.KeyMsg:
-        switch msg.String() {
-        case "a":
-            // Toggle animations
-            if table.IsAnimationEnabled() {
-                table.DisableAnimations()
-            } else {
-                if cmd := table.EnableAnimations(); cmd != nil {
-                    return m, cmd
-                }
-            }
-        }
-    }
-    return m, nil
-}
-
-// Check animation status
-isEnabled := table.IsAnimationEnabled()
-isRunning := table.IsAnimationLoopRunning()
-```
-
-#### Performance Modes
+The `DataSource` is the heart of `vtable`. It's an interface you implement to provide data to the components. This design decouples your data source from the UI, allowing `vtable` to request only the data it needs to display. All methods return a `tea.Cmd`, embracing Bubble Tea's asynchronous architecture.
 
 ```go
-// Disable animations for large datasets
-if dataSize > 10000 {
-    table.DisableAnimations()
-}
-
-// Enable animations for real-time data
-if isRealTimeData {
-    if cmd := table.EnableAnimations(); cmd != nil {
-        cmds = append(cmds, cmd)
-    }
-}
-
-// Battery-saving mode
-if lowPowerMode {
-    table.DisableAnimations()
-} else {
-    table.SetTickInterval(50 * time.Millisecond) // Reduce frequency
+type DataSource[T any] interface {
+	LoadChunk(request DataRequest) tea.Cmd
+	GetTotal() tea.Cmd
+	RefreshTotal() tea.Cmd
+	SetSelected(index int, selected bool) tea.Cmd
+	SetSelectedByID(id string, selected bool) tea.Cmd
+	SelectAll() tea.Cmd
+	ClearSelection() tea.Cmd
+	SelectRange(startID, endID string) tea.Cmd
+	GetItemID(item T) string
 }
 ```
 
-#### Global Animation Control
+### Viewport and Virtualization
+
+`vtable` only renders the items that are currently visible in the "viewport". When you scroll, it calculates which new items should become visible and requests the corresponding data chunks from your `DataSource` by sending a `DataRequest`. This process, known as virtualization or windowing, is the key to its performance.
+
+### Command & Message-Based API
+
+You don't call methods like `list.CursorUp()` directly. Instead, you use command constructors that create a `tea.Cmd`. This command, when executed by the Bubble Tea runtime, produces a message that the component's `Update` function will handle.
+
+**Example Interaction Flow:**
+1. User presses the "up" arrow (`tea.KeyMsg`).
+2. Your `Update` function maps this key to `vtable.CursorUpCmd()`.
+3. You return this `Cmd` to the Bubble Tea runtime.
+4. The runtime executes the `Cmd`, which produces a `vtable.CursorUpMsg{}`.
+5. This message is passed back to your `Update` function.
+6. You delegate the message to `list.Update(msg)` or `table.Update(msg)`.
+7. The component updates its internal state (e.g., changes `CursorIndex`) and returns.
+
+## 🎨 Component-Based Rendering
+
+For ultimate flexibility, `vtable` includes a powerful component-based rendering system for both `List` and `Table`. Instead of a single formatter function, you can define a pipeline of render components and control their order and configuration. This allows you to build complex and dynamic layouts.
+
+**Available `List` Components:**
+- `CursorComponent`: Renders the cursor indicator.
+- `SpacingComponent`: Renders spacing.
+- `EnumeratorComponent`: Renders a bullet, number, etc.
+- `ContentComponent`: Renders the main item content.
+- `BackgroundComponent`: Renders a background style across other components.
+
+**Available `Table` Components:**
+- `TableCursorComponent`: Renders the row cursor.
+- `TableRowNumberComponent`: Renders a row number.
+- `TableSelectionMarkerComponent`: Renders a selection checkbox/marker.
+- `TableCellsComponent`: Renders the main row of cells.
+- `TableBorderComponent`: Renders left/right borders for the row.
+- `TableBackgroundComponent`: Renders a background for the row.
+
+**Example: Creating a custom checklist-style list renderer:**
 
 ```go
-// Control all animations globally
-vtable.StopGlobalAnimationLoop()
-running := vtable.IsGlobalAnimationLoopRunning()
+// 1. Get a default render config
+renderConfig := vtable.DefaultListRenderConfig()
 
-// Update global animation settings
-config := vtable.DefaultAnimationConfig()
-config.Enabled = false
-if cmd := vtable.SetGlobalAnimationConfig(config); cmd != nil {
-    return m, cmd
+// 2. Customize the enumerator to show a checkbox
+renderConfig.EnumeratorConfig.Enumerator = vtable.CheckboxEnumerator
+renderConfig.EnumeratorConfig.Enabled = true
+
+// 3. Customize the cursor
+renderConfig.CursorConfig.CursorIndicator = " 👉 "
+
+// 4. Define the render order
+renderConfig.ComponentOrder = []vtable.ListComponentType{
+	vtable.ListComponentCursor,
+	vtable.ListComponentEnumerator,
+	vtable.ListComponentContent,
+}
+
+// 5. Use a component-based formatter in your list constructor
+formatter := vtable.ComponentBasedListFormatter(renderConfig)
+list := vtable.NewList(config, ds, formatter)
+```
+The `enhanced-list` example provides a deep dive into this system.
+
+## ⌨️ API Reference
+
+Interaction with components is primarily through commands and messages.
+
+### Common Commands (`pure/commands.go`)
+
+A selection of available commands. See the file for a complete list.
+
+| Command Constructor | Returns `tea.Cmd` that produces... | Description |
+|---|---|---|
+| `CursorUpCmd()` | `CursorUpMsg` | Move cursor up by one. |
+| `CursorDownCmd()` | `CursorDownMsg` | Move cursor down by one. |
+| `PageUpCmd()` | `PageUpMsg` | Move one viewport page up. |
+| `PageDownCmd()` | `PageDownMsg` | Move one viewport page down. |
+| `JumpToStartCmd()` | `JumpToStartMsg` | Jump to the first item. |
+| `JumpToEndCmd()` | `JumpToEndMsg` | Jump to the last item. |
+| `JumpToCmd(index)` | `JumpToMsg` | Jump to a specific absolute index. |
+| `SelectCurrentCmd()` | `SelectCurrentMsg` | Toggle selection for the item at the cursor. |
+| `SelectAllCmd()` | `SelectAllMsg` | Select all items (requires `DataSource` support). |
+| `SelectClearCmd()` | `SelectClearMsg` | Clear all selections. |
+| `FilterSetCmd(field, value)`| `FilterSetMsg` | Set a filter, triggering a data refresh. |
+| `SortToggleCmd(field)` | `SortToggleMsg` | Toggle sorting for a field. |
+| `ViewportResizeCmd(w, h)`| `ViewportResizeMsg` | Inform the component of a terminal resize. |
+| `HeaderVisibilityCmd(visible)`| `HeaderVisibilityMsg` | Show/hide the table header. |
+| `BorderVisibilityCmd(visible)`| `BorderVisibilityMsg` | Toggle all table borders. |
+| `TopBorderVisibilityCmd(v)`| `TopBorderVisibilityMsg` | Toggle top table border. |
+| `BottomBorderVisibilityCmd(v)`| `BottomBorderVisibilityMsg` | Toggle bottom table border. |
+
+### Configuration (`pure/config.go`, `pure/types.go`)
+
+Configuration is handled by passing a `ListConfig`, `TableConfig`, or `TreeConfig` struct to the constructor. A fluent builder API is also available (`NewListConfigBuilder`, `NewTableConfigBuilder`).
+
+#### `ViewportConfig`
+
+```go
+type ViewportConfig struct {
+	Height          int // Number of items visible in the viewport
+	TopThreshold    int // Offset from top where scrolling up triggers
+	BottomThreshold int // Offset from bottom where scrolling down triggers
+	ChunkSize       int // Number of items to load in each chunk
+	InitialIndex    int // Starting cursor position
 }
 ```
 
-## 🔍 Filtering & Sorting
-
-### Multi-Column Sorting
+#### `TableConfig` Highlights
 
 ```go
-// Single sort (replaces existing)
-table.SetSort("lastName", "asc")
+type TableConfig struct {
+	Columns                 []TableColumn
+	ShowHeader              bool
+	ShowBorders             bool // Global border control
 
-// Multi-sort (adds to existing)
-table.AddSort("age", "desc") 
+	// Granular border configuration
+	ShowTopBorder           bool // Control top border independently
+	ShowBottomBorder        bool // Control bottom border independently
+	ShowHeaderSeparator     bool // Control header separator border independently
 
-// Manage sorts
-table.RemoveSort("age")
-table.ClearSort()
+	// Space removal for borders (when true, completely removes the line space)
+	RemoveTopBorderSpace    bool
+	RemoveBottomBorderSpace bool
 
-// Check current sort
-request := table.GetDataRequest()
-fields := request.SortFields      // []string
-directions := request.SortDirections // []string
-```
+	// Highlighting configuration
+	FullRowHighlighting bool // Enable full row highlighting mode
 
-### Dynamic Filtering
+	// Horizontal scrolling configuration
+	ResetScrollOnNavigation bool // Reset scroll when navigating between rows
 
-```go
-// Apply filters
-table.SetFilter("status", "active")
-table.SetFilter("minAge", 18)
-
-// Remove filters
-table.RemoveFilter("status")
-table.ClearFilters()
-
-// Check current filters
-request := table.GetDataRequest()
-filters := request.Filters // map[string]any
-```
-
-## 🗂️ Data Provider Implementation
-
-### Required Interface
-
-```go
-type DataProvider[T any] interface {
-	GetTotal() int
-	GetItems(request DataRequest) ([]Data[T], error)
-	GetSelectionMode() SelectionMode
-	SetSelected(index int, selected bool) bool
-	SetSelectedByIDs(ids []string, selected bool) bool
-	SelectRange(startID, endID string) bool
-	SelectAll() bool
-	ClearSelection()
-	GetSelectedIndices() []int
-	GetSelectedIDs() []string
-	GetItemID(item *T) string
+	// Active cell indication settings
+	ActiveCellIndicationEnabled bool   // Enable/disable active cell background
+	ActiveCellBackgroundColor   string // Background color for active cell
+    
+	// And much more...
+	ViewportConfig ViewportConfig
+	Theme          Theme
+	SelectionMode  SelectionMode
+	KeyMap         NavigationKeyMap
 }
-
-// Optional: For search functionality
-type SearchableDataProvider[T any] interface {
-	DataProvider[T]
-	FindItemIndex(key string, value any) (int, bool)
-}
-```
-
-### Efficient Implementation
-
-```go
-type PersonProvider struct {
-	rawData      []Person
-	filteredData []Person
-	filters      map[string]any
-	sortFields   []string
-	sortDirs     []string
-	selection    map[int]bool
-	dirty        bool
-}
-
-func (p *PersonProvider) GetItems(request vtable.DataRequest) ([]vtable.Data[vtable.TableRow], error) {
-	// Update internal state from request
-	if !reflect.DeepEqual(p.filters, request.Filters) {
-		p.filters = request.Filters
-		p.dirty = true
-	}
-	
-	// Rebuild filtered data if needed
-	if p.dirty {
-		p.rebuildFilteredData()
-		p.dirty = false
-	}
-	
-	// Return requested chunk
-	start := request.Start
-	count := min(request.Count, len(p.filteredData)-start)
-	
-	result := make([]vtable.Data[vtable.TableRow], count)
-	for i := 0; i < count; i++ {
-		person := p.filteredData[start+i]
-		result[i] = vtable.Data[vtable.TableRow]{
-			ID: fmt.Sprintf("person-%d", person.ID),
-			Item: vtable.TableRow{
-				Cells: []string{person.Name, fmt.Sprintf("%d", person.Age)},
-			},
-			Selected: p.selection[person.ID],
-		}
-	}
-	return result, nil
-}
-```
-
-## ⌨️ Keybindings
-
-### Platform Detection
-
-```go
-// Automatic platform detection
-keyMap := vtable.PlatformKeyMap() // Auto-detects macOS/Linux/Windows
-
-// Or specify manually
-keyMap := vtable.MacOSKeyMap()    // macOS optimized
-keyMap := vtable.LinuxKeyMap()    // Linux optimized  
-keyMap := vtable.WindowsKeyMap()  // Windows optimized
-
-// Set custom keymap
-table.SetKeyMap(keyMap)
-```
-
-## 📚 Complete API Reference
-
-### Core Components
-
-| Component | Description |
-|-----------|-------------|
-| `TeaTable` | Full table with headers, borders, sorting |
-| `TeaList[T]` | Generic virtualized list component |
-
-### Navigation Methods
-
-| Method | Description |
-|--------|-------------|
-| `MoveUp()`, `MoveDown()` | Move cursor one position |
-| `PageUp()`, `PageDown()` | Move cursor one page |
-| `JumpToStart()`, `JumpToEnd()` | Jump to dataset boundaries |
-| `JumpToIndex(int)` | Jump to specific index |
-| `JumpToItem(key, value)` | Search and jump (requires SearchableDataProvider) |
-
-### Selection Methods
-
-| Method | Description |
-|--------|-------------|
-| `ToggleCurrentSelection()` | Toggle current item selection |
-| `ToggleSelection(index)` | Toggle specific item selection |
-| `SelectAll()` | Select all items |
-| `ClearSelection()` | Clear all selections |
-| `GetSelectedIndices()` | Get selected item indices |
-| `GetSelectionCount()` | Get selection count |
-
-### Data Methods
-
-| Method | Description |
-|--------|-------------|
-| `SetFilter(field, value)` | Apply filter |
-| `RemoveFilter(field)` | Remove filter |
-| `ClearFilters()` | Clear all filters |
-| `SetSort(field, direction)` | Set primary sort |
-| `AddSort(field, direction)` | Add secondary sort |
-| `RemoveSort(field)` | Remove sort field |
-| `ClearSort()` | Clear all sorting |
-| `RefreshData()` | Force data reload |
-| `GetCachedTotal()` | Get cached total count without triggering data provider calls |
-| `EnableRealTimeUpdates(interval)` | Enable periodic data refresh |
-| `DisableRealTimeUpdates()` | Disable periodic data refresh |
-| `IsRealTimeUpdatesEnabled()` | Check real-time update status |
-| `ForceDataRefresh()` | Force immediate data reload (use sparingly) |
-
-### Animation Methods
-
-| Method | Description |
-|--------|-------------|
-| `SetAnimatedFormatter(formatter)` | Enable animations |
-| `ClearAnimatedFormatter()` | Disable animations |
-| `SetTickInterval(duration)` | Set refresh rate |
-| `SetAnimationConfig(config)` | Configure animation behavior |
-| `EnableAnimations()` | Enable animation system and start loop |
-| `DisableAnimations()` | Disable animation system and stop loop |
-| `IsAnimationEnabled()` | Check if animations are enabled |
-| `IsAnimationLoopRunning()` | Check if animation loop is running |
-
-### Event Callbacks
-
-| Method | Description |
-|--------|-------------|
-| `OnSelect(func(item, index))` | Item selection callback |
-| `OnHighlight(func(item, index))` | Cursor movement callback |
-| `OnScroll(func(state))` | Viewport scroll callback |
-| `OnFiltersChanged(func(filters))` | Filter change callback |
-| `OnSortChanged(func(field, dir))` | Sort change callback |
-
-### State & Info
-
-| Method | Description |
-|--------|-------------|
-| `GetState()` | Get current ViewportState |
-| `GetDataRequest()` | Get current DataRequest |
-| `GetVisibleItems()` | Get currently visible items |
-| `GetCurrentItem()` | Get item at cursor |
-
-## ⚙️ Configuration
-
-### ViewportConfig
-
-```go
-config := vtable.ViewportConfig{
-	Height:               10,  // Visible rows
-	TopThresholdIndex:    2,   // Top scroll trigger (0-based)
-	BottomThresholdIndex: 7,   // Bottom scroll trigger
-	ChunkSize:            50,  // Items per chunk
-	InitialIndex:         0,   // Starting cursor position
-}
-```
-
-### Animation Settings
-
-| Use Case | Tick Interval | Performance |
-|----------|---------------|-------------|
-| Smooth UI | 16ms (60fps) | High CPU |
-| Balanced | 50-100ms (10-20fps) | Moderate |
-| Background | 250ms (4fps) | Low CPU |
-
-#### Default Animation Behavior
-
-```go
-// Default animation configuration (animations are enabled but not running)
-config := vtable.DefaultAnimationConfig()
-// config.Enabled = true          // ✅ Animations are enabled by default
-// config.TickInterval = 100ms    // 10fps default refresh rate
-// config.MaxAnimations = 50      // Limit active animations for performance
-
-// The animation loop only starts when you actually use animations:
-// 1. Create table/list (no animation loop running yet)
-table, _ := vtable.NewTeaTable(config, provider, theme)
-
-// 2. Set animated formatter (animation loop starts automatically)
-table.SetAnimatedFormatter(myAnimatedFormatter)
-
-// 3. Clear animated formatter (animation loop stops automatically)  
-table.ClearAnimatedFormatter()
 ```
 
 ## 📁 Examples
 
-The `examples/` directory contains 14+ comprehensive examples:
+The `pure/examples/` directory contains comprehensive examples that are the best resource for learning advanced usage.
 
-### 🌟 Getting Started
-- **`01-hello-world/`** - Basic table and list setup
-- **`basic/`** - Foundation examples with core functionality
-
-### 📊 Data Features  
-- **`02-large-datasets/`** - 1M+ item virtualization demo
-- **`04-filtering-sorting/`** - Multi-column sorting and filtering
-- **`enhanced/`** - Advanced filtering with complex criteria
-- **`10-dynamic-data/`** - Real-time data updates
-
-### 🎮 Interaction
-- **`03-selection/`** - Single and multi-selection modes
-- **`05-keybindings/`** - Platform-specific key handling
-- **`06-callbacks/`** - Event system demonstration
-- **`07-search-jump/`** - Search and navigation features
-
-### 🎨 Visual & Animation
-- **`09-custom-formatters/`** - Rich formatting techniques
-- **`animated/`** - Real-time animations and delta-time rendering
-
-### 🌍 Real-world
-- **`11-real-world-navigate-file-system/`** - Complete file browser applications
+- **`basic-list`**: A simple list with asynchronous data loading.
+- **`basic-table`**: A comprehensive demo of the `Table` component's features, including formatters, themes, sorting, filtering, border controls, and active cell indication.
+- **`basic-tree-list`**: An example of the `TreeList` component for hierarchical data.
+- **`enhanced-list`**: A deep dive into the component-based rendering system for lists, showing how to build completely custom item layouts.
 
 ## 📄 License
 
@@ -630,5 +362,131 @@ The `examples/` directory contains 14+ comprehensive examples:
 ---
 
 <p align="center">
-  <a href="https://github.com/charmbracelet/bubbletea">Powered by Bubble Tea</a>
+  <a href="https://github.com/charmbracelet/bubbletea">Built with Bubble Tea</a>
 </p>
+
+# Cell Constraints Example
+
+A comprehensive demonstration of VTable's cell constraint system, building on the selection table example with advanced column layout controls.
+
+## Features Demonstrated
+
+- **Dynamic column width control** - narrow/normal/wide modes
+- **Flexible alignment options** - separate alignment for data vs headers
+- **Padding configuration** - none/normal/extra padding modes  
+- **Text truncation** - automatic ellipsis for long content
+- **Header constraints** - different formatting rules for headers vs data
+- **Interactive testing** - keyboard shortcuts to test all constraint options
+
+## Running the Example
+
+```bash
+cd docs/05-table-component/examples/cell-constraints
+go run .
+```
+
+## Controls
+
+### Constraint Controls
+| Key | Action |
+|-----|--------|
+| `w` | Cycle column widths (narrow → normal → wide) |
+| `a` | Cycle data alignment (mixed → left → center → right) |
+| `A` | Cycle header alignment (mixed → left → center → right) |
+| `p` | Cycle padding (none → normal → extra) |
+| `t` | Cycle description width (20 → 30 → 40 → 50 chars) |
+
+### Selection Controls (inherited from selection example)
+| Key | Action |
+|-----|--------|
+| `Space` `Enter` | Toggle selection of current employee |
+| `Ctrl+A` | Select all employees |
+| `c` | Clear all selections |
+| `s` | Show selection information |
+| `J` | Jump to specific employee |
+
+### Navigation (inherited from previous examples)
+| Key | Action |
+|-----|--------|
+| `↑` `k` | Move up one row |
+| `↓` `j` | Move down one row |
+| `g` | Jump to first employee |
+| `G` | Jump to last employee |
+| `h` `PgUp` | Jump up rows |
+| `l` `PgDn` | Jump down rows |
+| `q` | Quit |
+
+## What You'll See
+
+**Default view with mixed alignments:**
+```
+Employee 1/1000 | Selected: 0 | Use space/enter ctrl+a c s w a A p t J, q to quit
+
+│ ●  │   Employee Name    │   Department   │    Status    │   Salary   │             Description              │
+│ ►  │ Employee 1         │   Engineering  │    Active    │  $67,000   │ Experienced software engineer spe...│
+│    │ Employee 2         │   Marketing    │   On Leave   │  $58,000   │ Creative marketing professional f...│
+
+Constraints: Width=normal | Data=mixed | Header=mixed | Padding=normal | Desc=30ch
+```
+
+**After pressing 'w' (wide columns):**
+```
+│ ●  │      Employee Name       │      Department      │     Status     │    Salary    │                   Description                    │
+│ ►  │ Employee 1               │     Engineering      │     Active     │   $67,000    │ Experienced software engineer specializing in...│
+
+Constraints: Width=wide | Data=mixed | Header=mixed | Padding=normal | Desc=30ch
+```
+
+**After pressing 'a' (all center alignment):**
+```
+│ ●  │     Employee Name        │      Department      │     Status     │    Salary    │                   Description                    │
+│ ►  │      Employee 1          │     Engineering      │     Active     │   $67,000    │ Experienced software engineer specializing in...│
+
+Constraints: Width=wide | Data=center | Header=mixed | Padding=normal | Desc=30ch
+```
+
+## Key Features
+
+### Column Width Control
+- **Narrow**: Compact layout (15/12/10/10/20 chars)
+- **Normal**: Balanced layout (20/15/12/12/30 chars)  
+- **Wide**: Spacious layout (25/20/15/15/40 chars)
+
+### Alignment Options
+- **Mixed**: Different alignment per column type (name=left, numbers=right, etc.)
+- **All Left**: Everything left-aligned
+- **All Center**: Everything center-aligned  
+- **All Right**: Everything right-aligned
+
+### Separate Header Alignment
+- Headers can have different alignment from data cells
+- Demonstrates independent header constraint system
+
+### Padding Modes
+- **None**: Tight layout with no padding
+- **Normal**: Comfortable 1-space padding
+- **Extra**: Spacious 2-space padding
+
+### Text Truncation
+- Description column width cycles: 20 → 30 → 40 → 50 characters
+- Automatic ellipsis ("...") for content exceeding width
+- Demonstrates text constraint handling
+
+## Implementation Notes
+
+### Cell vs Header Constraints
+- **Cell alignment**: Controlled by `Alignment` field
+- **Header alignment**: Controlled by `HeaderAlignment` field  
+- **Header constraints**: Defined in `HeaderConstraint` field with separate padding/alignment
+
+### Dynamic Column Updates
+- Uses `core.ColumnSetCmd()` to update table structure at runtime
+- Maintains selection state across constraint changes
+- Smooth transitions between different layouts
+
+### Progressive Enhancement
+- Builds on selection table example
+- Adds constraint control layer
+- Preserves all selection functionality
+
+This example demonstrates how VTable's constraint system provides precise control over table layout while maintaining smooth performance and user experience.  -->
