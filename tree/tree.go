@@ -1426,3 +1426,120 @@ func (tl *TreeList[T]) GetFullyExpandedItemCount() int {
 	fullyExpandedView := tl.createFullyExpandedView()
 	return len(fullyExpandedView)
 }
+
+// GetCurrentNodeID returns the ID of the node currently under the cursor.
+// Returns empty string if no valid cursor position.
+func (tl *TreeList[T]) GetCurrentNodeID() string {
+	if tl.viewport.CursorIndex >= 0 && tl.viewport.CursorIndex < len(tl.flattenedView) {
+		return tl.flattenedView[tl.viewport.CursorIndex].ID
+	}
+	return ""
+}
+
+// ExpandSubtree expands a node and all of its descendants recursively.
+func (tl *TreeList[T]) ExpandSubtree(id string) tea.Cmd {
+	// Find the node in the tree structure
+	node, found := tl.findNodeInTree(tl.rootNodes, id)
+	if !found {
+		return nil
+	}
+
+	// Expand this node and all its descendants
+	tl.expandNodeRecursively(node)
+
+	// Update the flattened view and refresh
+	tl.updateFlattenedView()
+	return tea.Batch(
+		core.DataTotalUpdateCmd(len(tl.flattenedView)),
+		core.DataChunksRefreshCmd(),
+	)
+}
+
+// CollapseSubtree collapses a node and all of its descendants recursively.
+func (tl *TreeList[T]) CollapseSubtree(id string) tea.Cmd {
+	// Find the node in the tree structure
+	node, found := tl.findNodeInTree(tl.rootNodes, id)
+	if !found {
+		return nil
+	}
+
+	// Collapse this node and all its descendants
+	tl.collapseNodeRecursively(node)
+
+	// Update the flattened view and refresh
+	tl.updateFlattenedView()
+	return tea.Batch(
+		core.DataTotalUpdateCmd(len(tl.flattenedView)),
+		core.DataChunksRefreshCmd(),
+	)
+}
+
+// ExpandCurrentSubtree expands the current node and all its descendants.
+func (tl *TreeList[T]) ExpandCurrentSubtree() tea.Cmd {
+	currentID := tl.GetCurrentNodeID()
+	if currentID == "" {
+		return nil
+	}
+	return tl.ExpandSubtree(currentID)
+}
+
+// CollapseCurrentSubtree collapses the current node and all its descendants.
+func (tl *TreeList[T]) CollapseCurrentSubtree() tea.Cmd {
+	currentID := tl.GetCurrentNodeID()
+	if currentID == "" {
+		return nil
+	}
+	return tl.CollapseSubtree(currentID)
+}
+
+// ExpandAll expands all nodes in the entire tree.
+func (tl *TreeList[T]) ExpandAll() tea.Cmd {
+	// Expand all nodes
+	for _, node := range tl.rootNodes {
+		tl.expandNodeRecursively(node)
+	}
+
+	// Update the flattened view and refresh
+	tl.updateFlattenedView()
+	return tea.Batch(
+		core.DataTotalUpdateCmd(len(tl.flattenedView)),
+		core.DataChunksRefreshCmd(),
+	)
+}
+
+// CollapseAll collapses all nodes in the entire tree.
+func (tl *TreeList[T]) CollapseAll() tea.Cmd {
+	// Collapse all nodes
+	for _, node := range tl.rootNodes {
+		tl.collapseNodeRecursively(node)
+	}
+
+	// Update the flattened view and refresh
+	tl.updateFlattenedView()
+	return tea.Batch(
+		core.DataTotalUpdateCmd(len(tl.flattenedView)),
+		core.DataChunksRefreshCmd(),
+	)
+}
+
+// expandNodeRecursively expands a node and all its descendants.
+func (tl *TreeList[T]) expandNodeRecursively(node TreeData[T]) {
+	// Mark this node as expanded
+	tl.expandedNodes[node.ID] = true
+
+	// Recursively expand all children
+	for _, child := range node.Children {
+		tl.expandNodeRecursively(child)
+	}
+}
+
+// collapseNodeRecursively collapses a node and all its descendants.
+func (tl *TreeList[T]) collapseNodeRecursively(node TreeData[T]) {
+	// Mark this node as collapsed
+	delete(tl.expandedNodes, node.ID)
+
+	// Recursively collapse all children
+	for _, child := range node.Children {
+		tl.collapseNodeRecursively(child)
+	}
+}
