@@ -109,19 +109,19 @@ treeConfig := tree.DefaultTreeConfig()
 treeConfig.CascadingSelection = true
 
 // Enable connected lines for better visual hierarchy
-treeConfig.RenderConfig.IndentationConfig.Enabled = true
-treeConfig.RenderConfig.IndentationConfig.UseConnectors = true
-treeConfig.RenderConfig.IndentationConfig.ConnectorStyle = lipgloss.NewStyle().
-    Foreground(lipgloss.Color("240"))
-
+    treeConfig.RenderConfig.IndentationConfig.Enabled = true
+    treeConfig.RenderConfig.IndentationConfig.UseConnectors = true
+    treeConfig.RenderConfig.IndentationConfig.ConnectorStyle = lipgloss.NewStyle().
+        Foreground(lipgloss.Color("240"))
+    
 // Enhanced content formatting with expansion indicators
-treeConfig.RenderConfig.ContentConfig.Formatter = createAdvancedFormatter()
-
-// Background styling for cursor items
-treeConfig.RenderConfig.BackgroundConfig.Enabled = true
-treeConfig.RenderConfig.BackgroundConfig.Style = lipgloss.NewStyle().
-    Background(lipgloss.Color("240")).
-    Foreground(lipgloss.Color("15"))
+    treeConfig.RenderConfig.ContentConfig.Formatter = createAdvancedFormatter()
+    
+    // Background styling for cursor items
+    treeConfig.RenderConfig.BackgroundConfig.Enabled = true
+    treeConfig.RenderConfig.BackgroundConfig.Style = lipgloss.NewStyle().
+        Background(lipgloss.Color("240")).
+        Foreground(lipgloss.Color("15"))
 ```
 
 ## Step 2: Enhanced Content Formatter
@@ -133,7 +133,7 @@ func createAdvancedFormatter() func(core.Data[any], int, int, bool, bool, core.R
     return func(item core.Data[any], index int, depth int, hasChildren, isExpanded bool, ctx core.RenderContext, isCursor, isTopThreshold, isBottomThreshold bool) string {
         if flatItem, ok := item.Item.(tree.FlatTreeItem[FileItem]); ok {
             content := flatItem.Item.String()
-
+            
             // Add visual indicator for folders with children
             if flatItem.Item.IsFolder && hasChildren {
                 if isExpanded {
@@ -142,7 +142,7 @@ func createAdvancedFormatter() func(core.Data[any], int, int, bool, bool, core.R
                     content = content + " (...)"
                 }
             }
-
+            
             // Apply selection styling (highest priority)
             if item.Selected {
                 return lipgloss.NewStyle().
@@ -151,7 +151,7 @@ func createAdvancedFormatter() func(core.Data[any], int, int, bool, bool, core.R
                     Bold(true).
                     Render(content)
             }
-
+            
             // Content styling
             if flatItem.Item.IsFolder {
                 return lipgloss.NewStyle().
@@ -164,7 +164,7 @@ func createAdvancedFormatter() func(core.Data[any], int, int, bool, bool, core.R
                     Render(content)
             }
         }
-
+        
         return fmt.Sprintf("%v", item.Item)
     }
 }

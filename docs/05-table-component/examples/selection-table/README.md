@@ -174,3 +174,4 @@ This selection pattern works well for:
 6. **Selection messages**: Proper handling of SelectionResponseMsg
 
 This example demonstrates how VTable's selection system scales to large datasets while maintaining smooth performance and intuitive user experience.
+ 
