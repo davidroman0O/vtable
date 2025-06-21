@@ -219,7 +219,7 @@ func NewTable(tableConfig core.TableConfig, dataSource core.DataSource[any]) *Ta
 		loadingChunks:        make(map[int]bool),
 		hasLoadingChunks:     false,
 		canScroll:            true,
-		componentRenderer:    nil, // Component renderer is optional - can be enabled later
+		componentRenderer:    NewTableComponentRenderer(DefaultComponentTableRenderConfig()), // Always enabled
 		// Initialize horizontal scrolling state
 		horizontalScrollOffsets: make(map[int]int),
 		horizontalScrollMode:    "character",                             // Default to character-by-character
@@ -1250,22 +1250,20 @@ func (t *Table) renderHeader() string {
 	// Default header rendering with cell-by-cell formatting
 	var parts []string
 
-	// Add indicator column header if component renderer is enabled
-	if t.componentRenderer != nil {
-		indicatorWidth := 4
-		indicatorHeader := "●" // Use a dot/bullet as indicator
+	// Add indicator column header since component renderer is always enabled
+	indicatorWidth := 4
+	indicatorHeader := "●" // Use a dot/bullet as indicator
 
-		// Create constraint for indicator header
-		indicatorConstraint := core.CellConstraint{
-			Width:     indicatorWidth,
-			Height:    1,
-			Alignment: core.AlignCenter,
-		}
-
-		styledIndicatorHeader := t.applyCellConstraints(indicatorHeader, indicatorConstraint, -1) // Use -1 for indicator column
-		styledIndicatorHeader = t.config.Theme.HeaderStyle.Render(styledIndicatorHeader)
-		parts = append(parts, styledIndicatorHeader)
+	// Create constraint for indicator header
+	indicatorConstraint := core.CellConstraint{
+		Width:     indicatorWidth,
+		Height:    1,
+		Alignment: core.AlignCenter,
 	}
+
+	styledIndicatorHeader := t.applyCellConstraints(indicatorHeader, indicatorConstraint, -1) // Use -1 for indicator column
+	styledIndicatorHeader = t.config.Theme.HeaderStyle.Render(styledIndicatorHeader)
+	parts = append(parts, styledIndicatorHeader)
 
 	for i, col := range t.columns {
 		var headerText string
@@ -1386,226 +1384,109 @@ func (t *Table) renderRow(item core.Data[any], absoluteIndex int, isCursor bool)
 		}
 	}
 
-	// TRY COMPONENT RENDERER FIRST if enabled
-	if t.componentRenderer != nil {
-		// Component rendering with SEPARATE indicator column
-		// This way indicators don't contaminate the actual cell content
-
-		var parts []string
-
-		// FIRST: Add a separate indicator column for cursor/selection
-		indicatorWidth := 4 // Width for "► ✓ "
-		var indicatorContent string
-
-		// Build indicators separately from content
-		if isCursor && item.Selected {
-			indicatorContent = "►✓"
-		} else if isCursor {
-			indicatorContent = "► "
-		} else if item.Selected {
-			indicatorContent = " ✓"
-		} else {
-			indicatorContent = "  "
-		}
-
-		// Apply constraint to indicator column
-		indicatorConstraint := core.CellConstraint{
-			Width:     indicatorWidth,
-			Height:    1,
-			Alignment: core.AlignCenter,
-		}
-		constrainedIndicator := t.applyCellConstraints(indicatorContent, indicatorConstraint, -1) // Use -1 for indicator column
-
-		// Style the indicator column
-		var styledIndicator string
-		if isCursor {
-			styledIndicator = t.config.Theme.CursorStyle.Render(constrainedIndicator)
-		} else if item.Selected {
-			styledIndicator = t.config.Theme.SelectedStyle.Render(constrainedIndicator)
-		} else {
-			styledIndicator = t.config.Theme.CellStyle.Render(constrainedIndicator)
-		}
-
-		parts = append(parts, styledIndicator)
-
-		// THEN: Render each actual data cell WITHOUT contamination
-		for i, col := range t.columns {
-			var cellValue string
-			if i < len(row.Cells) {
-				cellValue = row.Cells[i]
-			}
-
-			// Apply cell formatter to original content (NO prefix contamination!)
-			var formattedContent string
-			if formatter, exists := t.cellFormatters[i]; exists {
-				isActiveCell := t.isActiveCell(i, isCursor)
-				formattedContent = formatter(cellValue, absoluteIndex, col, t.renderContext, isCursor, item.Selected, isActiveCell)
-			} else {
-				formattedContent = cellValue
-			}
-
-			// Apply cell constraints to maintain column width
-			constraint := core.CellConstraint{
-				Width:     col.Width,
-				Height:    1,
-				Alignment: col.Alignment,
-			}
-
-			constrainedContent := t.applyCellConstraintsWithRowInfo(formattedContent, constraint, i, isCursor)
-
-			// When full-row highlighting is on, the active cell indication must be layered on top.
-			// This block ensures the active cell's background overrides the full-row highlight.
-			// Apply full row highlighting if enabled (overrides all other styling)
-			var styledCell string
-			if t.config.FullRowHighlighting && isCursor {
-				// Full row highlighting takes over - strip existing styling and apply uniform background
-				plainContent := stripANSI(constrainedContent)
-				fullRowStyle := t.config.Theme.FullRowCursorStyle
-
-				// Check for active cell and override background if needed
-				isActiveCell := t.isActiveCell(i, isCursor)
-				if isActiveCell && t.config.ActiveCellIndicationEnabled {
-					// Active cell background overrides full row cursor background
-					activeCellStyle := fullRowStyle.Copy().
-						Background(lipgloss.Color(t.config.ActiveCellBackgroundColor))
-					styledCell = activeCellStyle.Render(plainContent)
-				} else {
-					styledCell = fullRowStyle.Render(plainContent)
-				}
-			} else if item.Selected {
-				// Apply full-row selection styling - strip existing styling and apply uniform selection background
-				plainContent := stripANSI(constrainedContent)
-				selectionStyle := t.config.Theme.SelectedStyle
-				styledCell = selectionStyle.Render(plainContent)
-			} else if isCursor {
-				// Check if this is an active cell that should override cursor styling
-				isActiveCell := t.isActiveCell(i, isCursor)
-				if isActiveCell && t.config.ActiveCellIndicationEnabled {
-					// Active cell background overrides cursor background
-					activeCellStyle := lipgloss.NewStyle().
-						Background(lipgloss.Color(t.config.ActiveCellBackgroundColor)).
-						Foreground(t.config.Theme.CursorStyle.GetForeground())
-					styledCell = activeCellStyle.Render(stripANSI(constrainedContent))
-				} else {
-					// Apply normal cursor styling to formatted content
-					styledCell = t.config.Theme.CursorStyle.Render(constrainedContent)
-				}
-			} else {
-				// Use the formatted and constrained content as-is
-				styledCell = constrainedContent
-			}
-
-			parts = append(parts, styledCell)
-		}
-
-		result := strings.Join(parts, t.getBorderChar())
-
-		if t.config.ShowBorders {
-			result = t.getBorderChar() + result + t.getBorderChar()
-		}
-
-		return result
-	}
-
-	// FALLBACK TO TRADITIONAL RENDERING
-	if t.rowFormatter != nil {
-		// Convert item to TableRow for row formatter
-		cellResults := t.renderCellsForRow(row, absoluteIndex, isCursor, item.Selected)
-		return t.rowFormatter(row, t.columns, cellResults, t.renderContext, isCursor, item.Selected)
-	}
-
-	// Default row rendering
+	// Use component rendering for all rows - it's now the only system
 	var parts []string
 
-	// Render each cell
+	// FIRST: Add a separate indicator column for cursor/selection
+	indicatorWidth := 4 // Width for "► ✓ "
+	var indicatorContent string
+
+	// Build indicators separately from content
+	if isCursor && item.Selected {
+		indicatorContent = "►✓"
+	} else if isCursor {
+		indicatorContent = "► "
+	} else if item.Selected {
+		indicatorContent = " ✓"
+	} else {
+		indicatorContent = "  "
+	}
+
+	// Apply constraint to indicator column
+	indicatorConstraint := core.CellConstraint{
+		Width:     indicatorWidth,
+		Height:    1,
+		Alignment: core.AlignCenter,
+	}
+	constrainedIndicator := t.applyCellConstraints(indicatorContent, indicatorConstraint, -1) // Use -1 for indicator column
+
+	// Style the indicator column
+	var styledIndicator string
+	if isCursor {
+		styledIndicator = t.config.Theme.CursorStyle.Render(constrainedIndicator)
+	} else if item.Selected {
+		styledIndicator = t.config.Theme.SelectedStyle.Render(constrainedIndicator)
+	} else {
+		styledIndicator = t.config.Theme.CellStyle.Render(constrainedIndicator)
+	}
+
+	parts = append(parts, styledIndicator)
+
+	// THEN: Render each actual data cell WITHOUT contamination
 	for i, col := range t.columns {
 		var cellValue string
 		if i < len(row.Cells) {
 			cellValue = row.Cells[i]
 		}
 
-		var styledCell string
-
-		// Use regular formatter or default
+		// Apply cell formatter to original content (NO prefix contamination!)
+		var formattedContent string
 		if formatter, exists := t.cellFormatters[i]; exists {
-			// Apply formatter first
 			isActiveCell := t.isActiveCell(i, isCursor)
-			formattedContent := formatter(cellValue, absoluteIndex, col, t.renderContext, isCursor, item.Selected, isActiveCell)
+			formattedContent = formatter(cellValue, absoluteIndex, col, t.renderContext, isCursor, item.Selected, isActiveCell)
+		} else {
+			formattedContent = cellValue
+		}
 
-			// CRITICAL: Apply width constraints to the formatted content
-			constraint := core.CellConstraint{
-				Width:     col.Width,
-				Height:    1,
-				Alignment: col.Alignment,
-			}
-			constrainedContent := t.applyCellConstraintsWithRowInfo(formattedContent, constraint, i, isCursor)
+		// Apply cell constraints to maintain column width
+		constraint := core.CellConstraint{
+			Width:     col.Width,
+			Height:    1,
+			Alignment: col.Alignment,
+		}
 
-			// When full-row highlighting is on, the active cell indication must be layered on top.
-			// This block ensures the active cell's background overrides the full-row highlight.
-			// Apply full row highlighting if enabled (overrides all other styling)
-			if t.config.FullRowHighlighting && isCursor {
-				// Full row highlighting takes over - strip existing styling and apply uniform background
-				plainContent := stripANSI(constrainedContent)
-				fullRowStyle := t.config.Theme.FullRowCursorStyle
+		constrainedContent := t.applyCellConstraintsWithRowInfo(formattedContent, constraint, i, isCursor)
 
-				isActiveCell := t.isActiveCell(i, isCursor)
-				if isActiveCell && t.config.ActiveCellIndicationEnabled {
-					activeCellStyle := fullRowStyle.Copy().
-						Background(lipgloss.Color(t.config.ActiveCellBackgroundColor))
-					styledCell = activeCellStyle.Render(plainContent)
-				} else {
-					styledCell = fullRowStyle.Render(plainContent)
-				}
-			} else if item.Selected {
-				// Apply full-row selection styling - strip existing styling and apply uniform selection background
-				plainContent := stripANSI(constrainedContent)
-				selectionStyle := t.config.Theme.SelectedStyle
-				styledCell = selectionStyle.Render(plainContent)
-			} else if isCursor {
-				// Apply cursor styling to formatted content
-				styledCell = t.config.Theme.CursorStyle.Render(constrainedContent)
+		// When full-row highlighting is on, the active cell indication must be layered on top.
+		// This block ensures the active cell's background overrides the full-row highlight.
+		// Apply full row highlighting if enabled (overrides all other styling)
+		var styledCell string
+		if t.config.FullRowHighlighting && isCursor {
+			// Full row highlighting takes over - strip existing styling and apply uniform background
+			plainContent := stripANSI(constrainedContent)
+			fullRowStyle := t.config.Theme.FullRowCursorStyle
+
+			// Check for active cell and override background if needed
+			isActiveCell := t.isActiveCell(i, isCursor)
+			if isActiveCell && t.config.ActiveCellIndicationEnabled {
+				// Active cell background overrides full row cursor background
+				activeCellStyle := fullRowStyle.Copy().
+					Background(lipgloss.Color(t.config.ActiveCellBackgroundColor))
+				styledCell = activeCellStyle.Render(plainContent)
 			} else {
-				// Use the formatted and constrained content as-is
-				styledCell = constrainedContent
+				styledCell = fullRowStyle.Render(plainContent)
+			}
+		} else if item.Selected {
+			// Apply full-row selection styling - strip existing styling and apply uniform selection background
+			plainContent := stripANSI(constrainedContent)
+			selectionStyle := t.config.Theme.SelectedStyle
+			styledCell = selectionStyle.Render(plainContent)
+		} else if isCursor {
+			// Check if this is an active cell that should override cursor styling
+			isActiveCell := t.isActiveCell(i, isCursor)
+			if isActiveCell && t.config.ActiveCellIndicationEnabled {
+				// Active cell background overrides cursor background
+				activeCellStyle := lipgloss.NewStyle().
+					Background(lipgloss.Color(t.config.ActiveCellBackgroundColor)).
+					Foreground(t.config.Theme.CursorStyle.GetForeground())
+				styledCell = activeCellStyle.Render(stripANSI(constrainedContent))
+			} else {
+				// Apply normal cursor styling to formatted content
+				styledCell = t.config.Theme.CursorStyle.Render(constrainedContent)
 			}
 		} else {
-			// No formatter - apply default styling
-			constraint := core.CellConstraint{
-				Width:     col.Width,
-				Height:    1,
-				Alignment: col.Alignment,
-			}
-
-			constrainedContent := t.applyCellConstraintsWithRowInfo(cellValue, constraint, i, isCursor)
-
-			// When full-row highlighting is on, the active cell indication must be layered on top.
-			// This block ensures the active cell's background overrides the full-row highlight.
-			// Apply full row highlighting if enabled (overrides all other styling)
-			if t.config.FullRowHighlighting && isCursor {
-				// Full row highlighting takes over - strip existing styling and apply uniform background
-				plainContent := stripANSI(constrainedContent)
-				fullRowStyle := t.config.Theme.FullRowCursorStyle
-
-				isActiveCell := t.isActiveCell(i, isCursor)
-				if isActiveCell && t.config.ActiveCellIndicationEnabled {
-					activeCellStyle := fullRowStyle.Copy().
-						Background(lipgloss.Color(t.config.ActiveCellBackgroundColor))
-					styledCell = activeCellStyle.Render(plainContent)
-				} else {
-					styledCell = fullRowStyle.Render(plainContent)
-				}
-			} else if item.Selected {
-				// Apply full-row selection styling - strip existing styling and apply uniform selection background
-				plainContent := stripANSI(constrainedContent)
-				selectionStyle := t.config.Theme.SelectedStyle
-				styledCell = selectionStyle.Render(plainContent)
-			} else if isCursor {
-				// Apply cursor styling to formatted content
-				styledCell = t.config.Theme.CursorStyle.Render(constrainedContent)
-			} else {
-				// Use the formatted and constrained content as-is
-				styledCell = constrainedContent
-			}
+			// Use the formatted and constrained content as-is
+			styledCell = constrainedContent
 		}
 
 		parts = append(parts, styledCell)
@@ -2423,14 +2304,12 @@ func (t *Table) constructBottomBorder() string {
 	// Left corner
 	parts = append(parts, borderStyle.Render(t.config.Theme.BorderChars.BottomLeft))
 
-	// Add indicator column border if component renderer is enabled
-	if t.componentRenderer != nil {
-		indicatorWidth := 4
-		// Horizontal line for indicator column width
-		parts = append(parts, borderStyle.Render(strings.Repeat(t.config.Theme.BorderChars.Horizontal, indicatorWidth)))
-		// Column separator
-		parts = append(parts, borderStyle.Render(t.config.Theme.BorderChars.BottomT))
-	}
+	// Add indicator column border since component renderer is always enabled
+	indicatorWidth := 4
+	// Horizontal line for indicator column width
+	parts = append(parts, borderStyle.Render(strings.Repeat(t.config.Theme.BorderChars.Horizontal, indicatorWidth)))
+	// Column separator
+	parts = append(parts, borderStyle.Render(t.config.Theme.BorderChars.BottomT))
 
 	// Column borders
 	for i, col := range t.columns {
@@ -2456,14 +2335,12 @@ func (t *Table) constructTopBorder() string {
 	// Left corner
 	parts = append(parts, borderStyle.Render(t.config.Theme.BorderChars.TopLeft))
 
-	// Add indicator column border if component renderer is enabled
-	if t.componentRenderer != nil {
-		indicatorWidth := 4
-		// Horizontal line for indicator column width
-		parts = append(parts, borderStyle.Render(strings.Repeat(t.config.Theme.BorderChars.Horizontal, indicatorWidth)))
-		// Column separator
-		parts = append(parts, borderStyle.Render(t.config.Theme.BorderChars.TopT))
-	}
+	// Add indicator column border since component renderer is always enabled
+	indicatorWidth := 4
+	// Horizontal line for indicator column width
+	parts = append(parts, borderStyle.Render(strings.Repeat(t.config.Theme.BorderChars.Horizontal, indicatorWidth)))
+	// Column separator
+	parts = append(parts, borderStyle.Render(t.config.Theme.BorderChars.TopT))
 
 	// Column borders
 	for i, col := range t.columns {
@@ -2489,14 +2366,12 @@ func (t *Table) constructHeaderSeparator() string {
 	// Left T-junction
 	parts = append(parts, borderStyle.Render(t.config.Theme.BorderChars.LeftT))
 
-	// Add indicator column border if component renderer is enabled
-	if t.componentRenderer != nil {
-		indicatorWidth := 4
-		// Horizontal line for indicator column width
-		parts = append(parts, borderStyle.Render(strings.Repeat(t.config.Theme.BorderChars.Horizontal, indicatorWidth)))
-		// Column separator (cross)
-		parts = append(parts, borderStyle.Render(t.config.Theme.BorderChars.Cross))
-	}
+	// Add indicator column border since component renderer is always enabled
+	indicatorWidth := 4
+	// Horizontal line for indicator column width
+	parts = append(parts, borderStyle.Render(strings.Repeat(t.config.Theme.BorderChars.Horizontal, indicatorWidth)))
+	// Column separator (cross)
+	parts = append(parts, borderStyle.Render(t.config.Theme.BorderChars.Cross))
 
 	// Column borders
 	for i, col := range t.columns {
@@ -2514,41 +2389,39 @@ func (t *Table) constructHeaderSeparator() string {
 	return strings.Join(parts, "")
 }
 
-// EnableComponentRenderer enables the component-based rendering system with default config
-func (t *Table) EnableComponentRenderer() tea.Cmd {
-	config := DefaultComponentTableRenderConfig()
-	t.componentRenderer = NewTableComponentRenderer(config)
-	return nil
-}
+// EnableComponentRenderer is deprecated - component rendering is now always enabled
+// func (t *Table) EnableComponentRenderer() tea.Cmd {
+//	config := DefaultComponentTableRenderConfig()
+//	t.componentRenderer = NewTableComponentRenderer(config)
+//	return nil
+// }
 
-// EnableComponentRendererWithConfig enables the component-based rendering system with custom config
-func (t *Table) EnableComponentRendererWithConfig(config ComponentTableRenderConfig) tea.Cmd {
-	t.componentRenderer = NewTableComponentRenderer(config)
-	return nil
-}
+// EnableComponentRendererWithConfig is deprecated - use UpdateComponentConfig instead
+// func (t *Table) EnableComponentRendererWithConfig(config ComponentTableRenderConfig) tea.Cmd {
+//	t.componentRenderer = NewTableComponentRenderer(config)
+//	return nil
+// }
 
-// DisableComponentRenderer disables the component-based rendering system
-func (t *Table) DisableComponentRenderer() tea.Cmd {
-	t.componentRenderer = nil
-	return nil
-}
+// DisableComponentRenderer is deprecated - component rendering is now always enabled
+// func (t *Table) DisableComponentRenderer() tea.Cmd {
+//	t.componentRenderer = nil
+//	return nil
+// }
 
 // UpdateComponentConfig updates the component renderer configuration
 func (t *Table) UpdateComponentConfig(config ComponentTableRenderConfig) tea.Cmd {
-	if t.componentRenderer != nil {
-		t.componentRenderer.UpdateConfig(config)
-	}
+	t.componentRenderer.UpdateConfig(config)
 	return nil
 }
 
-// GetComponentRenderer returns the component renderer (may be nil)
+// GetComponentRenderer returns the component renderer
 func (t *Table) GetComponentRenderer() *TableComponentRenderer {
 	return t.componentRenderer
 }
 
-// IsComponentRenderingEnabled returns whether component rendering is enabled
+// IsComponentRenderingEnabled returns whether component rendering is enabled (always true now)
 func (t *Table) IsComponentRenderingEnabled() bool {
-	return t.componentRenderer != nil
+	return true
 }
 
 // stripANSI removes ANSI escape codes from a string

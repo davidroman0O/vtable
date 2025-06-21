@@ -403,9 +403,6 @@ func TestTable_ComponentRenderer(t *testing.T) {
 	rows := createTestRows(3)
 	table := createTestTable(rows)
 
-	// Enable component renderer
-	table.EnableComponentRenderer()
-
 	output := table.View()
 
 	// Should still render table content
@@ -450,7 +447,7 @@ func TestTable_ComponentRendererWithCustomConfig(t *testing.T) {
 		},
 	}
 
-	table.EnableComponentRendererWithConfig(config)
+	table.UpdateComponentConfig(config)
 
 	output := table.View()
 
@@ -686,9 +683,6 @@ func TestTable_FullIntegration(t *testing.T) {
 	headerMsg := core.HeaderFormatterSetCmd(0, headerFormatter)()
 	table.Update(headerMsg)
 
-	// Enable component renderer
-	table.EnableComponentRenderer()
-
 	// Set cursor position
 	table.viewport.CursorIndex = 2
 	table.viewport.CursorViewportIndex = 2
@@ -775,7 +769,6 @@ func BenchmarkTable_WithFormatters(b *testing.B) {
 func BenchmarkTable_ComponentRenderer(b *testing.B) {
 	rows := createTestRows(100)
 	table := createTestTable(rows)
-	table.EnableComponentRenderer()
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
