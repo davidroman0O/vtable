@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://github.com/davidroman/vtable/blob/main/assets/demo.gif?raw=true" alt="VTable Demo" width="800">
+  <img src="https://github.com/davidroman/vtable/blob/main/assets/docs/demo.gif?raw=true" alt="VTable Demo" width="800">
 </p>
 
 <p align="center">
