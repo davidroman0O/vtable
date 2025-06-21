@@ -3,9 +3,9 @@
 </p>
 
 <p align="center">
-  <a href="https://pkg.go.dev/github.com/davidroman/vtable/pure"><img src="https://pkg.go.dev/badge/github.com/davidroman/vtable/pure.svg" alt="Go Reference"></a>
-  <a href="https://goreportcard.com/report/github.com/davidroman/vtable/pure"><img src="https://goreportcard.com/badge/github.com/davidroman/vtable/pure" alt="Go Report Card"></a>
-  <a href="https://github.com/davidroman/vtable/blob/main/LICENSE"><img src="https://img.shields.io/github/license/davidroman/vtable" alt="License"></a>
+  <a href="https://pkg.go.dev/github.com/davidroman0O/vtable"><img src="https://pkg.go.dev/badge/github.com/davidroman0O/vtable.svg" alt="Go Reference"></a>
+  <a href="https://goreportcard.com/report/github.com/davidroman0O/vtable"><img src="https://goreportcard.com/badge/github.com/davidroman0O/vtable" alt="Go Report Card"></a>
+  <a href="https://github.com/davidroman0O/vtable/blob/main/LICENSE"><img src="https://img.shields.io/github/license/davidroman0O/vtable" alt="License"></a>
   <img src="https://img.shields.io/badge/go-%3E%3D1.18-blue" alt="Go Version">
 </p>
 
@@ -43,7 +43,7 @@ A high-performance, feature-rich library of virtualized `List`, `Table`, and `Tr
 ## 📦 Installation
 
 ```bash
-go get github.com/davidroman/vtable
+go get github.com/davidroman0O/vtable
 ```
 
 ## 🚀 Quick Start
@@ -69,9 +69,9 @@ VTable includes an advanced component-based rendering system for maximum flexibi
 
 Complete API documentation with all commands, messages, and configuration options is available in the source code:
 
-- **Commands & Messages**: [`commands.go`](commands.go)
-- **Configuration**: [`config.go`](config.go) and [`types.go`](types.go)
-- **Components**: Individual component documentation in the [``]() directory
+- **Commands & Messages**: [`core/commands.go`](core/commands.go)
+- **Configuration**: [`config/config.go`](config/config.go) and [`core/types.go`](core/types.go)
+- **Components**: Individual component documentation in the component directories
 
 ## 📁 Examples & Documentation
 
