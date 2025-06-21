@@ -160,7 +160,7 @@ func DefaultTreeConfig() TreeConfig {
 
 	return TreeConfig{
 		RenderConfig:          config,
-		CascadingSelection:    true,
+		CascadingSelection:    false,
 		AutoExpand:            true,
 		ShowRoot:              true,
 		ExpandOnSelect:        true,
