@@ -26,6 +26,20 @@ func CursorDownCmd() tea.Cmd {
 	}
 }
 
+// CursorLeftCmd creates a command that sends a CursorLeftMsg to move the cursor left.
+func CursorLeftCmd() tea.Cmd {
+	return func() tea.Msg {
+		return CursorLeftMsg{}
+	}
+}
+
+// CursorRightCmd creates a command that sends a CursorRightMsg to move the cursor right.
+func CursorRightCmd() tea.Cmd {
+	return func() tea.Msg {
+		return CursorRightMsg{}
+	}
+}
+
 // PageUpCmd creates a command that sends a PageUpMsg to move the cursor up one page.
 func PageUpCmd() tea.Cmd {
 	return func() tea.Msg {
@@ -37,6 +51,115 @@ func PageUpCmd() tea.Cmd {
 func PageDownCmd() tea.Cmd {
 	return func() tea.Msg {
 		return PageDownMsg{}
+	}
+}
+
+// PageLeftCmd creates a command that sends a PageLeftMsg to move the cursor left one page.
+func PageLeftCmd() tea.Cmd {
+	return func() tea.Msg {
+		return PageLeftMsg{}
+	}
+}
+
+// PageRightCmd creates a command that sends a PageRightMsg to move the cursor right one page.
+func PageRightCmd() tea.Cmd {
+	return func() tea.Msg {
+		return PageRightMsg{}
+	}
+}
+
+// === HORIZONTAL SCROLLING COMMANDS ===
+
+// HorizontalScrollLeftCmd creates a command that sends a HorizontalScrollLeftMsg to scroll horizontally left within the current column.
+func HorizontalScrollLeftCmd() tea.Cmd {
+	return func() tea.Msg {
+		return HorizontalScrollLeftMsg{}
+	}
+}
+
+// HorizontalScrollRightCmd creates a command that sends a HorizontalScrollRightMsg to scroll horizontally right within the current column.
+func HorizontalScrollRightCmd() tea.Cmd {
+	return func() tea.Msg {
+		return HorizontalScrollRightMsg{}
+	}
+}
+
+// HorizontalScrollWordLeftCmd creates a command that sends a HorizontalScrollWordLeftMsg to scroll horizontally left by word boundaries.
+func HorizontalScrollWordLeftCmd() tea.Cmd {
+	return func() tea.Msg {
+		return HorizontalScrollWordLeftMsg{}
+	}
+}
+
+// HorizontalScrollWordRightCmd creates a command that sends a HorizontalScrollWordRightMsg to scroll horizontally right by word boundaries.
+func HorizontalScrollWordRightCmd() tea.Cmd {
+	return func() tea.Msg {
+		return HorizontalScrollWordRightMsg{}
+	}
+}
+
+// HorizontalScrollSmartLeftCmd creates a command that sends a HorizontalScrollSmartLeftMsg to scroll horizontally left using smart boundaries.
+func HorizontalScrollSmartLeftCmd() tea.Cmd {
+	return func() tea.Msg {
+		return HorizontalScrollSmartLeftMsg{}
+	}
+}
+
+// HorizontalScrollSmartRightCmd creates a command that sends a HorizontalScrollSmartRightMsg to scroll horizontally right using smart boundaries.
+func HorizontalScrollSmartRightCmd() tea.Cmd {
+	return func() tea.Msg {
+		return HorizontalScrollSmartRightMsg{}
+	}
+}
+
+// HorizontalScrollPageLeftCmd creates a command that sends a HorizontalScrollPageLeftMsg to scroll horizontally left by a page amount.
+func HorizontalScrollPageLeftCmd() tea.Cmd {
+	return func() tea.Msg {
+		return HorizontalScrollPageLeftMsg{}
+	}
+}
+
+// HorizontalScrollPageRightCmd creates a command that sends a HorizontalScrollPageRightMsg to scroll horizontally right by a page amount.
+func HorizontalScrollPageRightCmd() tea.Cmd {
+	return func() tea.Msg {
+		return HorizontalScrollPageRightMsg{}
+	}
+}
+
+// HorizontalScrollModeToggleCmd creates a command that sends a HorizontalScrollModeToggleMsg to cycle through horizontal scroll modes.
+func HorizontalScrollModeToggleCmd() tea.Cmd {
+	return func() tea.Msg {
+		return HorizontalScrollModeToggleMsg{}
+	}
+}
+
+// HorizontalScrollScopeToggleCmd creates a command that sends a HorizontalScrollScopeToggleMsg to toggle horizontal scroll scope.
+func HorizontalScrollScopeToggleCmd() tea.Cmd {
+	return func() tea.Msg {
+		return HorizontalScrollScopeToggleMsg{}
+	}
+}
+
+// HorizontalScrollResetCmd creates a command that sends a HorizontalScrollResetMsg to reset all horizontal scroll offsets.
+func HorizontalScrollResetCmd() tea.Cmd {
+	return func() tea.Msg {
+		return HorizontalScrollResetMsg{}
+	}
+}
+
+// === COLUMN NAVIGATION COMMANDS ===
+
+// NextColumnCmd creates a command that sends a NextColumnMsg to move to the next column for horizontal navigation/scrolling focus.
+func NextColumnCmd() tea.Cmd {
+	return func() tea.Msg {
+		return NextColumnMsg{}
+	}
+}
+
+// PrevColumnCmd creates a command that sends a PrevColumnMsg to move to the previous column for horizontal navigation/scrolling focus.
+func PrevColumnCmd() tea.Cmd {
+	return func() tea.Msg {
+		return PrevColumnMsg{}
 	}
 }
 

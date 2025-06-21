@@ -273,12 +273,28 @@ func (t *Table) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmd := t.handleCursorDown()
 		return t, cmd
 
+	case core.CursorLeftMsg:
+		cmd := t.handlePrevColumn()
+		return t, cmd
+
+	case core.CursorRightMsg:
+		cmd := t.handleNextColumn()
+		return t, cmd
+
 	case core.PageUpMsg:
 		cmd := t.handlePageUp()
 		return t, cmd
 
 	case core.PageDownMsg:
 		cmd := t.handlePageDown()
+		return t, cmd
+
+	case core.PageLeftMsg:
+		cmd := t.handleHorizontalScrollPageLeft()
+		return t, cmd
+
+	case core.PageRightMsg:
+		cmd := t.handleHorizontalScrollPageRight()
 		return t, cmd
 
 	case core.JumpToStartMsg:
@@ -291,6 +307,60 @@ func (t *Table) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case core.JumpToMsg:
 		cmd := t.handleJumpTo(msg.Index)
+		return t, cmd
+
+	// === HORIZONTAL SCROLLING MESSAGES ===
+	case core.HorizontalScrollLeftMsg:
+		cmd := t.handleHorizontalScrollLeft()
+		return t, cmd
+
+	case core.HorizontalScrollRightMsg:
+		cmd := t.handleHorizontalScrollRight()
+		return t, cmd
+
+	case core.HorizontalScrollWordLeftMsg:
+		cmd := t.handleHorizontalScrollWordLeft()
+		return t, cmd
+
+	case core.HorizontalScrollWordRightMsg:
+		cmd := t.handleHorizontalScrollWordRight()
+		return t, cmd
+
+	case core.HorizontalScrollSmartLeftMsg:
+		cmd := t.handleHorizontalScrollSmartLeft()
+		return t, cmd
+
+	case core.HorizontalScrollSmartRightMsg:
+		cmd := t.handleHorizontalScrollSmartRight()
+		return t, cmd
+
+	case core.HorizontalScrollPageLeftMsg:
+		cmd := t.handleHorizontalScrollPageLeft()
+		return t, cmd
+
+	case core.HorizontalScrollPageRightMsg:
+		cmd := t.handleHorizontalScrollPageRight()
+		return t, cmd
+
+	case core.HorizontalScrollModeToggleMsg:
+		cmd := t.handleToggleScrollMode()
+		return t, cmd
+
+	case core.HorizontalScrollScopeToggleMsg:
+		cmd := t.handleToggleScrollScope()
+		return t, cmd
+
+	case core.HorizontalScrollResetMsg:
+		cmd := t.handleResetScrolling()
+		return t, cmd
+
+	// === COLUMN NAVIGATION MESSAGES ===
+	case core.NextColumnMsg:
+		cmd := t.handleNextColumn()
+		return t, cmd
+
+	case core.PrevColumnMsg:
+		cmd := t.handlePrevColumn()
 		return t, cmd
 
 	// ===== Data Messages - Reuse List logic =====
@@ -1208,31 +1278,31 @@ func (t *Table) handleKeyPress(msg tea.KeyMsg) tea.Cmd {
 		}
 	}
 
-	// === HORIZONTAL SCROLLING KEYS ===
-	switch key {
-	case "left":
-		return t.handleHorizontalScrollLeft()
-	case "right":
-		return t.handleHorizontalScrollRight()
-	case "[":
-		return t.handleHorizontalScrollWordLeft()
-	case "]":
-		return t.handleHorizontalScrollWordRight()
-	case "{":
-		return t.handleHorizontalScrollSmartLeft()
-	case "}":
-		return t.handleHorizontalScrollSmartRight()
-	case ".":
-		return t.handleNextColumn()
-	case ",":
-		return t.handlePrevColumn()
-	case "m", "M":
-		return t.handleToggleScrollMode()
-	case "v", "V":
-		return t.handleToggleScrollScope()
-	case "backspace", "delete":
-		return t.handleResetScrolling()
-	}
+	// // === HORIZONTAL SCROLLING KEYS ===
+	// switch key {
+	// case "left":
+	// 	return t.handleHorizontalScrollLeft()
+	// case "right":
+	// 	return t.handleHorizontalScrollRight()
+	// case "[":
+	// 	return t.handleHorizontalScrollWordLeft()
+	// case "]":
+	// 	return t.handleHorizontalScrollWordRight()
+	// case "{":
+	// 	return t.handleHorizontalScrollSmartLeft()
+	// case "}":
+	// 	return t.handleHorizontalScrollSmartRight()
+	// case ".":
+	// 	return t.handleNextColumn()
+	// case ",":
+	// 	return t.handlePrevColumn()
+	// case "m", "M":
+	// 	return t.handleToggleScrollMode()
+	// case "v", "V":
+	// 	return t.handleToggleScrollScope()
+	// case "backspace", "delete":
+	// 	return t.handleResetScrolling()
+	// }
 
 	return nil
 }
@@ -2850,53 +2920,266 @@ func (t *Table) handleHorizontalScrollRight() tea.Cmd {
 	return nil
 }
 
+// handleHorizontalScrollPageLeft scrolls left by a larger amount (page-based)
+func (t *Table) handleHorizontalScrollPageLeft() tea.Cmd {
+	pageSize := 5 // Scroll by 5 units at a time for page-based navigation
+	currentOffset := t.horizontalScrollOffsets[t.currentColumn]
+	if currentOffset >= pageSize {
+		t.horizontalScrollOffsets[t.currentColumn] = currentOffset - pageSize
+	} else {
+		t.horizontalScrollOffsets[t.currentColumn] = 0
+	}
+	return nil
+}
+
+// handleHorizontalScrollPageRight scrolls right by a larger amount (page-based)
+func (t *Table) handleHorizontalScrollPageRight() tea.Cmd {
+	pageSize := 5 // Scroll by 5 units at a time for page-based navigation
+	maxScroll := t.getMaxScrollForColumn(t.currentColumn)
+	currentOffset := t.horizontalScrollOffsets[t.currentColumn]
+	if currentOffset+pageSize <= maxScroll {
+		t.horizontalScrollOffsets[t.currentColumn] = currentOffset + pageSize
+	} else {
+		t.horizontalScrollOffsets[t.currentColumn] = maxScroll
+	}
+	return nil
+}
+
 // handleHorizontalScrollWordLeft scrolls left by word
 func (t *Table) handleHorizontalScrollWordLeft() tea.Cmd {
-	oldMode := t.horizontalScrollMode
-	t.horizontalScrollMode = "word"
-	defer func() { t.horizontalScrollMode = oldMode }()
-
-	if t.horizontalScrollOffsets[t.currentColumn] > 0 {
-		t.horizontalScrollOffsets[t.currentColumn]--
+	// Get current content for the focused column to find word boundaries
+	if t.currentColumn < 0 || t.currentColumn >= len(t.columns) {
+		return nil
 	}
+
+	currentOffset := t.horizontalScrollOffsets[t.currentColumn]
+	if currentOffset <= 0 {
+		return nil // Already at start
+	}
+
+	// Find content from current row or any visible row if no content in current row
+	var cellText string
+	for _, item := range t.visibleItems {
+		if row, ok := item.Item.(core.TableRow); ok && t.currentColumn < len(row.Cells) {
+			cellText = row.Cells[t.currentColumn]
+			if cellText != "" {
+				break // Use first non-empty cell content
+			}
+		}
+	}
+
+	if cellText == "" {
+		return nil // No content to scroll
+	}
+
+	// Clean text for processing
+	cleanText := strings.ReplaceAll(cellText, "\n", " ")
+	cleanText = strings.ReplaceAll(cleanText, "\r", " ")
+	cleanText = strings.ReplaceAll(cleanText, "\t", " ")
+	for strings.Contains(cleanText, "  ") {
+		cleanText = strings.ReplaceAll(cleanText, "  ", " ")
+	}
+	cleanText = strings.TrimSpace(cleanText)
+
+	// Find the previous word boundary before current position
+	runes := []rune(cleanText)
+	if currentOffset > len(runes) {
+		currentOffset = len(runes)
+	}
+
+	// Find previous word boundary
+	prevWordStart := 0 // Default to beginning
+	inWord := false
+
+	for i := 0; i < currentOffset; i++ {
+		isSpace := runes[i] == ' ' || runes[i] == '\t'
+
+		if !inWord && !isSpace {
+			// Found start of word
+			prevWordStart = i
+			inWord = true
+		} else if inWord && isSpace {
+			// End of word
+			inWord = false
+		}
+	}
+
+	t.horizontalScrollOffsets[t.currentColumn] = prevWordStart
 	return nil
 }
 
 // handleHorizontalScrollWordRight scrolls right by word
 func (t *Table) handleHorizontalScrollWordRight() tea.Cmd {
-	oldMode := t.horizontalScrollMode
-	t.horizontalScrollMode = "word"
-	defer func() { t.horizontalScrollMode = oldMode }()
-
-	maxScroll := t.getMaxScrollForColumn(t.currentColumn)
-	if t.horizontalScrollOffsets[t.currentColumn] < maxScroll {
-		t.horizontalScrollOffsets[t.currentColumn]++
+	// Get current content for the focused column to find word boundaries
+	if t.currentColumn < 0 || t.currentColumn >= len(t.columns) {
+		return nil
 	}
+
+	// Find content from current row or any visible row if no content in current row
+	var cellText string
+	for _, item := range t.visibleItems {
+		if row, ok := item.Item.(core.TableRow); ok && t.currentColumn < len(row.Cells) {
+			cellText = row.Cells[t.currentColumn]
+			if cellText != "" {
+				break // Use first non-empty cell content
+			}
+		}
+	}
+
+	if cellText == "" {
+		return nil // No content to scroll
+	}
+
+	// Clean text for processing
+	cleanText := strings.ReplaceAll(cellText, "\n", " ")
+	cleanText = strings.ReplaceAll(cleanText, "\r", " ")
+	cleanText = strings.ReplaceAll(cleanText, "\t", " ")
+	for strings.Contains(cleanText, "  ") {
+		cleanText = strings.ReplaceAll(cleanText, "  ", " ")
+	}
+	cleanText = strings.TrimSpace(cleanText)
+
+	// Get current character offset
+	currentOffset := t.horizontalScrollOffsets[t.currentColumn]
+
+	// Find the next word boundary after current position
+	runes := []rune(cleanText)
+	if currentOffset >= len(runes) {
+		return nil // Already at or past end
+	}
+
+	// Find next word boundary
+	nextWordStart := -1
+	inWord := false
+
+	for i := currentOffset; i < len(runes); i++ {
+		isSpace := runes[i] == ' ' || runes[i] == '\t'
+
+		if inWord && isSpace {
+			// End of current word, look for next word start
+			inWord = false
+		} else if !inWord && !isSpace {
+			// Found start of next word
+			if i > currentOffset { // Must be after current position
+				nextWordStart = i
+				break
+			}
+			inWord = true
+		}
+	}
+
+	if nextWordStart > currentOffset {
+		t.horizontalScrollOffsets[t.currentColumn] = nextWordStart
+	}
+
 	return nil
 }
 
 // handleHorizontalScrollSmartLeft scrolls left by smart boundaries
 func (t *Table) handleHorizontalScrollSmartLeft() tea.Cmd {
-	oldMode := t.horizontalScrollMode
-	t.horizontalScrollMode = "smart"
-	defer func() { t.horizontalScrollMode = oldMode }()
-
-	if t.horizontalScrollOffsets[t.currentColumn] > 0 {
-		t.horizontalScrollOffsets[t.currentColumn]--
+	// Get current content for the focused column to find smart boundaries
+	if t.currentColumn < 0 || t.currentColumn >= len(t.columns) {
+		return nil
 	}
+
+	currentOffset := t.horizontalScrollOffsets[t.currentColumn]
+	if currentOffset <= 0 {
+		return nil // Already at start
+	}
+
+	// Find content from current row or any visible row if no content in current row
+	var cellText string
+	for _, item := range t.visibleItems {
+		if row, ok := item.Item.(core.TableRow); ok && t.currentColumn < len(row.Cells) {
+			cellText = row.Cells[t.currentColumn]
+			if cellText != "" {
+				break // Use first non-empty cell content
+			}
+		}
+	}
+
+	if cellText == "" {
+		return nil // No content to scroll
+	}
+
+	// Clean text for processing
+	cleanText := strings.ReplaceAll(cellText, "\n", " ")
+	cleanText = strings.ReplaceAll(cleanText, "\r", " ")
+	cleanText = strings.ReplaceAll(cleanText, "\t", " ")
+	for strings.Contains(cleanText, "  ") {
+		cleanText = strings.ReplaceAll(cleanText, "  ", " ")
+	}
+	cleanText = strings.TrimSpace(cleanText)
+
+	// Find smart boundaries
+	segments := t.parseTextWithANSI(cleanText)
+	boundaries := t.findSmartBoundariesInSegments(segments)
+
+	// Find the previous boundary before current position
+	prevBoundary := 0 // Default to beginning
+	for _, boundary := range boundaries {
+		if boundary < currentOffset {
+			prevBoundary = boundary
+		} else {
+			break // We've passed the current position
+		}
+	}
+
+	t.horizontalScrollOffsets[t.currentColumn] = prevBoundary
 	return nil
 }
 
 // handleHorizontalScrollSmartRight scrolls right by smart boundaries
 func (t *Table) handleHorizontalScrollSmartRight() tea.Cmd {
-	oldMode := t.horizontalScrollMode
-	t.horizontalScrollMode = "smart"
-	defer func() { t.horizontalScrollMode = oldMode }()
-
-	maxScroll := t.getMaxScrollForColumn(t.currentColumn)
-	if t.horizontalScrollOffsets[t.currentColumn] < maxScroll {
-		t.horizontalScrollOffsets[t.currentColumn]++
+	// Get current content for the focused column to find smart boundaries
+	if t.currentColumn < 0 || t.currentColumn >= len(t.columns) {
+		return nil
 	}
+
+	// Find content from current row or any visible row if no content in current row
+	var cellText string
+	for _, item := range t.visibleItems {
+		if row, ok := item.Item.(core.TableRow); ok && t.currentColumn < len(row.Cells) {
+			cellText = row.Cells[t.currentColumn]
+			if cellText != "" {
+				break // Use first non-empty cell content
+			}
+		}
+	}
+
+	if cellText == "" {
+		return nil // No content to scroll
+	}
+
+	// Clean text for processing
+	cleanText := strings.ReplaceAll(cellText, "\n", " ")
+	cleanText = strings.ReplaceAll(cleanText, "\r", " ")
+	cleanText = strings.ReplaceAll(cleanText, "\t", " ")
+	for strings.Contains(cleanText, "  ") {
+		cleanText = strings.ReplaceAll(cleanText, "  ", " ")
+	}
+	cleanText = strings.TrimSpace(cleanText)
+
+	// Get current character offset
+	currentOffset := t.horizontalScrollOffsets[t.currentColumn]
+
+	// Find smart boundaries
+	segments := t.parseTextWithANSI(cleanText)
+	boundaries := t.findSmartBoundariesInSegments(segments)
+
+	// Find the next boundary after current position
+	nextBoundary := -1
+	for _, boundary := range boundaries {
+		if boundary > currentOffset {
+			nextBoundary = boundary
+			break
+		}
+	}
+
+	if nextBoundary > currentOffset {
+		t.horizontalScrollOffsets[t.currentColumn] = nextBoundary
+	}
+
 	return nil
 }
 

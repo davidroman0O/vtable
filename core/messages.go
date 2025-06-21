@@ -17,11 +17,23 @@ type CursorUpMsg struct{}
 // CursorDownMsg is a message sent to move the cursor down by one position.
 type CursorDownMsg struct{}
 
+// CursorLeftMsg is a message sent to move the cursor left by one position.
+type CursorLeftMsg struct{}
+
+// CursorRightMsg is a message sent to move the cursor right by one position.
+type CursorRightMsg struct{}
+
 // PageUpMsg is a message sent to move the cursor up by one page/viewport height.
 type PageUpMsg struct{}
 
 // PageDownMsg is a message sent to move the cursor down by one page/viewport height.
 type PageDownMsg struct{}
+
+// PageLeftMsg is a message sent to move the cursor left by one page/viewport width.
+type PageLeftMsg struct{}
+
+// PageRightMsg is a message sent to move the cursor right by one page/viewport width.
+type PageRightMsg struct{}
 
 // JumpToStartMsg is a message sent to move the cursor to the first item in the dataset.
 type JumpToStartMsg struct{}
@@ -566,3 +578,46 @@ type SetComponentBackgroundMsg struct {
 	ApplySelected bool
 	ApplyNormal   bool
 }
+
+// === HORIZONTAL SCROLLING MESSAGES ===
+
+// HorizontalScrollLeftMsg is a message sent to scroll horizontally left within the current column.
+type HorizontalScrollLeftMsg struct{}
+
+// HorizontalScrollRightMsg is a message sent to scroll horizontally right within the current column.
+type HorizontalScrollRightMsg struct{}
+
+// HorizontalScrollWordLeftMsg is a message sent to scroll horizontally left by word boundaries.
+type HorizontalScrollWordLeftMsg struct{}
+
+// HorizontalScrollWordRightMsg is a message sent to scroll horizontally right by word boundaries.
+type HorizontalScrollWordRightMsg struct{}
+
+// HorizontalScrollSmartLeftMsg is a message sent to scroll horizontally left using smart boundaries.
+type HorizontalScrollSmartLeftMsg struct{}
+
+// HorizontalScrollSmartRightMsg is a message sent to scroll horizontally right using smart boundaries.
+type HorizontalScrollSmartRightMsg struct{}
+
+// HorizontalScrollPageLeftMsg is a message sent to scroll horizontally left by a page amount.
+type HorizontalScrollPageLeftMsg struct{}
+
+// HorizontalScrollPageRightMsg is a message sent to scroll horizontally right by a page amount.
+type HorizontalScrollPageRightMsg struct{}
+
+// HorizontalScrollModeToggleMsg is a message sent to cycle through horizontal scroll modes (character/word/smart).
+type HorizontalScrollModeToggleMsg struct{}
+
+// HorizontalScrollScopeToggleMsg is a message sent to toggle horizontal scroll scope (current row/all rows).
+type HorizontalScrollScopeToggleMsg struct{}
+
+// HorizontalScrollResetMsg is a message sent to reset all horizontal scroll offsets.
+type HorizontalScrollResetMsg struct{}
+
+// === COLUMN NAVIGATION MESSAGES ===
+
+// NextColumnMsg is a message sent to move to the next column for horizontal navigation/scrolling focus.
+type NextColumnMsg struct{}
+
+// PrevColumnMsg is a message sent to move to the previous column for horizontal navigation/scrolling focus.
+type PrevColumnMsg struct{}
