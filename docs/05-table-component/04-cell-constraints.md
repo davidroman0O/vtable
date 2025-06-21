@@ -241,7 +241,7 @@ type App struct {
 	showJumpForm bool
 	jumpInput    string
 
-	// NEW: Constraint state tracking
+	// Constraint state tracking
 	widthMode      int // 0=narrow, 1=normal, 2=wide
 	alignmentMode  int // 0=mixed, 1=all-left, 2=all-center, 3=all-right
 	headerAlignMode int // 0=mixed, 1=all-left, 2=all-center, 3=all-right  

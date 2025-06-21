@@ -290,7 +290,7 @@ func (app *App) updateStatus() {
 	if app.showJumpForm {
 		app.statusMessage = fmt.Sprintf("Enter employee number (1-%d), Enter to jump, Esc to cancel", app.totalEmployees)
 	} else {
-		app.statusMessage = fmt.Sprintf("Employee %d of %d | Use j/k ↑↓ h/l g/G J (jump), q to quit",
+		app.statusMessage = fmt.Sprintf("Employee %d of %d | Press q to quit",
 			state.CursorIndex+1, app.totalEmployees)
 	}
 }
@@ -311,8 +311,13 @@ func (app App) View() string {
 	// Table
 	sections = append(sections, app.table.View())
 
+	// Always show controls
+	sections = append(sections, "")
+	sections = append(sections, "Controls: ↑↓/jk=move, PageUp/Down=fast, Home/End=start/end, J=jump, q=quit")
+	sections = append(sections, "Data virtualization: Only visible rows loaded for smooth 10k employee scrolling")
+
 	// Join all sections
-	return fmt.Sprintf("%s", strings.Join(sections, "\n"))
+	return strings.Join(sections, "\n")
 }
 
 func main() {
@@ -328,7 +333,7 @@ func main() {
 	app := App{
 		table:         employeeTable,
 		dataSource:    dataSource,
-		statusMessage: "Loading employees...",
+		statusMessage: "Loading 10,000 employees... | Press q to quit",
 	}
 
 	// Run the program

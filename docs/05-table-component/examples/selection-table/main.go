@@ -443,7 +443,7 @@ func (app *App) updateStatus() {
 	if app.showJumpForm {
 		app.statusMessage = fmt.Sprintf("Enter employee number (1-%d), Enter to jump, Esc to cancel", app.totalEmployees)
 	} else {
-		app.statusMessage = fmt.Sprintf("Employee %d/%d | Selected: %d | Use space/enter ctrl+a c s J, q to quit",
+		app.statusMessage = fmt.Sprintf("Employee %d/%d | Selected: %d",
 			state.CursorIndex+1, app.totalEmployees, selectionCount)
 	}
 }
@@ -463,6 +463,11 @@ func (app App) View() string {
 
 	// Table
 	sections = append(sections, app.table.View())
+
+	// Always show controls
+	sections = append(sections, "")
+	sections = append(sections, "Controls: ↑↓/jk=move, Space/Enter=select, Ctrl+A=all, C=clear, S=info, J=jump, q=quit")
+	sections = append(sections, "Selection: Track multiple selections with activity history")
 
 	// Show selection info
 	selectionCount := app.dataSource.GetSelectionCount()
@@ -497,7 +502,7 @@ func main() {
 	app := App{
 		table:         employeeTable,
 		dataSource:    dataSource,
-		statusMessage: "Loading employees...",
+		statusMessage: "Loading 10,000 employees... | Selection controls shown below",
 	}
 
 	// Run the program

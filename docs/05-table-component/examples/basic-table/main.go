@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"log"
+	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/davidroman0O/vtable/config"
@@ -218,7 +219,7 @@ func main() {
 	app := App{
 		table:         employeeTable,
 		dataSource:    dataSource,
-		statusMessage: "Employee Directory - Use ↑↓ or j/k to navigate, g/G for start/end, q to quit",
+		statusMessage: "Employee Directory - Navigate with keys shown below",
 	}
 
 	// Run the program
@@ -278,7 +279,18 @@ func (app App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (app App) View() string {
-	return fmt.Sprintf("%s\n\n%s",
-		app.statusMessage,
-		app.table.View())
+	var sections []string
+
+	// Status message
+	sections = append(sections, app.statusMessage)
+	sections = append(sections, "")
+
+	// Table
+	sections = append(sections, app.table.View())
+
+	// Always show controls
+	sections = append(sections, "")
+	sections = append(sections, "Controls: ↑↓/jk=move, Home/End=start/end, g/G=start/end, q=quit")
+
+	return strings.Join(sections, "\n")
 }
