@@ -10,6 +10,8 @@ We will enhance our table with a multi-level debug view that provides real-time 
 -   **Chunk State**: The status of data chunks (loading, loaded, unloaded).
 -   **Message Tracing**: A verbose log of all Bubble Tea messages being processed.
 
+![VTable Debug and Observability Demo](examples/debug-observability/debug-observability.gif)
+
 ```text
 // Example of the debug view enabled
 === DEBUG INFO ===

@@ -10,6 +10,8 @@ We will build an interactive table where the user can:
 -   **Adjust the width** of the currently active column using `W`/`w`.
 -   **Cycle through text alignments** for the active column with `A`.
 
+![VTable Column Management Demo](examples/column-management/column-management.gif)
+
 ```text
 // User can reorder columns, for example, moving 'Status' to the front.
 ┌────────────┬───────────────┬───────────────────┬────────────┐

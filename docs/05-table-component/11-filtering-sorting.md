@@ -2,6 +2,8 @@
 
 This guide explains how to add powerful, server-side style filtering and sorting to your table. The key insight is that **VTable has built-in support for these features; you just need to implement the data manipulation logic in your `DataSource`.**
 
+![VTable Filtering and Sorting Demo](examples/filtering-sorting/filtering-sorting.gif)
+
 ## How It Works: The `DataRequest`
 
 Every time VTable needs a chunk of data, it calls your `DataSource.LoadChunk` method with a `DataRequest` object. This object contains the complete state of active filters and sorts.

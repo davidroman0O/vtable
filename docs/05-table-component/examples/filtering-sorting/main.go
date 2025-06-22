@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"sort"
 	"strings"
-	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -227,7 +226,6 @@ func (ds *EmployeeDataSource) GetTotal() tea.Cmd {
 
 func (ds *EmployeeDataSource) LoadChunk(request core.DataRequest) tea.Cmd {
 	return func() tea.Msg {
-		time.Sleep(10 * time.Millisecond)
 
 		end := request.Start + request.Count
 		if end > ds.filteredTotal {
