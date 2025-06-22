@@ -6,6 +6,8 @@ This guide covers the advanced, power-user features of VTable's `TreeList`. You'
 
 We will add a suite of advanced commands to our file tree, turning it from a simple browser into a powerful organizational tool.
 
+![VTable Advanced Tree Features](examples/advanced-features/advanced-features.gif)
+
 -   **Bulk Operations**: `E` to Expand All, `C` to Collapse All.
 -   **Subtree Manipulation**: `e`/`c` to expand/collapse the current folder and all its children.
 -   **Cascading Selection**: Selecting a folder will automatically select its entire contents.

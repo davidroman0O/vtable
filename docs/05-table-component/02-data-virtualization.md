@@ -6,16 +6,7 @@ Just like lists, VTable's `Table` component is fully virtualized, allowing it to
 
 We will create a table that appears to hold 10,000 employee records, but only loads and renders the visible rows, ensuring the application remains fast and responsive.
 
-```text
-// The UI will be just as fast with 10,000 rows as it was with 10.
-┌───────────────────┬───────────────┬────────────┬────────────┐
-│   Employee Name   │  Department   │   Status   │     Salary │
-├───────────────────┼───────────────┼────────────┼────────────┤
-│ ► Employee 5000   │  Engineering  │   Active   │    $82,000 │
-│   Employee 5001   │   Marketing   │   Remote   │    $73,000 │
-│   ...             │      ...      │     ...    │        ... │
-└───────────────────┴───────────────┴────────────┴────────────┘
-```
+![Virtualized Table Demo](examples/virtualized-table/virtualized-table.gif)
 
 ## Step 1: Create a `DataSource` for a Large Dataset
 

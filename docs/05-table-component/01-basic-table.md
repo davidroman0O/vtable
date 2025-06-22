@@ -6,16 +6,7 @@ Let's build your first VTable **Table**. The Table component is designed for dis
 
 A clean, bordered table that displays a list of employees with multiple columns, proper alignment, and full keyboard navigation.
 
-```text
-┌───────────────────┬───────────────┬────────────┬────────────┐
-│   Employee Name   │  Department   │   Status   │     Salary │
-├───────────────────┼───────────────┼────────────┼────────────┤
-│ ► Alice Johnson   │  Engineering  │   Active   │    $75,000 │
-│   Bob Smith       │   Marketing   │   Active   │    $65,000 │
-│   Carol Davis     │  Engineering  │  On Leave  │    $80,000 │
-│   ...             │      ...      │     ...    │        ... │
-└───────────────────┴───────────────┴────────────┴────────────┘
-```
+![Basic VTable Table](examples/basic-table/basic-table.gif)
 
 ## How Tables Differ from Lists
 

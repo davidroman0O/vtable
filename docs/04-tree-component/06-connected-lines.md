@@ -6,9 +6,10 @@ Let's enhance our tree's visual structure by adding **connected lines**. This fe
 
 We will transform our indented tree into one with clear, connecting lines that visually represent the hierarchy.
 
+![VTable Connected Lines Example](examples/connected-lines/connected-lines.gif)
+
 **Before (Simple Indentation):**
-```
-📁 Project
+```📁 Project
   📁 src
     📄 main.go
 ```

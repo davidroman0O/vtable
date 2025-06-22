@@ -6,6 +6,8 @@ Indentation is what gives a tree its visual structure. This guide explains how t
 
 You will learn to configure different indentation styles, transforming a simple list into a clearly structured tree.
 
+![VTable Tree Indentation Demo](examples/tree-indentation/tree-indentation.gif)
+
 **Standard 2-Space Indent:**
 ```
 📁 Project
@@ -48,9 +50,7 @@ indentConfig.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
 
 // Apply the changes
 myTree.SetRenderConfig(renderConfig)
-```
-
-### Key `TreeIndentationConfig` Properties
+```### Key `TreeIndentationConfig` Properties
 -   `Enabled`: Toggles the indentation component on or off.
 -   `IndentSize`: The number of spaces to use for each level of depth. Only used if `IndentString` is empty.
 -   `IndentString`: A custom string to repeat for each level of depth (e.g., `"  "`, `"··"`, `"— "`).
@@ -113,3 +113,4 @@ Press the `i` key in the running application to cycle through the different inde
 You now know how to control the spacing and style of your tree's hierarchy. To create an even clearer structure, the next guide will show you how to use box-drawing characters to create **connected lines** between parent and child nodes.
 
 **Next:** [Connected Lines →](06-connected-lines.md) 
+

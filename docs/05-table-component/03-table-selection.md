@@ -6,6 +6,8 @@ This guide demonstrates how to add row selection to your virtualized table. You'
 
 We will enhance our 10,000-employee table with selection capabilities, allowing users to select rows individually or in bulk.
 
+![VTable Table Selection](examples/selection-table/selection-table.gif)
+
 ```text
 // A table with several rows selected.
 ┌───────────────────┬───────────────┬────────────┬────────────┐

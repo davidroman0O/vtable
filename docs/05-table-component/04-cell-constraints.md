@@ -10,6 +10,8 @@ We will take our selectable employee table and add dynamic controls to adjust it
 -   Configure padding within cells for better spacing.
 -   Observe how VTable automatically truncates text that overflows its container.
 
+![VTable Cell Constraints Demo](examples/cell-constraints/cell-constraints.gif)
+
 ```text
 // Example of a table with custom constraints
 ┌─── Employee Name ───┬─── Department ───┬─── Status ───┐

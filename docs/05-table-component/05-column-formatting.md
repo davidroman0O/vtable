@@ -6,6 +6,8 @@ Column formatters allow you to transform raw data from your `DataSource` into a 
 
 We will take our table of employee data and apply custom formatters to each column, turning plain text into a dashboard with clear visual indicators.
 
+![VTable Column Formatting](examples/column-formatting/column-formatting.gif)
+
 **Before:**
 ```
 │ Employee 1        │ Engineering │ Active     │ $75000     │

@@ -6,6 +6,8 @@ This guide covers the different ways you can visualize the cursor in your table.
 
 You will learn how to configure and dynamically switch between three primary cursor styles, giving you fine-grained control over the table's user experience.
 
+![VTable Cursor Visualization](examples/cursor-visualization/cursor-visualization.gif)
+
 **1. Full Row Highlighting:**
 The entire row under the cursor is highlighted.
 ```text

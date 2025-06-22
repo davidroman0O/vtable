@@ -6,6 +6,8 @@ With custom column formatting in place, let's focus on the overall visual appear
 
 We will create several distinct visual themes for our employee table and add the ability to cycle through them dynamically. You will learn to control every aspect of the table's look and feel.
 
+![VTable Table Styling Demo](examples/table-styling/table-styling.gif)
+
 **Default Theme:**
 ```
 ┌───────────────────┬───────────────┬────────────┐

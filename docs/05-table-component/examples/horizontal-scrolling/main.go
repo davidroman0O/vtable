@@ -290,116 +290,89 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.fullRowHighlightEnabled = false
 				m.activeCellEnabled = false
 				m.statusMessage = "Mixed mode: DISABLED"
-				return m, tea.Batch(
-					core.FullRowHighlightEnableCmd(false),
-					core.ActiveCellIndicationModeSetCmd(false),
-				)
 			} else {
 				// Turn both on
 				m.fullRowHighlightEnabled = true
 				m.activeCellEnabled = true
 				m.statusMessage = "Mixed mode: ENABLED"
-				return m, tea.Batch(
-					core.FullRowHighlightEnableCmd(true),
-					core.ActiveCellIndicationModeSetCmd(true),
-				)
 			}
+			return m, tea.Batch(
+				core.FullRowHighlightEnableCmd(m.fullRowHighlightEnabled),
+				core.ActiveCellIndicationModeSetCmd(m.activeCellEnabled),
+			)
 
 		// === HORIZONTAL SCROLLING CONTROLS ===
-		case "left", "<":
-			// Scroll horizontally left within the current column
-			m.statusMessage = "Scrolling left"
-			return m, core.HorizontalScrollLeftCmd()
-
-		case "right", ">":
-			// Scroll horizontally right within the current column
-			m.statusMessage = "Scrolling right"
-			return m, core.HorizontalScrollRightCmd()
-
 		case "shift+left", "H":
 			// Fast scroll left using page-based horizontal scrolling
 			m.statusMessage = "Fast scrolling left"
 			return m, core.HorizontalScrollPageLeftCmd()
-
 		case "shift+right", "L":
 			// Fast scroll right using page-based horizontal scrolling
 			m.statusMessage = "Fast scrolling right"
 			return m, core.HorizontalScrollPageRightCmd()
-
 		case "[":
 			// Word-based scrolling left
 			m.statusMessage = "Word scrolling left"
 			return m, core.HorizontalScrollWordLeftCmd()
-
 		case "]":
 			// Word-based scrolling right
 			m.statusMessage = "Word scrolling right"
 			return m, core.HorizontalScrollWordRightCmd()
-
 		case "{":
 			// Smart scrolling left
 			m.statusMessage = "Smart scrolling left"
 			return m, core.HorizontalScrollSmartLeftCmd()
-
 		case "}":
 			// Smart scrolling right
 			m.statusMessage = "Smart scrolling right"
 			return m, core.HorizontalScrollSmartRightCmd()
-
 		case ".":
-			// Navigate to next column
-			m.statusMessage = "Next column"
-			return m, core.NextColumnCmd()
-
+			// Horizontal scroll left
+			m.statusMessage = "Horizontal scroll left"
+			return m, core.HorizontalScrollLeftCmd()
 		case ",":
-			// Navigate to previous column
-			m.statusMessage = "Previous column"
-			return m, core.PrevColumnCmd()
-
+			// Horizontal scroll right
+			m.statusMessage = "Horizontal scroll right"
+			return m, core.HorizontalScrollRightCmd()
 		case "backspace", "delete":
 			// Reset horizontal scrolling
 			m.statusMessage = "Resetting horizontal scroll"
 			return m, core.HorizontalScrollResetCmd()
-
 		case "home":
 			// Jump to start
 			m.statusMessage = "Jumping to start"
 			return m, core.JumpToStartCmd()
-
 		case "end":
 			// Jump to end
 			m.statusMessage = "Jumping to end"
 			return m, core.JumpToEndCmd()
-
 		case "s":
 			// Toggle scroll mode (for display purposes)
 			m.statusMessage = "Toggling scroll mode"
 			return m, core.HorizontalScrollModeToggleCmd()
-
 		case "S":
 			// Toggle scroll scope (for display purposes)
 			m.statusMessage = "Toggling scroll scope"
-			return m, core.HorizontalScrollScopeToggleCmd()
+			return m.table.Update(core.HorizontalScrollScopeToggleMsg{})
 
 		// === NAVIGATION KEYS ===
 		case "j", "down":
 			return m, core.CursorDownCmd()
-
 		case "k", "up":
 			return m, core.CursorUpCmd()
-
+		case "left":
+			return m, core.CursorLeftCmd()
+		case "right":
+			return m, core.CursorRightCmd()
 		case "h":
 			m.statusMessage = "Page up"
 			return m, core.PageUpCmd()
-
 		case "l":
 			m.statusMessage = "Page down"
 			return m, core.PageDownCmd()
-
 		case "g":
 			m.statusMessage = "Jumping to start"
 			return m, core.JumpToStartCmd()
-
 		case "G":
 			m.statusMessage = "Jumping to end"
 			return m, core.JumpToEndCmd()
@@ -469,7 +442,7 @@ func (m AppModel) View() string {
 		scopeStatus,
 	)
 
-	controls := "←→=scroll | HL=fast | []={} word/smart | .,=column | Del=reset | s=mode | S=scope | rcCm=cursor | ↑↓jk=move | gG=start/end | q=quit"
+	controls := "←/→=column | </>/[]/{}HL=scroll | Del=reset | s=mode | S=scope | rcCm=cursor | ↑↓jk=move | gG=start/end | q=quit"
 
 	return status + "\n" + controls + "\n" + m.statusMessage + "\n\n" + m.table.View()
 }

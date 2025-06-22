@@ -386,7 +386,7 @@ func (c *TreeIndentationComponent) Render(ctx TreeComponentContext) string {
 		}
 	}
 
-	return c.config.Style.Render(indent.String())
+	return c.config.ConnectorStyle.Render(indent.String())
 }
 
 // GetType returns the unique type identifier for this component.

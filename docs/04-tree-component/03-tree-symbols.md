@@ -6,6 +6,8 @@ Let's customize the visual markers of our tree. VTable's **Tree Symbol Component
 
 We will take our file tree and cycle through several common symbol styles, from classic plus/minus signs to modern Unicode icons.
 
+![VTable Tree Symbols Example](examples/tree-symbols/tree-symbols.gif)
+
 **Default Style:**
 `► 📁 Folder`
 

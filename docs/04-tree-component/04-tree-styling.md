@@ -4,7 +4,9 @@ With custom symbols in place, let's bring our tree to life with **styling and th
 
 ## What You'll Build
 
-We will create several distinct visual themes for our file tree, which can be switched dynamically. You'll learn how to style every aspect of the tree, from content and symbols to the cursor and selection states.
+We will create several distinct visual themes for our file tree and add the ability to cycle through them dynamically. You will learn to style every aspect of the tree, from content and symbols to the cursor and selection states.
+
+![VTable Tree Styling Example](examples/tree-styling/tree-styling.gif)
 
 **Default Theme:**
 ```

@@ -9,14 +9,7 @@ We will create a table with a wide "Description" column that requires horizontal
 -   **Content Scrolling**: Scrolling the text *within* a wide cell.
 -   **Scroll Modes**: Switching between character, word, and smart scrolling.
 
-```text
-// A table where the 'Description' column is horizontally scrolled.
-┌────┬──────────────┬───────────────────────────...
-│ ID │ Employee Name│ Description
-├────┼──────────────┼───────────────────────────...
-│ ►  │ Alice Johnson│ lizing in various aspects ...
-└────┴──────────────┴───────────────────────────...
-```
+![VTable Horizontal Scrolling Demo](examples/horizontal-scrolling/horizontal-scrolling.gif)
 
 ## How It Works: Active Cell and Scroll Offsets
 
