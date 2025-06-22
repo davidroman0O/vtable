@@ -103,6 +103,7 @@ func (app *App) View() string {
 	)
 }
 
+// `03-list-component/examples/basic-list/main.go`
 func main() {
 	// Create data source
 	dataSource := NewSimpleDataSource()

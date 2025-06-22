@@ -170,6 +170,7 @@ func (app *App) View() string {
 	)
 }
 
+// `03-list-component/examples/basic-selection/main.go`
 func main() {
 	dataSource := NewSimpleDataSource()
 

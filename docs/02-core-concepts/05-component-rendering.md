@@ -1,238 +1,114 @@
-# Component Rendering: Making It Look Good
+# Core Concepts: Component Rendering
 
-VTable components render themselves using **Lipgloss** for styling and a **component-based system** for flexible appearance control. This section teaches you how VTable handles visual output and how to customize it.
+VTable components handle their own visual output using **Lipgloss** for styling and a flexible **component-based system** for layout control. This section explains how VTable renders its UI and how you can customize it.
 
-## The View() Method
+## The `View()` Method
 
-Every VTable component has a `View()` method that returns a styled string ready for terminal display:
+Every VTable component (List, Table, Tree) has a `View()` method that returns a single, fully-styled string ready for terminal display.
 
 ```go
-// In your Bubble Tea app
+// In your Bubble Tea app's View method:
 func (m MyApp) View() string {
-    // VTable components render themselves
-    return m.list.View()  // Returns the complete styled list
+    // You don't need to loop or style items manually.
+    // The VTable component handles all its own rendering.
+    return m.list.View()
 }
 ```
 
-**Key point**: You don't manually style or format VTable output - components handle all rendering internally using their configurations.
+You never need to manually render rows or cells. You configure the styles and layout, and VTable does the rest.
 
 ## Styling with Lipgloss
 
-VTable uses **Lipgloss** (from Charm) for all styling. Lipgloss styles are configured once and applied automatically:
+VTable uses [Lipgloss](https://github.com/charmbracelet/lipgloss) from Charm for all styling. You define `lipgloss.Style` objects and provide them in the component's configuration. VTable then applies these styles automatically based on the item's state (e.g., cursor, selected, normal).
 
 ```go
 import "github.com/charmbracelet/lipgloss"
 
-// Create a style
+// Define a style for the cursor.
 cursorStyle := lipgloss.NewStyle().
-    Foreground(lipgloss.Color("205")).
+    Foreground(lipgloss.Color("#FF6B35")). // Orange text
+    Background(lipgloss.Color("#1A1A1A")). // Dark background
     Bold(true)
 
-// VTable applies it automatically when rendering cursor items
+// Assign it in the configuration.
+listConfig.StyleConfig.CursorStyle = cursorStyle
 ```
+VTable will now automatically apply this style to the item currently under the cursor.
 
-**What you can style:**
-- **Colors**: Foreground, background, borders
-- **Text effects**: Bold, italic, underline
-- **Layout**: Padding, margins, alignment
-- **Borders**: Different border styles and characters
+## Default Themes and Styles
 
-## Default Themes
+To get you started quickly, VTable provides sensible defaults in the `config` package.
 
-VTable provides ready-to-use themes from the `config` package:
+#### For Lists and Trees: `StyleConfig`
+A `core.StyleConfig` defines styles for different item states.
 
 ```go
 import "github.com/davidroman0O/vtable/config"
 
-// For lists
-styleConfig := config.DefaultStyleConfig()
-// Includes: CursorStyle, SelectedStyle, DefaultStyle, etc.
-
-// For tables  
-theme := config.DefaultTheme()
-// Includes: HeaderStyle, CellStyle, BorderChars, etc.
-```
-
-**What's included:**
-- **List styles**: Cursor, selected, normal, loading, error states
-- **Table themes**: Headers, cells, borders, alternating rows
-- **Colors**: Sensible defaults that work in most terminals
-- **Border characters**: Unicode box-drawing characters
-
-## Customizing Styles
-
-### List Component Styling
-
-```go
-import (
-    "github.com/davidroman0O/vtable/config"
-    "github.com/charmbracelet/lipgloss"
-)
-
-// Start with defaults and customize
+// Get the default styles.
 styleConfig := config.DefaultStyleConfig()
 
-// Custom cursor style
-styleConfig.CursorStyle = lipgloss.NewStyle().
-    Foreground(lipgloss.Color("#FF6B35")).
-    Background(lipgloss.Color("#1A1A1A")).
-    Bold(true)
-
-// Custom selection style
-styleConfig.SelectedStyle = lipgloss.NewStyle().
-    Background(lipgloss.Color("#2D3748")).
-    Foreground(lipgloss.Color("#F7FAFC"))
-
-// Apply to your list
-listConfig := config.DefaultListConfig()
-listConfig.StyleConfig = styleConfig
+// styleConfig now contains:
+// - CursorStyle
+// - SelectedStyle
+// - DefaultStyle
+// - LoadingStyle
+// - ErrorStyle
+// ...and more.
 ```
 
-### Table Component Theming
+#### For Tables: `Theme`
+A `core.Theme` defines a more comprehensive set of styles for tables, including borders.
 
 ```go
-// Start with default theme and customize
+import "github.com/davidroman0O/vtable/config"
+
 theme := config.DefaultTheme()
 
-// Custom header styling
-theme.HeaderStyle = lipgloss.NewStyle().
-    Foreground(lipgloss.Color("#4A90E2")).
-    Background(lipgloss.Color("#2C3E50")).
-    Bold(true).
-    Padding(0, 1)
-
-// Custom border characters (rounded corners)
-theme.BorderChars = core.BorderChars{
-    Horizontal: "─",
-    Vertical:   "│", 
-    TopLeft:    "╭",
-    TopRight:   "╮",
-    BottomLeft: "╰", 
-    BottomRight:"╯",
-    // ... other border chars
-}
-
-// Apply to your table
-tableConfig := config.DefaultTableConfig() 
-tableConfig.Theme = theme
+// theme now contains:
+// - HeaderStyle
+// - CellStyle
+// - BorderChars (for drawing lines)
+// - BorderColor
+// ...and more.
 ```
+You can use these defaults as a starting point and customize only what you need.
 
 ## Component-Based Rendering
 
-VTable uses a **component system** where different parts of each row are rendered by separate components:
+For maximum layout flexibility, VTable uses a **component-based rendering pipeline**. Each part of a rendered row (like the cursor indicator or the item content) is a separate, configurable component.
 
-### List Components
-- **Cursor**: Shows `► ` or spaces for cursor position
-- **Enumerator**: Numbers, bullets, or custom markers  
-- **Content**: The actual item text
-- **Background**: Optional background styling
+#### List and Tree Components
+A list or tree item is composed of several pieces that are rendered in a specific order:
+`[Cursor] [Enumerator] [Content]`
 
-### Table Components  
-- **Cursor**: Row selection indicator
-- **Cells**: The actual table data
-- **Borders**: Table borders and separators
-- **Background**: Row highlighting
+-   **Cursor**: The `►` symbol or spacing that indicates the current line.
+-   **Enumerator**: A prefix like a number (`1.`), bullet (`•`), or checkbox (`[x]`).
+-   **Content**: Your actual formatted item data.
 
-### Enabling Advanced Rendering
+You can change the order of these components, customize their appearance, or even disable them entirely through the `RenderConfig` for lists and trees. This allows you to create a wide variety of layouts, from simple text lists to complex, numbered checklists.
 
-```go
-// For lists - use component-based rendering
-import "github.com/davidroman0O/vtable/list"
-
-renderConfig := list.BulletListConfig()  // Pre-configured bullet list
-// or
-renderConfig := config.DefaultListRenderConfig()  // Build your own
-
-// For tables - component rendering is built-in
-tableConfig := config.DefaultTableConfig()
-tableConfig.ShowBorders = true
-tableConfig.FullRowHighlighting = true
-```
+#### Table Components
+Tables use a similar system but are structured around columns. You can control the styling of headers, cells, and borders independently to create clean, readable tabular data displays.
 
 ## Color Support
 
-VTable automatically detects your terminal's color capabilities:
+Lipgloss (and therefore VTable) automatically adapts to the user's terminal capabilities. You can use any color format, and it will gracefully degrade on less capable terminals.
 
-### ANSI Colors (16 colors)
-```go
-lipgloss.Color("1")   // Red
-lipgloss.Color("10")  // Bright green
-```
+-   **ANSI (16 colors):** `lipgloss.Color("1")` // Red
+-   **256 Colors:** `lipgloss.Color("196")` // Bright Red
+-   **True Color (Hex):** `lipgloss.Color("#FF5733")`
+-   **Adaptive Colors:** Define different colors for light and dark terminal themes.
 
-### 256 Colors
-```go  
-lipgloss.Color("196") // Bright red
-lipgloss.Color("39")  // Blue
-```
-
-### True Color (24-bit)
-```go
-lipgloss.Color("#FF6B35") // Orange
-lipgloss.Color("#4A90E2") // Blue
-```
-
-### Adaptive Colors
 ```go
 lipgloss.AdaptiveColor{
-    Light: "#333333",  // Dark text on light background
-    Dark:  "#FFFFFF",  // Light text on dark background  
+    Light: "#333333", // Dark text on light background
+    Dark:  "#FFFFFF", // Light text on dark background
 }
 ```
 
-**VTable automatically chooses the best color based on your terminal's capabilities.**
+## What's Next?
 
-## Practical Examples
+You now have a solid understanding of VTable's core concepts! You know how it handles data, navigation, and rendering. You're ready to start building with the components themselves.
 
-### Dark Theme List
-```go
-darkStyle := config.DefaultStyleConfig()
-darkStyle.CursorStyle = lipgloss.NewStyle().
-    Foreground(lipgloss.Color("#000000")).
-    Background(lipgloss.Color("#00FF7F")).
-    Bold(true)
-darkStyle.SelectedStyle = lipgloss.NewStyle().
-    Background(lipgloss.Color("#404040")).
-    Foreground(lipgloss.Color("#FFFFFF"))
-darkStyle.DefaultStyle = lipgloss.NewStyle().
-    Foreground(lipgloss.Color("#CCCCCC"))
-```
-
-### Minimal Table
-```go
-minimalTheme := config.DefaultTheme()
-minimalTheme.BorderChars = core.BorderChars{
-    Horizontal: " ",
-    Vertical:   " ",  
-    // All border chars set to spaces = no visible borders
-}
-minimalTheme.HeaderStyle = lipgloss.NewStyle().
-    Bold(true).
-    Underline(true)
-```
-
-### Status-Colored Table
-```go
-statusTheme := config.DefaultTheme()
-// You'd customize this based on data content
-statusTheme.CellStyle = lipgloss.NewStyle().
-    Foreground(lipgloss.Color("252"))
-statusTheme.ErrorStyle = lipgloss.NewStyle().
-    Foreground(lipgloss.Color("#FF4444")).
-    Bold(true)
-statusTheme.LoadingStyle = lipgloss.NewStyle().
-    Foreground(lipgloss.Color("#FFA500")).
-    Italic(true)
-```
-
-## What You Need to Know
-
-1. **Import `config` package** for default themes and styles
-2. **Use Lipgloss styles** - VTable integrates directly with Lipgloss
-3. **Start with defaults** and customize what you need
-4. **Colors auto-adapt** to terminal capabilities  
-5. **Component system** handles complex rendering automatically
-6. **View() method** returns the final styled output
-
-VTable handles all the complex rendering logic. You just configure styles and themes, then call `View()` to get beautiful terminal output.
-
-**Next:** [Complete Core Concepts →](../03-list-component/README.md) 
+**Next:** [The List Component →](../03-list-component/01-basic-usage.md) 

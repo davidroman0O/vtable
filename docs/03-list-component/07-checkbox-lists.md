@@ -1,105 +1,99 @@
-# Checkbox Lists: Visual Selection Indicators
+# The List Component: Checkbox Lists
 
-Let's add checkboxes to our styled list. Same colorful person data, now with "[ ]" and "[x]" selection indicators!
+Let's take our styled list and turn it into a functional checkbox list. This is a perfect example of how VTable's component-based rendering system allows for powerful customization with minimal code changes.
 
-## What We're Adding
+## What You'll Build
 
-Taking our beautifully styled Person list and adding:
-- **Checkbox indicators**: Visual "[ ]" for unselected and "[x]" for selected items
-- **Clear visual feedback**: Instantly see selection state at a glance
+We will add visual `[ ]` and `[x]` indicators to our list, which will automatically update based on the selection state of each item.
 
-## Key Changes
+![VTable Checkbox List Example](examples/checkbox-list/checkbox-list.gif)
 
-### 1. Add Checkbox to Formatter
+## How It Works: The Enumerator Component
+
+VTable renders each list item by combining several components. One of these is the **Enumerator**.
+
+`[Cursor] [Enumerator] [Content]`
+
+The enumerator is responsible for rendering the prefix for each item. By default, it's empty, but VTable provides several built-in enumerators, including one for checkboxes.
+
+When you enable the `CheckboxEnumerator`, it automatically:
+1.  Checks the `item.Selected` state for each row.
+2.  Renders `☑` if `true`.
+3.  Renders `☐` if `false`.
+
+## Step 1: Enable the Checkbox Enumerator
+
+Instead of writing a complex formatter that handles checkbox logic, you can simply tell VTable to use its built-in checkbox enumerator. This is done via a convenience method on the `List` object.
+
 ```go
-func checkboxPersonFormatter(data core.Data[any], index int, ctx core.RenderContext, isCursor, isTopThreshold, isBottomThreshold bool) string {
+// In your main function, after creating the list:
+vtableList := list.NewList(listConfig, dataSource)
+
+// NEW: Set the list to use a checklist style.
+vtableList.SetChecklistStyle()
+```
+
+This single line of code tells the list's renderer to use the `list.CheckboxEnumerator` for the enumerator component.
+
+## Step 2: Keep Your Content Formatter Clean
+
+Because the enumerator handles the checkbox, your `styledPersonFormatter` can focus solely on rendering the content. This is a key benefit of the component system—separation of concerns.
+
+Your formatter remains the same as in the previous styling guide. It doesn't need to know anything about checkboxes.
+
+```go
+func styledPersonFormatter(
+    data core.Data[any],
+    // ...
+) string {
 	person := data.Item.(Person)
+	// ... all your existing styling logic for name, age, job ...
 
-	// NEW: Add checkbox indicator
-	var checkbox string
-	if data.Selected {
-		checkbox = "[x]" // Selected
-	} else {
-		checkbox = "[ ]" // Unselected
-	}
-
-	// Same styling as before
-	var nameColor, ageColor, jobColor, cityColor lipgloss.Color
-	
-	if isCursor {
-		nameColor, ageColor, jobColor, cityColor = "#FFFF00", "#FFD700", "#00FFFF", "#00FF00"
-	} else if data.Selected {
-		nameColor, ageColor, jobColor, cityColor = "#FF69B4", "#FFA500", "#87CEEB", "#98FB98"
-	} else {
-		nameColor = "#FFFFFF"
-		ageColor = getAgeColor(person.Age)
-		jobColor = getJobColor(person.Job)
-		cityColor = "#98FB98"
-	}
-
-	// Style components
-	styledCheckbox := lipgloss.NewStyle().Foreground(lipgloss.Color("#888888")).Render(checkbox)
-	styledName := lipgloss.NewStyle().Foreground(nameColor).Bold(true).Render(person.Name)
-	styledAge := lipgloss.NewStyle().Foreground(ageColor).Render(getAgeText(person.Age))
-	styledJob := lipgloss.NewStyle().Foreground(jobColor).Render(person.Job)
-	styledCity := lipgloss.NewStyle().Foreground(cityColor).Render(person.City)
-
-	// NEW: Format with checkbox prefix
-	return fmt.Sprintf("%s %s %s - %s in %s",
-		styledCheckbox, styledName, styledAge, styledJob, styledCity)
+	// The formatter ONLY returns the person's information.
+	// NO checkbox logic here!
+	return fmt.Sprintf("%s %s - %s in %s",
+		styledName, styledAge, styledJob, styledCity)
 }
 ```
 
-### 2. Use Checkbox Formatter
+## Step 3: Ensure Your `DataSource` Handles Selection
+
+Your `DataSource` implementation from the previous selection guides is all you need. The `CheckboxEnumerator` automatically uses the `item.Selected` boolean you provide in `LoadChunk`.
+
 ```go
-func main() {
-	dataSource := NewPersonDataSource()
-
-	listConfig := config.DefaultListConfig()
-	listConfig.ViewportConfig.Height = 8
-	listConfig.MaxWidth = 500
-	listConfig.SelectionMode = core.SelectionMultiple
-
-	// Set the formatter in config (Option 3 approach)
-	listConfig.RenderConfig.ContentConfig.Formatter = checkboxPersonFormatter
-
-	// Create list with checkbox formatter
-	vtableList := list.NewList(listConfig, dataSource)
+func (ds *PersonDataSource) LoadChunk(request core.DataRequest) tea.Cmd {
+	return func() tea.Msg {
+		// ...
+		for i := request.Start; i < end; i++ {
+			items = append(items, core.Data[any]{
+				// ...
+				Selected: ds.selected[i], // The CheckboxEnumerator reads this value!
+			})
+		}
+		// ...
+	}
 }
 ```
-
-## Checkbox Concepts
-
-**Visual State**: [ ] shows unselected, [x] shows selected items.
-
-**Instant Feedback**: Spacebar toggles show immediate checkbox changes.
-
-**Familiar Pattern**: Everyone recognizes checkbox UI.
 
 ## What You'll Experience
 
-1. **Clear selection**: See [ ] and [x] indicators for each item
-2. **All features work**: Navigation, selection, and styling work as before
-3. **Better usability**: Easier to see what's selected in long lists
+-   **Automatic Checkboxes**: The list now displays `[ ]` or `[x]` next to each item.
+-   **Interactive Toggling**: When you press the spacebar, the checkbox next to the item instantly toggles.
+-   **Clean Code**: Your content formatter remains clean and focused, while the enumerator handles the checkbox logic automatically.
 
 ## Complete Example
 
-See the checkbox list example: [`examples/checkbox-list/`](examples/checkbox-list/)
+See the full working code for this guide in the examples directory:
+[`docs/03-list-component/examples/checkbox-list/`](examples/checkbox-list/)
 
-Run it:
+To run it:
 ```bash
 cd docs/03-list-component/examples/checkbox-list
 go run main.go
 ```
 
-## Try It Yourself
+## What's Next?
 
-1. **Navigate and select**: Use spacebar to toggle checkboxes
-2. **Select all**: Press Ctrl+A and see all become [x]
-3. **Clear selection**: Press Ctrl+D and see all become [ ]
-
-## What's Next
-
-Our list now has professional checkbox selection! Next, we'll learn how to add numbered lists with "1. 2. 3." prefixes.
+You've seen how easy it is to create a checkbox list using VTable's built-in enumerators. Next, we'll dive deeper into the enumerator system and learn how to create custom numbered lists.
 
 **Next:** [Numbered Lists →](08-numbered-lists.md) 

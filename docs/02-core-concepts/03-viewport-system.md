@@ -1,284 +1,109 @@
-# The Viewport System: Your Window Into Data
+# Core Concepts: The Viewport System
 
-The viewport system is VTable's navigation engine. It manages the visible area, handles cursor movement, and coordinates with data loading to create smooth scrolling through datasets of any size.
+The viewport system is VTable's navigation engine. It's responsible for managing the visible area of your component, handling all cursor movements, and coordinating with the `DataSource` to create a smooth, seamless scrolling experience through datasets of any size.
 
 ## What is the Viewport?
 
-The viewport is a moving window that shows a small slice of your data. Think of it as looking at a massive spreadsheet through a small rectangular hole - you can see some rows, but the viewport can slide up and down to show different parts.
+The viewport is a **moving window** that shows a small slice of your data. Think of it as looking at a massive spreadsheet through a small rectangular hole—you can only see a few rows at a time, but you can slide the opening up and down to view any part of the sheet.
 
-```
+```text
 Your Dataset:    Viewport Window:
 Item 1           ┌─────────────┐
-Item 2           │   Item 6    │ ← ViewportStartIndex (6)
-Item 3           │   Item 7    │
-Item 4           │   Item 8    │
-Item 5           │   Item 9    │
-Item 6   ←─────────► Item 10   │
-Item 7           │   Item 11   │
-Item 8           │ ► Item 12   │ ← Cursor (position 6 in viewport)
-Item 9           │   Item 13   │
-Item 10          │   Item 14   │
-Item 11          │   Item 15   │ ← ViewportEndIndex (15)
-Item 12          └─────────────┘
-...              Height = 10 items
+...              │   Item 6    │ ← ViewportStartIndex
+Item 5           │   ...       │
+Item 6   <─────────► Item 12   │ ← CursorIndex
+...              │   ...       │
+Item 15          │   Item 15   │ ← ViewportEnd
+...              └─────────────┘
 Item 1000
 ```
 
-The viewport tracks three critical pieces of information:
-- **Where it starts** in your dataset (ViewportStartIndex)
-- **Where the cursor is** within the visible area (CursorViewportIndex)
-- **Where the cursor is** in the entire dataset (CursorIndex)
+The viewport's state is defined by three critical coordinates:
 
-## Threshold System: Smart Scrolling
+-   `ViewportStartIndex`: The absolute index in your dataset of the *first visible item*. This is the top of the window.
+-   `CursorIndex`: The absolute index of the *currently selected item* in the entire dataset.
+-   `CursorViewportIndex`: The *relative position* of the cursor within the visible viewport (e.g., the 3rd item on screen).
 
-Thresholds control when the viewport scrolls versus when the cursor just moves within the visible area.
+When you send a navigation command like `core.CursorDownCmd()`, the viewport system intelligently updates these three coordinates to produce fluid movement.
 
-### How Thresholds Work
+## The Scrolling Illusion
 
-```
-Viewport with TopThreshold=2, BottomThreshold=2:
+When you scroll, the data itself doesn't move—the viewport does. It's an efficient illusion created by changing the `ViewportStartIndex`.
+
+-   **Before `↓`:** Viewport shows items 6-15.
+-   **After `↓`:** Viewport shows items 7-16.
+
+The component simply asks the `DataSource` for a different chunk of data. This is far more efficient than reordering or re-rendering a massive list.
+
+## Thresholds: The Key to Smart Scrolling
+
+To prevent the UI from scrolling on every single key press, VTable uses a **threshold system**. This creates a "safe zone" in the middle of the viewport where the cursor can move freely. Scrolling only occurs when the cursor approaches the top or bottom edges.
+
+```text
+Viewport (Height=10) with TopThreshold=2 and BottomThreshold=2:
 
 ┌─────────────┐
-│   Item 20   │ ← Position 0
-│   Item 21   │ ← Position 1  
-│   Item 22   │ ← Position 2 (TopThreshold)
-│   Item 23   │ ← Position 3 }
-│   Item 24   │ ← Position 4 } Safe zone
-│   Item 25   │ ← Position 5 } (cursor moves freely)
-│   Item 26   │ ← Position 6 }
-│   Item 27   │ ← Position 7 (BottomThreshold = Height-2-1)
-│   Item 28   │ ← Position 8
-│   Item 29   │ ← Position 9
+│   Item 20   │ --
+│   Item 21   │   | Top Threshold Zone
+│   Item 22   │ --
+│   Item 23   │
+│   Item 24   │   } Safe Zone (cursor moves, no scrolling)
+│   ...       │
+│   Item 27   │ --
+│   Item 28   │   | Bottom Threshold Zone
+│   Item 29   │ --
 └─────────────┘
 ```
 
-**Navigation rules:**
-- **Safe zone (positions 3-6)**: Cursor moves, viewport stays put
-- **Top threshold (position 2)**: Press ↑ → viewport scrolls up, cursor stays at position 2
-- **Bottom threshold (position 7)**: Press ↓ → viewport scrolls down, cursor stays at position 7
-- **Edges (positions 0, 8-9)**: Cursor moves until it hits a threshold
+**This creates two distinct navigation modes:**
 
-### Why Use Thresholds?
+1.  **Local Navigation (in the Safe Zone):**
+    -   Pressing `↓` only changes the `CursorIndex` and `CursorViewportIndex`.
+    -   The `ViewportStartIndex` remains the same. The view is stable.
 
-Without thresholds, you'd have two bad options:
-1. **Cursor always moves**: Eventually hits the edge where you can't see what's beyond
-2. **Viewport always scrolls**: Can't browse within the current view
+2.  **Global Scrolling (at a Threshold):**
+    -   When the cursor hits a threshold (e.g., position 2) and you press `↑`, the `ViewportStartIndex` changes.
+    -   The entire view scrolls up, but the cursor appears to "stick" to the threshold position, providing a smooth transition.
 
-Thresholds give you the best of both: **browse locally, scroll globally**.
+This system provides a superior user experience by balancing local browsing with seamless global navigation.
 
-## Bounding Area: Predictive Loading
+## Bounding Area: Predictive Loading for Smoothness
 
-The bounding area determines which data chunks stay loaded around your viewport:
+The viewport system works hand-in-hand with the **bounding area** to ensure scrolling is always lag-free. It proactively loads data chunks just outside the visible area, so they are already in memory when the user scrolls to them.
 
-```
-                 BoundingAreaBefore (20 items)
+```text
+                 BoundingAreaBefore (e.g., 20 items)
                            ↓
-    Chunk 2    |    Chunk 3    |    Chunk 4    |    Chunk 5
-   Items       |   Items       |   Items       |   Items
-   40-59       |   60-79       |   80-99       |   100-119
-               |               |               |
-               |    ┌─────────────┐            |
-               |    │   Item 85   │            |
-               |    │   Item 86   │            |
-               |    │   Item 87   │            |
-               |    │ ► Item 88   │ ← Cursor   |
-               |    │   Item 89   │            |
-               |    │   Item 90   │            |
-               |    │   Item 91   │            |
-               |    │   Item 92   │            |
-               |    │   Item 93   │            |
-               |    │   Item 94   │            |
-               |    └─────────────┘            |
-               |         Viewport              |
-               |      (showing 85-94)          |
-               |                               |
-                        BoundingAreaAfter (20 items)
-                                 ↓
-
-Total loaded: Items 60-119 (chunks 3, 4, 5)
+    Chunk 3    |    Chunk 4    |    Chunk 5
+   Items 60-79 |   Items 80-99 |   Items 100-119
+               |               |
+               |    ┌─────────────┐
+               |    │   Item 85   │
+               |    │   ...       │
+               |    │ ► Item 92   │ ← Cursor
+               |    │   ...       │
+               |    └─────────────┘
+               |      Viewport
+               |
+               └───── Bounding Area (Chunks 3, 4, 5 are loaded) ─────┘
+                                 ↑
+                        BoundingAreaAfter (e.g., 20 items)
 ```
 
-**Benefits:**
-- **Smooth scrolling**: Next/previous chunks already loaded
-- **Memory efficiency**: Only loads ~3 chunks instead of entire dataset  
-- **Automatic cleanup**: Distant chunks get unloaded
+As the viewport moves, the bounding area moves with it, loading new chunks and discarding old ones. This is the essence of VTable's performance: it keeps a small, relevant portion of your data in memory at all times.
 
-## How Navigation Actually Works
+## How It All Works Together
 
-Understanding navigation means understanding the relationship between your actions and how the viewport responds.
+When you send a navigation command:
+1.  **Calculate New Position:** The viewport system determines the new values for the three core coordinates based on your input and the threshold rules.
+2.  **Check Data Needs:** It calculates the new bounding area.
+3.  **Request Data:** It tells the `DataSource` to load any chunks needed for the new bounding area that aren't already in memory.
+4.  **Update Display:** It renders the items for the new `ViewportStartIndex`.
 
-### The Three-Coordinate System
+This entire cycle happens on every navigation command, creating a system that is both highly responsive and incredibly scalable.
 
-Every viewport operation manages three related positions:
+## What's Next?
 
-```
-Dataset: [Item 0][Item 1][Item 2]...[Item 95][Item 96][Item 97][Item 98][Item 99]...
+Now that you understand the "engine" of VTable, let's look at the "controls." The next section covers the specific commands and messages you'll use to interact with VTable components.
 
-                    ┌─────────────┐
-                    │   Item 95   │ ← Position 0 in viewport
-                    │   Item 96   │ ← Position 1
-                    │   Item 97   │ ← Position 2 (top threshold)  
-                    │   Item 98   │ ← Position 3
-                    │ ► Item 99   │ ← Position 4 (cursor here)
-                    │   Item 100  │ ← Position 5
-                    │   Item 101  │ ← Position 6
-                    │   Item 102  │ ← Position 7 (bottom threshold)
-                    │   Item 103  │ ← Position 8
-                    │   Item 104  │ ← Position 9 
-                    └─────────────┘
-
-ViewportStartIndex = 95   (first visible item in dataset)
-CursorIndex = 99          (selected item in dataset) 
-CursorViewportIndex = 4   (cursor position within viewport)
-```
-
-**The key insight**: The cursor has two addresses - its absolute position in your dataset (99) and its relative position in the viewport window (4).
-
-### Basic Movement: Cursor in Safe Zone
-
-When the cursor is in the safe zone (positions 3-6), pressing arrow keys just moves the cursor:
-
-```
-Before ↓:
-│   Item 97   │ ← Position 2 (top threshold)  
-│   Item 98   │ ← Position 3
-│ ► Item 99   │ ← Position 4 (cursor)
-│   Item 100  │ ← Position 5
-│   Item 101  │ ← Position 6
-
-After ↓:
-│   Item 97   │ ← Position 2 (top threshold)  
-│   Item 98   │ ← Position 3
-│   Item 99   │ ← Position 4 
-│ ► Item 100  │ ← Position 5 (cursor moved)
-│   Item 101  │ ← Position 6
-```
-
-**What happened**: CursorIndex changed from 99 to 100. CursorViewportIndex changed from 4 to 5. ViewportStartIndex stayed at 95. The viewport window didn't move at all.
-
-### Threshold Movement: Viewport Scrolls
-
-When the cursor hits a threshold, the behavior changes:
-
-```
-Before ↓ (cursor at bottom threshold):
-│   Item 98   │ ← Position 3
-│   Item 99   │ ← Position 4 
-│   Item 100  │ ← Position 5
-│   Item 101  │ ← Position 6
-│ ► Item 102  │ ← Position 7 (bottom threshold)
-│   Item 103  │ ← Position 8
-│   Item 104  │ ← Position 9
-
-After ↓ (viewport scrolls):
-│   Item 99   │ ← Position 3
-│   Item 100  │ ← Position 4 
-│   Item 101  │ ← Position 5
-│   Item 102  │ ← Position 6
-│ ► Item 103  │ ← Position 7 (cursor stayed at threshold!)
-│   Item 104  │ ← Position 8
-│   Item 105  │ ← Position 9
-```
-
-**What happened**: The viewport scrolled down by 1. ViewportStartIndex changed from 95 to 96. CursorIndex changed from 102 to 103. But CursorViewportIndex stayed at 7 - the cursor "stuck" to the threshold position.
-
-### Page Movement: Big Jumps
-
-Page Up/Down moves by the full viewport height but tries to maintain cursor position:
-
-```
-Before Page Down:
-ViewportStartIndex: 50
-┌─────────────┐
-│   Item 50   │ ← Position 0
-│   Item 51   │ ← Position 1
-│   Item 52   │ ← Position 2
-│ ► Item 53   │ ← Position 3 (cursor)
-│   Item 54   │ ← Position 4
-│   ...       │
-│   Item 59   │ ← Position 9
-└─────────────┘
-
-After Page Down:
-ViewportStartIndex: 60
-┌─────────────┐
-│   Item 60   │ ← Position 0
-│   Item 61   │ ← Position 1
-│   Item 62   │ ← Position 2
-│ ► Item 63   │ ← Position 3 (cursor maintained relative position!)
-│   Item 64   │ ← Position 4
-│   ...       │
-│   Item 69   │ ← Position 9
-└─────────────┘
-```
-
-The viewport jumped by 10 items (height), and the cursor stayed at the same relative position (3) within the new viewport.
-
-## The Coordination Dance
-
-The viewport system coordinates three things simultaneously:
-
-1. **Your input** (press ↓)
-2. **Data loading** (what chunks need to be loaded)
-3. **Visual updates** (what the user sees)
-
-### When You Press ↓
-
-1. **Check current state**: Where is the cursor? Is it at a threshold?
-2. **Calculate new position**: Should cursor move or viewport scroll?
-3. **Update positions**: Change ViewportStartIndex and/or CursorIndex
-4. **Check data needs**: What chunks are needed for the new viewport?
-5. **Load missing chunks**: Request data from DataSource if needed
-6. **Update display**: Show the new viewport content
-
-This all happens in a single update cycle, creating the illusion of smooth navigation.
-
-### Data Loading Coordination
-
-The viewport system tells the data virtualization system what's needed:
-
-```
-Current viewport shows items 85-94
-↓
-Bounding area needs items 65-115  
-↓
-Chunks needed: 60-79, 80-99, 100-119
-↓
-DataSource.LoadChunk() calls for any missing chunks
-↓
-When chunks arrive, viewport can display them
-```
-
-The viewport never waits for data - it shows what's available and requests what's missing.
-
-## Key Mental Models
-
-### Model 1: Sliding Window
-The viewport is a window that slides over your data. The data never moves - only your viewing window does.
-
-### Model 2: Two Modes
-Navigation has two modes:
-- **Local mode**: Cursor moves within viewport (safe zone)
-- **Global mode**: Viewport moves through dataset (threshold zones)
-
-### Model 3: Predictive Loading
-The viewport system is always thinking ahead, loading data for where you might go next.
-
-### Model 4: Three-Layer Coordination
-- **UI layer**: What you see
-- **Viewport layer**: Position calculations  
-- **Data layer**: Chunk loading
-
-These layers work together but can operate independently (viewport can move while data loads).
-
-## Why This Design Works
-
-1. **Smooth navigation**: Thresholds prevent jarring viewport jumps
-2. **Predictable behavior**: Same action always produces same result
-3. **Efficient data use**: Only loads what's needed plus small buffer
-4. **Scalable**: Works the same for 100 items or 100 million items
-5. **Responsive**: UI updates immediately, data loads in background
-
-The viewport system creates the illusion that you're smoothly scrolling through your entire dataset, when you're actually viewing a small, carefully-managed window that coordinates with efficient data loading.
-
-**Next:** [Commands and Messages →](04-commands-and-messages.md) 
+**Next:** [Commands and Messages: Controlling VTable →](04-commands-and-messages.md) 

@@ -93,6 +93,7 @@ type AppModel struct {
 	columnWidths     []int              // Current widths for adjustment
 }
 
+// `05-table-component/examples/column-management/main.go`
 func main() {
 	dataSource := NewEmployeeDataSource()
 

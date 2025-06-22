@@ -591,6 +591,7 @@ func (app *App) View() string {
 		help)
 }
 
+// `04-tree-component/examples/tree-styling/main.go`
 func main() {
 	// Create the data source
 	dataSource := NewFileTreeDataSource()

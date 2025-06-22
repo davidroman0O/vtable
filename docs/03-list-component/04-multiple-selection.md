@@ -1,126 +1,147 @@
-# Multiple Selection: Advanced Selection Features
+# The List Component: Multiple Selection
 
-Let's enhance our basic selection with powerful multiple selection features. Same list, better selection control!
+With basic selection working, let's add powerful multiple selection features. This guide will show you how to implement "Select All" and "Clear All" functionality, and how to display the current selection count to the user.
 
-## What We're Adding
+## What You'll Build
 
-Taking our list with basic spacebar selection and adding:
-- **Select All**: Ctrl+A to select all items at once
-- **Clear Selection**: Ctrl+D to deselect all items
-- **Selection Range**: Shift+Space for range selection
-- **Selection feedback**: Show selection count in status
+We'll enhance our list with bulk selection commands and a status bar to provide feedback.
 
-## Key Changes
+![VTable Multiple Selection](examples/multiple-selection/multiple-selection.gif)
 
-### 1. Add Multiple Selection Key Handling
+
+## Step 1: Add Multiple Selection Commands
+
+In your app's `Update` method, add key mappings for `SelectAllCmd` and `SelectClearCmd`.
+
 ```go
 func (app *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		switch msg.String() {
 		// ... existing navigation and basic selection keys ...
-		
-		// NEW: Multiple selection
+
+		// NEW: Multiple selection commands
 		case "ctrl+a":
 			return app, core.SelectAllCmd()
 		case "ctrl+d":
 			return app, core.SelectClearCmd()
 		}
 	}
-	// ... rest unchanged
+	// ... rest of update method ...
 }
 ```
 
-### 2. Add Selection State Tracking
+## Step 2: Implement Bulk Operations in `DataSource`
+
+Your `DataSource` must implement the `SelectAll` and `ClearSelection` methods.
+
+#### 2a. Implement `SelectAll`
+This method should mark all items in your dataset as selected.
+
+```go
+func (ds *SimpleDataSource) SelectAll() tea.Cmd {
+	return func() tea.Msg {
+		// Iterate through all your items and set their state to selected.
+		for i := 0; i < len(ds.items); i++ {
+			ds.selected[i] = true
+		}
+		// Return a response message to notify VTable.
+		return core.SelectionResponseMsg{Success: true, Operation: "selectAll"}
+	}
+}
+```
+
+#### 2b. Implement `ClearSelection`
+This method should clear all selections.
+
+```go
+func (ds *SimpleDataSource) ClearSelection() tea.Cmd {
+	return func() tea.Msg {
+		// Simply re-initialize the selection map to clear it.
+		ds.selected = make(map[int]bool)
+		return core.SelectionResponseMsg{Success: true, Operation: "clear"}
+	}
+}
+```
+
+## Step 3: Track and Display Selection Count
+
+To give the user feedback, your app should track the number of selected items and display it.
+
+#### 3a. Add State to Your App Model
 ```go
 type App struct {
 	list           *list.List
-	selectionCount int    // NEW: Track selection count
-	statusMessage  string // NEW: Show status
-}
-
-func (app *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	switch msg := msg.(type) {
-	// NEW: Handle selection response messages
-	case core.SelectionResponseMsg:
-		if msg.Success {
-			app.updateSelectionCount()
-			app.statusMessage = fmt.Sprintf("Selection: %d items", app.selectionCount)
-		}
-	}
-	// ... rest of handling
+	dataSource     *SimpleDataSource // Keep a reference to the DataSource
+	selectionCount int
+	statusMessage  string
 }
 ```
 
-### 3. Enhanced View with Status
+#### 3b. Add a Counter Method to `DataSource`
+It's good practice for the `DataSource` to be the source of truth for the selection count.
+
+```go
+func (ds *SimpleDataSource) GetSelectedCount() int {
+	return len(ds.selected)
+}
+```
+
+#### 3c. Handle Selection Responses
+In your app's `Update` method, listen for `SelectionResponseMsg` to know when to update the count.
+
+```go
+func (app *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg := msg.(type) {
+	// ... key handling ...
+
+	// NEW: Handle selection responses to update the UI
+	case core.SelectionResponseMsg:
+		if msg.Success {
+			// Update the count and status message
+			app.selectionCount = app.dataSource.GetSelectedCount()
+			app.statusMessage = fmt.Sprintf("%d items selected", app.selectionCount)
+		}
+		// Always pass the message on to the list component
+		var cmd tea.Cmd
+		_, cmd = app.list.Update(msg)
+		return app, cmd
+	}
+	// ...
+}
+```
+
+#### 3d. Display the Status in `View`
 ```go
 func (app *App) View() string {
 	return fmt.Sprintf(
 		"Multiple Selection List\n\n%s\n\n%s\n%s",
 		app.list.View(),
-		"Navigate: j/k h/l g/G • Select: Space • Multi: Ctrl+A/D",
-		app.statusMessage,
+		"Navigate: ... | Multi: Ctrl+A/D",
+		app.statusMessage, // Display the dynamic status message
 	)
 }
 ```
 
-## Multiple Selection Concepts
-
-**Select All**: `core.SelectAllCmd()` calls your DataSource's `SelectAll()` method to select every item.
-
-**Clear Selection**: `core.SelectClearCmd()` calls your DataSource's `ClearSelection()` method to deselect everything.
-
-**Selection Feedback**: Handle `SelectionResponseMsg` to update your UI with selection status.
-
-**Efficient Operations**: Bulk operations are more efficient than individual selection calls.
-
 ## What You'll Experience
 
-1. **Navigate and select**: Use spacebar to select individual items as before
-2. **Press Ctrl+A**: All 50 items become selected instantly
-3. **Press Ctrl+D**: All selections cleared instantly  
-4. **Status updates**: See "Selection: X items" count at bottom
-5. **Mix operations**: Combine individual and bulk selections
-
-## Advanced Features
-
-### Selection Count Helper
-```go
-func (app *App) updateSelectionCount() {
-	// In a real app, you might query the DataSource for selected count
-	// For this example, we'll use a simple counter approach
-	count := 0
-	// Your DataSource could provide a GetSelectedCount() method
-	app.selectionCount = count
-}
-```
-
-### Range Selection (Future Enhancement)
-```go
-case "shift+ ":  // Shift+Space (if supported by your terminal)
-	return app, core.SelectRangeCmd(startIndex, endIndex)
-```
+1.  **Press `ctrl+a`**: All 50 items in the list will become selected instantly, and the status will update to "50 items selected".
+2.  **Press `ctrl+d`**: All selections will be cleared, and the status will update to "0 items selected".
+3.  **Mix operations**: You can select a few items individually with the spacebar, then press `ctrl+a` to select the rest.
 
 ## Complete Example
 
-See the multiple selection example: [`examples/multiple-selection/`](examples/multiple-selection/)
+See the full working code for this guide in the examples directory:
+[`docs/03-list-component/examples/multiple-selection/`](examples/multiple-selection/)
 
-Run it:
+To run it:
 ```bash
 cd docs/03-list-component/examples/multiple-selection
 go run main.go
 ```
 
-## Try It Yourself
+## What's Next?
 
-1. **Select individual items**: Use spacebar on items 5, 10, 15
-2. **Select all**: Press Ctrl+A and see all items selected
-3. **Clear all**: Press Ctrl+D and see selections cleared
-4. **Mix operations**: Select some individually, then select all, then clear
-5. **Status tracking**: Watch the selection count update
-
-## What's Next
-
-Our list now has powerful selection capabilities! Next, we'll learn how to customize the appearance and formatting of our list items.
+Our list now has powerful selection capabilities! However, it's still just displaying simple strings. Next, we'll learn how to work with structured data and create custom-formatted list items.
 
 **Next:** [Formatting Items →](05-formatting-items.md) 

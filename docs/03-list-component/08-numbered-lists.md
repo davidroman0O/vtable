@@ -1,172 +1,139 @@
-# Numbered Lists: Using VTable's Enumerator System
+# The List Component: Numbered Lists
 
-Let's add numbers to our styled list using VTable's enumerator system. We'll learn how to use the built-in numbered style and create custom enumerators!
+Let's explore VTable's **Enumerator System** in more detail by creating numbered lists. You'll learn how to use the built-in numbered style and how to create your own custom enumerator functions for complete control over item prefixes.
 
-## What We're Adding
+## What You'll Build
 
-Taking our beautifully styled Person list and adding:
-- **Built-in numbering**: Using VTable's numbered enumerator
-- **Custom enumerators**: Creating your own enumeration functions
+We will transform our styled list to display numbers, custom prefixes, and even dynamic, data-aware enumerators.
 
-## VTable's Enumerator System
+![VTable Numbered List Example](examples/numbered-list/numbered-list.gif)
 
-VTable uses a **component-based rendering pipeline**. Each list item is rendered by combining different components:
-
-1. **Cursor** - Shows current position (► or spaces)
-2. **Enumerator** - Shows numbers, bullets, checkboxes, etc.
-3. **Content** - Your formatted item data
-
-## Setup
-
-First, set up your list with the formatter in the config:
-
-```go
-func main() {
-	dataSource := NewPersonDataSource()
-
-	listConfig := config.DefaultListConfig()
-	listConfig.ViewportConfig.Height = 8
-	listConfig.MaxWidth = 500
-	listConfig.SelectionMode = core.SelectionMultiple
-	
-	// Set formatter in config
-	listConfig.RenderConfig.ContentConfig.Formatter = styledPersonFormatter
-
-	// Create list
-	vtableList := list.NewList(listConfig, dataSource)
-
-	// Add numbered enumerator
-	vtableList.SetNumberedStyle()
-}
+**Numbered List:**
+```
+ 1. ► Alice Johnson...
+ 2.   Bob Chen...
+ 3.   Carol Rodriguez...
 ```
 
-## Formatter Setup
+**Custom Enumerator:**
+```
+[1] ► Alice Johnson...
+[2]   Bob Chen...
+[3]   Carol Rodriguez...
+```
 
-**Note**: To use enumerators, set your formatter in the config rather than as a parameter to `NewList()`:
+**Smart Enumerator:**
+```
+✓ ► Alice Johnson... (Selected)
+2.    Bob Chen...
+3.    Carol Rodriguez...
+```
+
+## How the Enumerator System Works
+
+As we learned with checkboxes, VTable renders each list item using a component pipeline: `[Cursor][Enumerator][Content]`.
+
+The **Enumerator** component is responsible for the prefix of each item. By swapping out the enumerator function, you can change the list's style from bullets to numbers to anything you can imagine, without ever touching your content formatter.
+
+## Step 1: Using the Built-in Numbered Style
+
+The easiest way to create a numbered list is with the `SetNumberedStyle()` convenience method.
 
 ```go
-// Bypasses component system
-vtableList := list.NewList(listConfig, dataSource, styledPersonFormatter)
-
-// Recommended - Formatter in config
-listConfig.RenderConfig.ContentConfig.Formatter = styledPersonFormatter
+// In your main function:
 vtableList := list.NewList(listConfig, dataSource)
-```
 
-When you pass a formatter to `NewList()`, VTable uses it directly and bypasses the component-based rendering system that includes enumerators.
-
-## Built-in Numbered Style
-
-The simplest way to add numbers:
-
-```go
+// This single line sets up the ArabicEnumerator, right-alignment,
+// and appropriate spacing for a clean numbered list.
 vtableList.SetNumberedStyle()
 ```
+This is the recommended approach for standard numbered lists.
 
-This gives you:
-```
-►  1. Alice Johnson (28) 🌟 - UX Designer in San Francisco
-   2. Bob Chen (34) - Software Engineer in New York
-   3. Carol Rodriguez (45) - Product Manager in Austin
-```
+## Step 2: Creating Custom Enumerator Functions
 
-## Understanding Enumerator Functions
+For more control, you can write your own enumerator function. An enumerator is any function that matches the `core.ListEnumerator` signature.
 
-### Enumerator Function Signature
 ```go
+// The signature for a ListEnumerator function.
 type ListEnumerator func(item core.Data[any], index int, ctx core.RenderContext) string
 ```
 
-**Parameters:**
-- `item` - The data item being rendered
-- `index` - Zero-based position in the list  
-- `ctx` - Rendering context (cursor state, etc.)
-
-**Returns:** String to display before the content
-
-### Built-in Enumerators
+#### Example 1: Custom Bracket Enumerator
 ```go
-// Arabic numbers: "1. 2. 3."
-list.ArabicEnumerator(item, index, ctx) // Returns "1. ", "2. ", etc.
-
-// Bullet points: "• • •"
-list.BulletEnumerator(item, index, ctx)  // Returns "• "
-
-// Checkboxes based on selection: "☐ ☑"
-list.CheckboxEnumerator(item, index, ctx) // Returns "☐ " or "☑ "
-```
-
-## Custom Enumerators
-
-Create your own enumerator function for specialized numbering:
-
-```go
-// Custom bracket numbers: [1] [2] [3]
+// Displays numbers like: [1], [2], [3]
 func customBracketEnumerator(item core.Data[any], index int, ctx core.RenderContext) string {
 	return fmt.Sprintf("[%d] ", index+1)
 }
+```
 
-// Smart enumerator that changes based on selection
+#### Example 2: Smart Enumerator
+This enumerator changes its output based on the item's selection state.
+
+```go
+// Displays a checkmark for selected items, otherwise a number.
 func smartEnumerator(item core.Data[any], index int, ctx core.RenderContext) string {
 	if item.Selected {
-		return "✓ " // Checkmark for selected
-	}
-	return fmt.Sprintf("%d. ", index+1) // Numbers for unselected
-}
-
-// Job-aware enumerator with emojis
-func jobAwareEnumerator(item core.Data[any], index int, ctx core.RenderContext) string {
-	person := item.Item.(Person)
-	
-	if strings.Contains(person.Job, "Manager") {
-		return "👑 "
-	} else if strings.Contains(person.Job, "Engineer") {
-		return "⚙️ "
-	} else if strings.Contains(person.Job, "Designer") {
-		return "🎨 "
+		return "✓ "
 	}
 	return fmt.Sprintf("%d. ", index+1)
 }
 ```
 
-### Using Custom Enumerators
+#### Example 3: Data-Aware Enumerator
+This enumerator inspects the item's data to change its output.
 
 ```go
-// Set a custom enumerator
+// Displays an emoji based on the person's job.
+func jobAwareEnumerator(item core.Data[any], index int, ctx core.RenderContext) string {
+	person := item.Item.(Person) // Type-assert to access data
+	if strings.Contains(person.Job, "Manager") {
+		return "👑 "
+	} else if strings.Contains(person.Job, "Engineer") {
+		return "⚙️ "
+	}
+	return "• " // Default to a bullet
+}
+```
+
+## Step 3: Applying a Custom Enumerator
+
+To use a custom enumerator, you modify the list's `RenderConfig`.
+
+```go
+// 1. Get the current render configuration from the list.
 renderConfig := vtableList.GetRenderConfig()
+
+// 2. Set your custom function as the enumerator.
 renderConfig.EnumeratorConfig.Enumerator = customBracketEnumerator
+
+// 3. Configure alignment and width for a clean look.
 renderConfig.EnumeratorConfig.Alignment = core.ListAlignmentRight
-renderConfig.EnumeratorConfig.MaxWidth = 5
+renderConfig.EnumeratorConfig.MaxWidth = 5 // Ensures numbers like [9] and [10] align correctly.
+
+// 4. Apply the updated configuration back to the list.
 vtableList.SetRenderConfig(renderConfig)
 ```
 
+## What You'll Experience
+
+-   **Flexibility**: Easily switch between different list styles (bullets, numbers, custom) at runtime.
+-   **Separation of Concerns**: Your content formatting logic remains completely separate from your item prefix logic.
+-   **Dynamic Prefixes**: Create enumerators that react to data changes, selection state, or any other condition.
+
 ## Complete Example
 
-See the numbered list example: [`examples/numbered-list/`](examples/numbered-list/)
+See the full working code, which includes an interactive demo for cycling through different enumerator styles.
+[`docs/03-list-component/examples/numbered-list/`](examples/numbered-list/)
 
-Run it:
+To run it:
 ```bash
 cd docs/03-list-component/examples/numbered-list
 go run main.go
 ```
+Press the `e` key in the running application to cycle through the different enumerator styles.
 
-## Try It Yourself
+## What's Next?
 
-1. **Start with SetNumberedStyle()**: Use the built-in numbered style
-2. **Create custom functions**: Write your own enumerator that returns different strings
-3. **Make it smart**: Use item data to create dynamic enumerators
-4. **Test with data**: Try enumerators that respond to selection state or item content
+You now have a deep understanding of VTable's enumerator system. The next logical step is to explore the full component rendering pipeline and learn how to rearrange components to create entirely new layouts.
 
-## Key Concepts
-
-**Component Pipeline**: Enumerators are one component in VTable's rendering pipeline.
-
-**Function-Based**: Enumerators are functions that return strings for each item.
-
-**Context Aware**: Access to item data, index, and render context for smart enumeration.
-
-## What's Next
-
-Now you understand VTable's enumerator system! You can create numbered lists and build custom enumerators that respond to your data.
-
-**Next:** [Advanced Features →](09-advanced-features.md)
+**Next:** [Component Rendering →](09-component-rendering.md)

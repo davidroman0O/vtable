@@ -1,380 +1,134 @@
-# Advanced Tree Features
+# The Tree Component: Advanced Features
 
-## What We're Adding
+This guide covers the advanced, power-user features of VTable's `TreeList`. You'll learn how to implement bulk operations like "Expand/Collapse All," manipulate entire subtrees, and enable smart navigation shortcuts to create a highly efficient and productive user experience.
 
-Taking our styled and connected tree from previous examples, we're adding **advanced tree operations** - expand all/collapse all commands, subtree manipulation, simple keyboard shortcuts, and cascading selection. Transform your tree from a basic browser into a power-user interface.
+## What You'll Build
 
-## Understanding Advanced Tree Operations
+We will add a suite of advanced commands to our file tree, turning it from a simple browser into a powerful organizational tool.
 
-Advanced tree features provide efficient ways to work with large hierarchical datasets:
+-   **Bulk Operations**: `E` to Expand All, `C` to Collapse All.
+-   **Subtree Manipulation**: `e`/`c` to expand/collapse the current folder and all its children.
+-   **Cascading Selection**: Selecting a folder will automatically select its entire contents.
+-   **Auto-Expansion**: Automatically expand specific nodes on startup.
 
-```
-Basic tree:                   Advanced tree:
-📁 Project                    📁 Project ✓ (auto-expanded)
-├── 📁 src (collapsed)       ├── 📁 src ✓ (expanded)
-├── 📁 tests (collapsed)     │   ├── 📄 main.go ✓ (selected via cascading)
-└── 📁 docs (collapsed)      │   ├── 📄 app.go ✓ (selected via cascading)
-                              │   └── 📁 handlers ✓ (selected via cascading)
-                              │       ├── 📄 user.go ✓
-                              │       └── 📄 auth.go ✓
-                              ├── 📁 tests (collapsed)
-                              └── 📁 docs (collapsed)
-```
+## How It Works: New `TreeList` Methods
 
-## New TreeList Methods Added
+To support these features, the `TreeList` component provides several powerful methods that you can call from your application.
 
-During implementation, we discovered the TreeList needed additional methods. These are now available:
+#### Subtree Operations
+-   `tree.ExpandSubtree(id)`: Expands a node and all of its descendants recursively.
+-   `tree.CollapseSubtree(id)`: Collapses a node and all its descendants.
+-   `tree.ExpandCurrentSubtree()`: A convenience method that operates on the currently focused node.
+-   `tree.CollapseCurrentSubtree()`: A convenience method for the current node.
 
-### Current Node Access
-```go
-func (tl *TreeList[T]) GetCurrentNodeID() string
-```
-Returns the ID of the node currently under the cursor.
+#### Bulk Operations
+-   `tree.ExpandAll()`: Expands every single node in the entire tree.
+-   `tree.CollapseAll()`: Collapses every node, showing only the top-level roots.
 
-### Subtree Operations
-```go
-func (tl *TreeList[T]) ExpandSubtree(id string) tea.Cmd
-func (tl *TreeList[T]) CollapseSubtree(id string) tea.Cmd
-func (tl *TreeList[T]) ExpandCurrentSubtree() tea.Cmd  
-func (tl *TreeList[T]) CollapseCurrentSubtree() tea.Cmd
-```
-Expand or collapse a node and ALL its descendants recursively.
+#### Cascading Selection
+-   `tree.SetCascadingSelection(enabled bool)`: A configuration method to enable or disable this feature.
 
-### Bulk Operations
-```go
-func (tl *TreeList[T]) ExpandAll() tea.Cmd
-func (tl *TreeList[T]) CollapseAll() tea.Cmd
-```
-Expand or collapse ALL nodes in the entire tree.
+## Step 1: Enable Advanced Features in `TreeConfig`
 
-### Cascading Selection
-```go
-func (tl *TreeList[T]) SetCascadingSelection(enabled bool)
-func (tl *TreeList[T]) GetCascadingSelection() bool
-```
-Enable/disable automatic selection of child nodes when parent is selected.
-
-## Advanced Operation Types
-
-### 1. Expand All / Collapse All
-Bulk operations for the entire tree:
-
-```
-E: Expand Everything           C: Collapse Everything
-📁 Project                     📁 Project
-├── 📁 src                     ├── 📁 src (collapsed)
-│   ├── 📄 main.go             ├── 📁 tests (collapsed)
-│   └── 📄 app.go              └── 📁 docs (collapsed)
-├── 📁 tests
-│   └── 📄 test.go
-└── 📁 docs
-    └── 📄 README.md
-```
-
-### 2. Subtree Operations
-Operations on current node's subtree:
-
-```
-e: Expand Current Subtree      c: Collapse Current Subtree
-📁 src ← cursor here           📁 src ← cursor here
-├── 📄 main.go                 (children hidden)
-├── 📄 app.go
-└── 📁 handlers
-    ├── 📄 user.go
-    └── 📄 auth.go
-```
-
-### 3. Cascading Selection
-When enabled, selecting a parent automatically selects all children:
-
-```
-Select "src" folder:
-📁 src ✓ (selected)
-├── 📄 main.go ✓ (auto-selected)
-├── 📄 app.go ✓ (auto-selected)
-└── 📁 handlers ✓ (auto-selected)
-    ├── 📄 user.go ✓ (auto-selected)
-    └── 📄 auth.go ✓ (auto-selected)
-```
-
-## Step 1: Configure Advanced Features
-
-Enable the features in your tree configuration:
+In your `main` function, enable the advanced features you want to use.
 
 ```go
-// Configure tree with advanced features
+// In your main function:
 treeConfig := tree.DefaultTreeConfig()
 
-// Enable cascading selection (parent selects all children)
+// Enable cascading selection for intuitive folder selection.
 treeConfig.CascadingSelection = true
 
-// Enable connected lines for better visual hierarchy
-    treeConfig.RenderConfig.IndentationConfig.Enabled = true
-    treeConfig.RenderConfig.IndentationConfig.UseConnectors = true
-    treeConfig.RenderConfig.IndentationConfig.ConnectorStyle = lipgloss.NewStyle().
-        Foreground(lipgloss.Color("240"))
-    
-// Enhanced content formatting with expansion indicators
-    treeConfig.RenderConfig.ContentConfig.Formatter = createAdvancedFormatter()
-    
-    // Background styling for cursor items
-    treeConfig.RenderConfig.BackgroundConfig.Enabled = true
-    treeConfig.RenderConfig.BackgroundConfig.Style = lipgloss.NewStyle().
-        Background(lipgloss.Color("240")).
-        Foreground(lipgloss.Color("15"))
+// Use connected lines for a clear visual hierarchy.
+treeConfig.RenderConfig.IndentationConfig.UseConnectors = true
+
+// Use a formatter that provides visual feedback for these features.
+treeConfig.RenderConfig.ContentConfig.Formatter = createAdvancedFormatter()
 ```
 
-## Step 2: Enhanced Content Formatter
+## Step 2: Implement Advanced Key Mappings
 
-Create a formatter that shows expansion state:
-
-```go
-func createAdvancedFormatter() func(core.Data[any], int, int, bool, bool, core.RenderContext, bool, bool, bool) string {
-    return func(item core.Data[any], index int, depth int, hasChildren, isExpanded bool, ctx core.RenderContext, isCursor, isTopThreshold, isBottomThreshold bool) string {
-        if flatItem, ok := item.Item.(tree.FlatTreeItem[FileItem]); ok {
-            content := flatItem.Item.String()
-            
-            // Add visual indicator for folders with children
-            if flatItem.Item.IsFolder && hasChildren {
-                if isExpanded {
-                    content = content + " (expanded)"
-                } else {
-                    content = content + " (...)"
-                }
-            }
-            
-            // Apply selection styling (highest priority)
-            if item.Selected {
-                return lipgloss.NewStyle().
-                    Background(lipgloss.Color("12")).
-                    Foreground(lipgloss.Color("15")).
-                    Bold(true).
-                    Render(content)
-            }
-            
-            // Content styling
-            if flatItem.Item.IsFolder {
-                return lipgloss.NewStyle().
-                    Foreground(lipgloss.Color("12")).
-                    Bold(true).
-                    Render(content)
-            } else {
-                return lipgloss.NewStyle().
-                    Foreground(lipgloss.Color("10")).
-                    Render(content)
-            }
-        }
-        
-        return fmt.Sprintf("%v", item.Item)
-    }
-}
-```
-
-## Step 3: Simple Keyboard Shortcuts
-
-Use simple letter keys instead of modifier combinations:
+In your app's `Update` method, map simple, memorable keys to these powerful commands.
 
 ```go
 func (app *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-    switch msg := msg.(type) {
-    case tea.KeyMsg:
-        switch msg.String() {
-        case "ctrl+c", "q":
-            return app, tea.Quit
+	switch msg := msg.(type) {
+	case tea.KeyMsg:
+		switch msg.String() {
+		// --- Basic tree operations ---
+		case "enter": // Toggle a single node
+			return app, app.tree.ToggleCurrentNode()
+		case " ": // Select a node (and its children, if cascading is on)
+			return app, core.SelectCurrentCmd()
 
-        // Basic tree operations
-        case "enter":
-            app.status = "Toggled expand/collapse"
-            return app, app.tree.ToggleCurrentNode()
-        case " ":
-            app.status = "Toggled selection" 
-            return app, core.SelectCurrentCmd()
+		// --- ADVANCED OPERATIONS ---
+		case "E": // Expand All (Shift+e)
+			return app, app.tree.ExpandAll()
+		case "C": // Collapse All (Shift+c)
+			return app, app.tree.CollapseAll()
+		case "e": // Expand current subtree
+			return app, app.tree.ExpandCurrentSubtree()
+		case "c": // Collapse current subtree
+			return app, app.tree.CollapseCurrentSubtree()
 
-        // Advanced operations - SIMPLE KEYS!
-        case "E":
-            app.status = "Expanded entire tree"
-            return app, app.tree.ExpandAll()
-        case "C":
-            app.status = "Collapsed entire tree"
-            return app, app.tree.CollapseAll()
-        case "e":
-            app.status = "Expanded current subtree"
-            return app, app.tree.ExpandCurrentSubtree()
-        case "c":
-            app.status = "Collapsed current subtree"
-            return app, app.tree.CollapseCurrentSubtree()
-
-        // Selection operations
-        case "a":
-            app.status = "Selected all items"
-            return app, core.SelectAllCmd()
-        case "x":
-            app.status = "Cleared all selections"
-            return app, core.SelectClearCmd()
-
-        // Navigation shortcuts
-        case "h", "left":
-            app.status = "Navigate up"
-            return app, core.CursorUpCmd()
-        case "l", "right":
-            app.status = "Expand/toggle current node"
-            return app, app.tree.ToggleCurrentNode()
-        case "j", "down":
-            app.status = "Navigate down"
-            return app, core.CursorDownCmd()
-        case "k", "up":
-            app.status = "Navigate up"
-            return app, core.CursorUpCmd()
-        }
-    }
-
-    // Pass messages to tree
-    var cmd tea.Cmd
-    _, cmd = app.tree.Update(msg)
-    return app, cmd
+		// --- Selection ---
+		case "a": // Select All (standard shortcut)
+			return app, core.SelectAllCmd()
+		case "x": // Clear selection (eXclude)
+			return app, core.SelectClearCmd()
+		}
+	}
+	// ... rest of update logic ...
 }
 ```
 
-## Step 4: Auto-Expand on Startup
+## Step 3: Provide Visual Feedback
 
-Set up initial expansion when the app starts:
+An advanced formatter can show the state of folders, making the UI more informative.
 
 ```go
-func main() {
-    // Create data source and tree...
-    treeComponent := tree.NewTreeList(listConfig, treeConfig, dataSource)
+func createAdvancedFormatter() func(...) string {
+	return func(item core.Data[any], ...) string {
+		if flatItem, ok := item.Item.(tree.FlatTreeItem[FileItem]); ok {
+			content := flatItem.Item.String()
 
-    // Auto-expand some nodes on startup using TreeList methods directly
-    var autoExpandCommands []tea.Cmd
-    if len(dataSource.rootNodes) > 0 {
-        // Expand the first root node
-        autoExpandCommands = append(autoExpandCommands, 
-            treeComponent.ExpandNode(dataSource.rootNodes[0].ID))
-    }
+			// NEW: Add a visual hint about the folder's state.
+			if flatItem.Item.IsFolder && hasChildren {
+				if isExpanded {
+					content += " (expanded)"
+				} else {
+					content += " (...)"
+				}
+			}
 
-    app := &App{
-        tree:   treeComponent,
-        status: "Advanced tree ready! Try E/C to expand/collapse all",
-    }
-
-    p := tea.NewProgram(app, tea.WithoutSignalHandler())
-
-    // Apply auto-expand after starting
-    go func() {
-        for _, cmd := range autoExpandCommands {
-            if cmd != nil {
-                p.Send(cmd())
-            }
-        }
-    }()
-
-    if _, err := p.Run(); err != nil {
-        log.Fatal(err)
-    }
+			// Apply selection and other styling...
+			// ...
+			return styledContent
+		}
+		return fmt.Sprintf("%v", item.Item)
+	}
 }
 ```
 
-## What You'll See
+## What You'll Experience
 
-### Auto-Expanded Tree on Startup
-```
-🌳 Advanced Tree Features Demo
-E/C: expand/collapse all | e/c: subtree | a/x: select all/clear
+-   **Total Control**: With a single keystroke (`E`), you can instantly see every file in your entire project structure. Another key (`C`) collapses it back to a clean overview.
+-   **Focused Workflow**: Navigate to a specific project folder, press `e`, and instantly see its entire contents without affecting other parts of the tree.
+-   **Efficient Selection**: Select an entire project directory for a bulk operation by simply navigating to it and pressing the spacebar.
 
-📁 Web Application (expanded)
-├── 📁 src (expanded)
-│   ├── 📄 main.go
-│   ├── 📄 app.go
-│   ├── 📁 handlers (...)
-│   └── 📁 models (...)
-├── 📁 tests (...)
-└── 📁 config (...)
-📁 CLI Tool (...)
-📁 Documentation (...)
+## Complete Example
 
-Status: Advanced tree ready! Try E/C to expand/collapse all
-↑/↓/j/k: navigate | Enter: toggle | Space: select | q: quit
+See the full working code, which demonstrates all of these advanced features in an interactive application.
+[`docs/04-tree-component/examples/advanced-features/`](examples/advanced-features/)
+
+To run it:
+```bash
+cd docs/04-tree-component/examples/advanced-features
+go run .
 ```
 
-### After Pressing 'E' (Expand All)
-```
-📁 Web Application (expanded)
-├── 📁 src (expanded)
-│   ├── 📄 main.go
-│   ├── 📄 app.go
-│   ├── 📁 handlers (expanded)
-│   │   ├── 📄 user_handler.go
-│   │   ├── 📄 auth_handler.go
-│   │   └── 📄 middleware.go
-│   └── 📁 models (expanded)
-│       ├── 📄 user.go
-│       └── 📄 product.go
-├── 📁 tests (expanded)
-│   ├── 📄 unit_test.go
-│   └── 📄 integration_test.go
-└── 📁 config (expanded)
-    ├── 📄 .env
-    └── 📄 config.yaml
-[... all nodes expanded ...]
-```
+## What's Next?
 
-### Cascading Selection in Action
-```
-📁 src ✅ (selected)
-├── 📄 main.go ✅ (auto-selected)
-├── 📄 app.go ✅ (auto-selected)
-├── 📁 handlers ✅ (auto-selected)
-│   ├── 📄 user_handler.go ✅ (auto-selected)
-│   ├── 📄 auth_handler.go ✅ (auto-selected)
-│   └── 📄 middleware.go ✅ (auto-selected)
-└── 📁 models ✅ (auto-selected)
-    ├── 📄 user.go ✅ (auto-selected)
-    └── 📄 product.go ✅ (auto-selected)
-```
+This guide concludes the series on the Tree component. You have now learned everything from basic tree creation to implementing sophisticated, power-user features. The same core principles of `DataSources`, `ViewModels`, and `Component Rendering` apply to all VTable components.
 
-## Key Implementation Insights
-
-### 1. **Library Enhancement Required**
-The TreeList needed additional methods for advanced features:
-- `GetCurrentNodeID()` - get node under cursor
-- `ExpandSubtree(id)` / `CollapseSubtree(id)` - recursive operations
-- `ExpandAll()` / `CollapseAll()` - bulk operations
-- `ExpandCurrentSubtree()` / `CollapseCurrentSubtree()` - convenience methods
-
-### 2. **Simple Keyboard Design**
-No modifier keys required:
-- **E/C**: Global expand/collapse all
-- **e/c**: Current subtree operations  
-- **a/x**: Selection operations
-- **h/j/k/l**: Vi-style navigation
-
-### 3. **Direct API Usage**
-Call TreeList methods directly instead of complex data source intermediaries:
-```go
-// ✅ Clean and direct
-return app, app.tree.ExpandAll()
-
-// ❌ Complex and indirect  
-return app, app.dataSource.ExpandAllNodes()
-```
-
-### 4. **Component-Based Rendering**
-Use the enhanced tree formatter:
-- Shows expansion state indicators
-- Proper selection highlighting with cascading
-- Clean visual hierarchy with connectors
-
-
-## Try It Yourself
-
-1. **Test bulk operations** - press 'E' to expand all, 'C' to collapse all
-2. **Try subtree operations** - navigate to a folder, press 'e' to expand just that subtree
-3. **Test cascading selection** - select a parent folder and see children auto-select  
-4. **Navigate efficiently** - use h/j/k/l for quick tree navigation
-5. **Clear and select** - use 'a' to select all, 'x' to clear all selections
-
-## What's Next
-
-You now understand how to implement comprehensive advanced tree features! This completes the tree component documentation series, taking you from basic tree structure to sophisticated tree manipulation.
-
-The insight: **Advanced tree features require both library enhancement and thoughtful UX design** - the TreeList needed new methods to support these operations, and simple keyboard shortcuts work better than complex modifier combinations. 
+**Next:** [The Table Component: Basic Usage →](../05-table-component/01-basic-table.md) 

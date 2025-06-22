@@ -283,6 +283,7 @@ type AppModel struct {
 	searchActive bool
 }
 
+// `05-table-component/examples/filtering-sorting/main.go`
 func main() {
 	dataSource := NewEmployeeDataSource()
 

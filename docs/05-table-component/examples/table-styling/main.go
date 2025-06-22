@@ -594,6 +594,7 @@ func (app App) View() string {
 	return strings.Join(sections, "\n")
 }
 
+// `05-table-component/examples/table-styling/main.go`
 func main() {
 	dataSource := NewLargeEmployeeDataSource(1000)
 	tableConfig := createStyledTableConfig()

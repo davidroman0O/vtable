@@ -1,271 +1,120 @@
-# Filtering and Sorting
+# The List Component: Filtering and Sorting
 
-## What This Really Is
+This guide explains how to add powerful filtering and sorting capabilities to your list. The key insight is that **VTable has built-in support for these features; you just need to implement the data manipulation logic in your `DataSource`.**
 
-Filtering and sorting aren't "features we're adding" to VTable - **they're built into the core DataSource interface**. VTable has always sent filter and sort parameters in every data request. We're just implementing a DataSource that actually uses them.
+## How It Works: The `DataRequest`
 
-## The Core Truth
-
-Every time VTable requests data, it sends a `DataRequest` with filters and sorts already included:
+Every time VTable needs data, it sends a `DataRequest` to your `DataSource`. This request object has always contained fields for filters and sorts.
 
 ```go
 type DataRequest struct {
     Start          int
     Count          int
-    SortFields     []string        // ← Always sent
-    SortDirections []string        // ← Always sent  
-    Filters        map[string]any  // ← Always sent
+    SortFields     []string        // VTable automatically sends active sort fields.
+    SortDirections []string        // e.g., "asc" or "desc".
+    Filters        map[string]any  // VTable automatically sends active filters.
 }
 ```
+Your `DataSource` is responsible for using these parameters to return the correct slice of data.
 
-**Your DataSource receives these parameters automatically**. You just need to use them.
+## The Filtering and Sorting Flow
 
-## Understanding the Flow
+1.  **User Action**: The user presses a key (e.g., `'1'`) to toggle a filter.
+2.  **VTable Command**: Your app sends a command like `core.FilterSetCmd("job", "Engineer")`.
+3.  **VTable State Update**: VTable updates its internal state to know that this filter is active. It then triggers a data refresh.
+4.  **DataSource Request**: VTable calls your `DataSource.LoadChunk` method with a `DataRequest` that now includes `Filters: {"job": "Engineer"}`.
+5.  **Your Logic**: Your `DataSource` applies this filter to your data, returns the filtered and sorted results, and provides the new total count.
+6.  **UI Update**: VTable renders the new, filtered data.
 
-```
-User presses "1" → FilterSetMsg → VTable updates internal state → 
-VTable calls LoadChunk(DataRequest{Filters: {"job": "Engineer"}}) →
-Your DataSource handles the filtering and returns results
-```
+VTable manages the UI state; your `DataSource` handles the data logic.
 
-VTable manages the UI state, your DataSource handles the data logic.
+## Step 1: Implement a Stateful `DataSource`
 
-## Implementing a Filtering DataSource
-
-Here's how to implement the DataSource interface to handle the filters VTable sends:
+For filtering and sorting to work correctly, your `DataSource` must be stateful. It needs to keep track of the active filters and sorts so it can provide an accurate total count of the filtered data.
 
 ```go
 type PersonDataSource struct {
-    people []Person
-    selected map[int]bool
+	people         []Person
+	filteredData   []Person       // A cached slice of the data after filtering/sorting.
+	activeFilters  map[string]any // The currently active filters.
+	sortFields     []string
+	sortDirections []string
 }
 
-func (ds *PersonDataSource) LoadChunk(request core.DataRequest) tea.Cmd {
-    return func() tea.Msg {
-        // VTable automatically provides filters in the request
-        filtered := ds.applyFilters(ds.people, request.Filters)
-        sorted := ds.applySorts(filtered, request.SortFields, request.SortDirections)
-        
-        // Return the requested chunk from filtered/sorted data
-        start := request.Start
-        count := request.Count
-        
-        var items []core.Data[any]
-        for i := start; i < start+count && i < len(sorted); i++ {
-            items = append(items, core.Data[any]{
-                ID:       fmt.Sprintf("person-%d", i),
-                Item:     sorted[i],
-                Selected: ds.selected[i],
-            })
-        }
-
-        return core.DataChunkLoadedMsg{
-            StartIndex: request.Start,
-            Items:      items,
-            Request:    request,
-        }
-    }
+// This central method re-applies filters and sorts whenever they change.
+func (ds *PersonDataSource) rebuildFilteredData() {
+	// 1. Apply filters to the original dataset.
+	// 2. Apply sorting to the filtered results.
+	// 3. Cache the final result in ds.filteredData.
+    // (See the full example for the implementation.)
 }
 ```
 
-**Key insight**: `request.Filters` contains whatever filters VTable has active. You just apply them to your data.
+## Step 2: Implement Filter and Sort Logic in the `DataSource`
 
-## Implementing the Filter Logic
+Create public methods on your `DataSource` that your application can call to change the state.
 
 ```go
-func (ds *PersonDataSource) applyFilters(people []Person, filters map[string]any) []Person {
-    if len(filters) == 0 {
-        return people // No filters, return all data
-    }
-    
-    var filtered []Person
-    for _, person := range people {
-        if ds.matchesAllFilters(person, filters) {
-            filtered = append(filtered, person)
-        }
-    }
-    return filtered
+func (ds *PersonDataSource) ToggleFilter(field, value string) {
+	if _, ok := ds.activeFilters[field]; ok {
+		delete(ds.activeFilters, field)
+	} else {
+		ds.activeFilters[field] = value
+	}
+	ds.rebuildFilteredData() // Re-run the filter and sort logic.
 }
 
-func (ds *PersonDataSource) matchesAllFilters(person Person, filters map[string]any) bool {
-    for field, value := range filters {
-        switch field {
-        case "job":
-            if jobFilter, ok := value.(string); ok {
-                if !strings.Contains(strings.ToLower(person.Job), strings.ToLower(jobFilter)) {
-                    return false
-                }
-            }
-        case "city":
-            if cityFilter, ok := value.(string); ok {
-                if !strings.Contains(strings.ToLower(person.City), strings.ToLower(cityFilter)) {
-                    return false
-                }
-            }
-        case "minAge":
-            if ageFilter, ok := value.(int); ok {
-                if person.Age < ageFilter {
-                    return false
-                }
-            }
-        }
-    }
-    return true // Passes all filters
+func (ds *PersonDataSource) ToggleSort(field string) {
+    // ... logic to cycle through asc, desc, and none ...
+	ds.rebuildFilteredData()
 }
 ```
 
-## Implementing the Sort Logic
+## Step 3: Update the App to Manage `DataSource` State
 
-```go
-func (ds *PersonDataSource) applySorts(people []Person, fields []string, directions []string) []Person {
-    if len(fields) == 0 {
-        return people // No sorting requested
-    }
-    
-    // Make a copy to avoid modifying the original
-    sorted := make([]Person, len(people))
-    copy(sorted, people)
-    
-    sort.Slice(sorted, func(i, j int) bool {
-        for idx, field := range fields {
-            direction := "asc"
-            if idx < len(directions) {
-                direction = directions[idx]
-            }
-            
-            var comparison int
-            switch field {
-            case "name":
-                comparison = strings.Compare(sorted[i].Name, sorted[j].Name)
-            case "age":
-                comparison = sorted[i].Age - sorted[j].Age
-            case "job":
-                comparison = strings.Compare(sorted[i].Job, sorted[j].Job)
-            case "city":
-                comparison = strings.Compare(sorted[i].City, sorted[j].City)
-            }
-            
-            if comparison != 0 {
-                if direction == "desc" {
-                    return comparison > 0
-                }
-                return comparison < 0
-            }
-        }
-        return false
-    })
-    
-    return sorted
-}
-```
-
-## Returning Filtered Totals
-
-Your `GetTotal()` must return the count after filtering:
-
-```go
-func (ds *PersonDataSource) GetTotal() tea.Cmd {
-    return func() tea.Msg {
-        // Apply current filters to get accurate count
-        filtered := ds.applyFilters(ds.people, ds.lastFilters)
-        return core.DataTotalMsg{Total: len(filtered)}
-    }
-}
-```
-
-**Critical**: VTable needs to know the filtered total for proper scrollbar sizing and navigation.
-
-## Application Setup
-
-Your application just uses VTable's built-in filtering commands:
+Your application is now responsible for orchestrating the state changes.
 
 ```go
 func (app *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-    switch msg := msg.(type) {
-    case tea.KeyMsg:
-        switch msg.String() {
-        case "1":
-            // Use VTable's built-in filter command
-            return app, core.FilterSetCmd("job", "Engineer")
-        case "2":
-            return app, core.FilterSetCmd("job", "Manager")
-        case "3":
-            return app, core.FilterSetCmd("minAge", 30)
-        case "!":
-            // Use VTable's built-in sort command  
-            return app, core.SortToggleCmd("name")
-        case "@":
-            return app, core.SortToggleCmd("age")
-        case "r":
-            // Clear all filters and sorts
-            return app, tea.Batch(
-                core.FiltersClearAllCmd(),
-                core.SortsClearAllCmd(),
-            )
-        }
-    }
-    
-    // VTable handles the filtering automatically
-    var cmd tea.Cmd
-    _, cmd = app.list.Update(msg)
-    return app, cmd
+	switch msg := msg.(type) {
+	case tea.KeyMsg:
+		switch msg.String() {
+		case "1": // Filter by Engineers
+            // 1. Tell the DataSource to update its state.
+			app.dataSource.ToggleFilter("job", "Engineer")
+            // 2. Tell the List to refresh its data.
+			return app, core.DataRefreshCmd()
+
+		case "!": // Sort by Name
+			app.dataSource.ToggleSort("name")
+			return app, core.DataRefreshCmd()
+		}
+	}
+	// ...
 }
 ```
+This pattern ensures that when the `List` asks the `DataSource` for the new total count via `GetTotal()`, the `DataSource` has already been updated and can provide the correct, filtered total.
 
-**The magic**: You don't manage filter state in your app. VTable does that automatically and passes the current state to your DataSource in every request.
+## What You'll Experience
 
-## What You'll See
+-   **Interactive Filtering**: Press keys to instantly and reliably filter the list.
+-   **Dynamic Sorting**: Sort the list by different criteria on the fly.
+-   **Correct UI**: The scrollbar and item counts will now always be accurate, even when filters result in zero items.
 
+## Complete Example
+
+See the full, corrected working code in the examples directory.
+[`docs/03-list-component/examples/filtering-sorting/`](examples/filtering-sorting/)
+
+To run it:
+```bash
+cd docs/03-list-component/examples/filtering-sorting
+go run main.go
 ```
-🔍 VTable Filtering & Sorting Demo
+Press number keys (`1`, `2`, `3`...) to apply filters and symbol keys (`!`, `@`, `#`...) to toggle sorting.
 
-Filters: job=Engineer
-Sorts: age↑
-Showing 6 of 20 people
+## What's Next?
 
-►  David Kim (29) - DevOps Engineer in Seattle
-   Bob Chen (34) - Software Engineer in New York
-   Peter Anderson (36) - DevOps Engineer in San Jose
-   Henry Garcia (38) - Backend Developer in Chicago
-   Tara Kim (31) - Software Engineer in San Francisco
-   Ivy Martinez (31) - QA Engineer in Miami
+This concludes the guides for the List component. You now have the tools to build highly functional, visually appealing, and performant lists. The same core concepts apply to the Table and Tree components.
 
-Press 1=Engineer 2=Manager 3=30+ • !=Name @=Age • r=Reset • q=Quit
-```
-
-## Key Architectural Points
-
-### 1. **DataSource Interface is Filter-Ready**
-The `DataRequest` struct has always included filters and sorts. No "upgrading" needed.
-
-### 2. **VTable Manages UI State**
-You don't track active filters in your app. VTable does that and sends them to your DataSource.
-
-### 3. **Your DataSource Applies Logic**
-Whether you filter in-memory, query a database, or call an API - that's your choice. VTable just provides the parameters.
-
-### 4. **Commands Drive Everything**
-Use `core.FilterSetCmd()`, `core.SortToggleCmd()`, etc. These are VTable's built-in commands for managing filter/sort state.
-
-## The Core Pattern
-
-```go
-// 1. VTable receives command
-core.FilterSetCmd("job", "Engineer")
-
-// 2. VTable updates internal state and calls your DataSource
-dataSource.LoadChunk(DataRequest{
-    Start: 0,
-    Count: 10,
-    Filters: {"job": "Engineer"},  // ← VTable provides this
-})
-
-// 3. Your DataSource handles the filtering
-filtered := applyFilters(data, request.Filters)
-
-// 4. Return results
-return DataChunkLoadedMsg{Items: filtered}
-```
-
-VTable's job: UI state management  
-Your job: Data logic implementation
+**Next:** [The Tree Component: Basic Usage →](../04-tree-component/01-basic-tree.md)

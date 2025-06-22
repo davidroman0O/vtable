@@ -320,6 +320,7 @@ func (app App) View() string {
 	return strings.Join(sections, "\n")
 }
 
+// `05-table-component/examples/virtualized-table/main.go`
 func main() {
 	// Create large dataset (10,000 employees)
 	totalEmployees := 10000

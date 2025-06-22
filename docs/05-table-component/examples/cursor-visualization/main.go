@@ -151,6 +151,7 @@ type AppModel struct {
 	activeCellColors        []string
 }
 
+// `05-table-component/examples/cursor-visualization/main.go`
 func main() {
 	dataSource := NewEmployeeDataSource()
 

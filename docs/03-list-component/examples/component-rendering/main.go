@@ -501,6 +501,7 @@ func (app *App) View() string {
 	)
 }
 
+// `03-list-component/examples/component-rendering/main.go`
 func main() {
 	// Create data source
 	dataSource := NewPersonDataSource()

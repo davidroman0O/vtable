@@ -367,6 +367,7 @@ func (app *App) View() string {
 	)
 }
 
+// `03-list-component/examples/styled-list/main.go`
 func main() {
 	dataSource := NewPersonDataSource()
 

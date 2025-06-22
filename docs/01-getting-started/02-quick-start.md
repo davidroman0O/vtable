@@ -1,80 +1,100 @@
-# Quick Start: Your First VTable List
+# Quick Start: Your First List
 
-Let's get your first VTable component running in 5 minutes.
+Let's get your first VTable component running. In this guide, you'll build a simple, scrollable list that handles data virtualization right out of the box.
 
-## Run the Hello World Example
+## What You'll Build
 
-We have a complete working example ready for you:
+You will create a basic list that displays 10 items, is navigable with keyboard arrows, and efficiently renders only what's on screen.
+
+![VTable Hello World Example](examples/hello-world/hello-world.gif)
+
+## Step 1: Set Up the Example
+
+First, navigate to the `hello-world` example directory. This contains all the code you need to get started.
 
 ```bash
 cd docs/01-getting-started/examples/hello-world
+```
+
+## Step 2: Run the Application
+
+Execute the `main.go` file to run the application:
+
+```bash
 go run main.go
 ```
 
-You should see:
-```
-Hello World VTable List (press 'q' to quit)
+You should now see the list in your terminal.
+**Try it:** Use the up/down arrow keys or `j`/`k` to navigate. Press `q` to quit.
 
-► Item 1
-  Item 2
-  Item 3
-  Item 4
-  Item 5
+## How It Works: Code Breakdown
 
-Use ↑/↓ or j/k to navigate
-```
+Let's break down the key parts of `main.go` to understand how this works.
 
-**Try it:** Use arrow keys or j/k to navigate, then press `q` to quit.
+### The DataSource
 
-## What Just Happened?
+The `DataSource` is where your data comes from. It's a simple struct that holds your items and implements two key methods for VTable:
 
-Let's break down the key parts from `main.go`:
-
-### 1. **DataSource** - Where Your Data Comes From
 ```go
+// SimpleDataSource provides basic string data
 type SimpleDataSource struct {
-    items []string  // Your actual data
+	items []string // Your actual data
+}
+
+// GetTotal returns the total number of items
+func (ds *SimpleDataSource) GetTotal() tea.Cmd {
+	return func() tea.Msg {
+		return core.DataTotalMsg{Total: len(ds.items)}
+	}
+}
+
+// LoadChunk loads a specific range of items for the viewport
+func (ds *SimpleDataSource) LoadChunk(request core.DataRequest) tea.Cmd {
+	// ... implementation to return a chunk of data
 }
 ```
 
-The DataSource provides data to VTable in chunks. It implements these key methods:
-- `GetTotal()` - Returns total number of items
-- `LoadChunk()` - Loads a specific range of items
+### The List Component
 
-### 2. **Navigation Handling** - The Key to Movement
+Creating the list is simple. You provide a configuration and your data source.
+
 ```go
-case "up", "k":
-    return app, core.CursorUpCmd()
-case "down", "j":
-    return app, core.CursorDownCmd()
-```
-
-This is crucial! You handle keyboard input and return the appropriate movement commands.
-
-### 3. **List Creation** - Put It All Together
-```go
+// Create list configuration
 listConfig := config.DefaultListConfig()
-listConfig.ViewportConfig.Height = 5  // Show 5 items at a time
+listConfig.ViewportConfig.Height = 5 // Show 5 items at a time
+
+// Create the list
 vtableList := list.NewList(listConfig, dataSource)
 ```
 
-## Key Benefits You Just Got
+### Navigation Handling
 
-Even in this simple example, you already have:
+You handle keyboard input and send commands to VTable to control movement.
 
-✅ **Virtual rendering** - Only 5 items rendered, regardless of data size  
-✅ **Keyboard navigation** - Arrow keys and j/k work!  
-✅ **Efficient memory** - Only visible items loaded  
-✅ **Responsive scrolling** - Smooth navigation  
+```go
+// In your app's Update method:
+switch msg.String() {
+case "up", "k":
+    // Move cursor up
+    return app, core.CursorUpCmd()
+case "down", "j":
+    // Move cursor down
+    return app, core.CursorDownCmd()
+}
+```
+VTable receives these commands and automatically handles the complex logic of scrolling the viewport and requesting new data chunks.
+
+## Key Takeaways
+
+Even in this simple example, you've already achieved a lot:
+
+-   ✅ **Virtual Rendering**: Only 5 items are rendered, regardless of the total dataset size.
+-   ✅ **Efficient Memory**: Memory usage is constant because only visible items are loaded.
+-   ✅ **Keyboard Navigation**: Standard up/down and `j`/`k` navigation works out of the box.
+-   ✅ **Responsive Scrolling**: The list feels smooth and responsive.
 
 ## What's Next?
 
-This basic list is your foundation. In the next sections, you'll learn:
-- How data virtualization works under the hood
-- Creating custom DataSources  
-- Viewport and navigation concepts
-- Component rendering architecture
+This basic list is the foundation for all other VTable components. Now that you've seen it in action, let's dive deeper into the core concept that makes it all possible: Data Virtualization.
 
-**Next:** [Data Virtualization →](../02-core-concepts/01-data-virtualization.md)
-
-**Or jump ahead to:** [Basic List Usage →](../03-list-component/01-basic-usage.md) 
+**Next:** [Data Virtualization →](../02-core-concepts/01-data-virtualization.md) 

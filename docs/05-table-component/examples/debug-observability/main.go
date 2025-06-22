@@ -461,6 +461,7 @@ type AppModel struct {
 	operationTimings   map[string][]time.Duration
 }
 
+// `05-table-component/examples/debug-observability/main.go`
 func main() {
 	// Create data source
 	dataSource := NewSimpleDataSource()

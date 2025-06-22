@@ -162,6 +162,7 @@ type AppModel struct {
 	scrollModeLabels []string
 }
 
+// `05-table-component/examples/horizontal-scrolling/main.go`
 func main() {
 	dataSource := NewEmployeeDataSource()
 

@@ -737,6 +737,7 @@ func (app App) View() string {
 	return strings.Join(sections, "\n")
 }
 
+// `05-table-component/examples/cell-constraints/main.go`
 func main() {
 	// Create large dataset with selection tracking
 	dataSource := NewLargeEmployeeDataSource(1000)

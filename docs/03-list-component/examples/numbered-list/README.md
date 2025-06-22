@@ -134,3 +134,7 @@ vtableList.SetRenderConfig(renderConfig)
 - Using alignment and styling for professional appearance
 - Creating conditional enumerators that adapt to item state
 - Leveraging the separation between enumeration and content formatting 
+
+## TODO
+
+- there is a small bug on the cursor component, we should use `github.com/mattn/go-runewidth` to know the real width and compensate. 

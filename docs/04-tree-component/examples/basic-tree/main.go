@@ -362,6 +362,7 @@ func fileTreeFormatter(item core.Data[any], index int, depth int, hasChildren, i
 	return fmt.Sprintf("%v", item.Item)
 }
 
+// `04-tree-component/examples/basic-tree/main.go`
 func main() {
 	// Create the data source
 	dataSource := NewFileTreeDataSource()

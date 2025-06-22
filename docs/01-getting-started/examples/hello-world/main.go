@@ -93,6 +93,7 @@ func (app *App) View() string {
 	)
 }
 
+// `01-getting-started/examples/hello-world/main.go`
 func main() {
 	// Create sample data
 	dataSource := &SimpleDataSource{

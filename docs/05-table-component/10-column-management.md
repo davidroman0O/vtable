@@ -1,251 +1,147 @@
-# Column Management
+# The Table Component: Column Management
 
-## What We're Adding
+This guide demonstrates how to give users dynamic control over the table's structure. You'll learn how to implement features for reordering, adding, removing, and resizing columns at runtime.
 
-Building on our horizontal scrolling example, we're adding the ability to dynamically manage table columns:
-- **Column reordering**: Move columns left/right to reorganize the table
-- **Add/remove columns**: Show more data or hide unneeded columns
-- **Width adjustment**: Make columns wider or narrower in real-time
-- **Alignment changes**: Switch between left/center/right alignment
+## What You'll Build
 
-This lets users customize their table layout without restarting the application.
+We will build an interactive table where the user can:
+-   **Reorder columns** using `Ctrl+←`/`Ctrl+→`.
+-   **Add and remove columns** from a predefined set using `+`/`-`.
+-   **Adjust the width** of the currently active column using `W`/`w`.
+-   **Cycle through text alignments** for the active column with `A`.
 
-## New Concepts
-
-### Available vs Visible Columns
-Instead of hardcoding all columns, we separate:
-- **Available columns**: All possible columns the table could show
-- **Visible columns**: Which ones are currently displayed
-
-```go
-// All possible columns
-availableColumns := []core.TableColumn{
-    {Title: "ID", Width: 8, Alignment: core.AlignCenter},
-    {Title: "Name", Width: 25, Alignment: core.AlignLeft},
-    {Title: "Email", Width: 30, Alignment: core.AlignLeft},    // Hidden initially
-    {Title: "Phone", Width: 18, Alignment: core.AlignCenter}, // Hidden initially
-    // ... more columns
-}
-
-// Which ones to show (by index into availableColumns)
-visibleColumns := []int{0, 1, 2, 3} // Show ID, Name, Dept, Status
+```text
+// User can reorder columns, for example, moving 'Status' to the front.
+┌────────────┬───────────────┬───────────────────┬────────────┐
+│   Status   │ Employee Name │  Department       │     Salary │
+├────────────┼───────────────┼───────────────────┼────────────┤
+│ 🟢 Active  │ ► Alice       │  Engineering      │    $75,000 │
+└────────────┴───────────────┴───────────────────┴────────────┘
 ```
 
-### Dynamic Column State
-We track which columns are visible and their current configuration:
+## How It Works: Managing Column State
+
+The key to dynamic column management is to maintain two separate lists in your application's state:
+
+1.  `availableColumns`: A complete list of *all possible* columns the table could display.
+2.  `visibleColumns`: A list of indices that maps to `availableColumns`, defining which columns are currently visible and in what order.
 
 ```go
 type AppModel struct {
-    // ... existing fields ...
-    availableColumns []core.TableColumn // All possible columns
-    visibleColumns   []int              // Indices of visible columns  
-    columnWidths     []int              // Current widths for adjustment
+	table *table.Table
+	// ...
+	availableColumns []core.TableColumn // All possible columns
+	visibleColumns   []int              // Indices of visible columns (e.g., [1, 0, 3])
+	columnWidths     []int              // Current widths for each visible column
 }
 ```
 
-## Code Changes
+When the user reorders, adds, or removes a column, you manipulate the `visibleColumns` slice and then send a single command to VTable to update its layout.
 
-### 1. Setup Available Columns
-Replace the hardcoded columns with a larger set:
+## The `ColumnSetCmd` Command
+
+All dynamic layout changes are powered by one core command:
+-   `core.ColumnSetCmd(columns []core.TableColumn)`: Replaces the table's entire column configuration with the new set you provide.
+
+## Step 1: Define All Available Columns
+
+In your `main` function, create the master list of all columns that could potentially be displayed.
 
 ```go
-func main() {
-    // Define ALL possible columns (more than we'll show)
-    availableColumns := []core.TableColumn{
-        {Title: "ID", Width: 8, Alignment: core.AlignCenter, Field: "id"},
-        {Title: "Employee Name", Width: 25, Alignment: core.AlignLeft, Field: "name"},
-        {Title: "Department", Width: 20, Alignment: core.AlignCenter, Field: "department"},
-        {Title: "Status", Width: 15, Alignment: core.AlignCenter, Field: "status"},
-        {Title: "Salary", Width: 12, Alignment: core.AlignRight, Field: "salary"},
-        {Title: "Email", Width: 30, Alignment: core.AlignLeft, Field: "email"},      // NEW
-        {Title: "Phone", Width: 18, Alignment: core.AlignCenter, Field: "phone"},   // NEW
-        {Title: "Description", Width: 50, Alignment: core.AlignLeft, Field: "description"},
-    }
-
-    // Start with only some columns visible
-    visibleColumns := []int{0, 1, 2, 3, 4, 7} // ID, Name, Dept, Status, Salary, Description
-    
-    // Build initial column set
-    initialColumns := make([]core.TableColumn, len(visibleColumns))
-    for i, colIndex := range visibleColumns {
-        initialColumns[i] = availableColumns[colIndex]
-    }
+// Define ALL possible columns, including ones hidden by default.
+availableColumns := []core.TableColumn{
+    {Title: "ID", Width: 8, Field: "id"},
+    {Title: "Employee Name", Width: 25, Field: "name"},
+    {Title: "Department", Width: 20, Field: "department"},
+    {Title: "Status", Width: 15, Field: "status"},
+    {Title: "Salary", Width: 12, Field: "salary"},
+    {Title: "Email", Width: 30, Field: "email"},   // Hidden by default
+    {Title: "Phone", Width: 18, Field: "phone"},   // Hidden by default
 }
+
+// Define the initial set of visible columns by their index.
+visibleColumns := []int{0, 1, 2, 3, 4} // Shows ID, Name, Dept, Status, Salary
 ```
 
-### 2. Add Column Management Controls
-Add new key handlers to the Update function:
+## Step 2: Implement Column Management Logic
+
+In your `AppModel`, create helper methods to handle the logic for reordering, adding, and removing columns.
 
 ```go
-// === COLUMN MANAGEMENT CONTROLS ===
-case "ctrl+left":
-    return m.moveColumnLeft()
-
-case "ctrl+right": 
-    return m.moveColumnRight()
-
-case "+", "=":
-    return m.addColumn()
-
-case "-", "_":
-    return m.removeColumn()
-
-case "W":
-    return m.adjustColumnWidth(5)  // Increase width
-
-case "w":
-    return m.adjustColumnWidth(-5) // Decrease width
-
-case "A":
-    return m.cycleColumnAlignment()
-
-case "R":
-    return m.resetColumns()
-```
-
-### 3. Implement Column Operations
-Add these methods to handle column changes:
-
-```go
-// Move current column left in the display order
-func (m AppModel) moveColumnLeft() (tea.Model, tea.Cmd) {
-    _, _, currentColumn, _ := m.table.GetHorizontalScrollState()
-    
-    if currentColumn > 0 {
-        // Swap positions in visible columns list
-        m.visibleColumns[currentColumn], m.visibleColumns[currentColumn-1] = 
-            m.visibleColumns[currentColumn-1], m.visibleColumns[currentColumn]
-        
-        // Update table with new order
-        newColumns := m.buildCurrentColumns()
-        return m, tea.Batch(
-            core.ColumnSetCmd(newColumns),
-            core.PrevColumnCmd(), // Move focus to follow the column
-        )
-    }
-    return m, nil
-}
-
-// Add the next available column
-func (m AppModel) addColumn() (tea.Model, tea.Cmd) {
-    // Find first column not currently visible
-    visibleSet := make(map[int]bool)
-    for _, colIndex := range m.visibleColumns {
-        visibleSet[colIndex] = true
-    }
-    
-    for i, col := range m.availableColumns {
-        if !visibleSet[i] {
-            // Add this column
-            m.visibleColumns = append(m.visibleColumns, i)
-            m.columnWidths = append(m.columnWidths, col.Width)
-            
-            newColumns := m.buildCurrentColumns()
-            return m, core.ColumnSetCmd(newColumns)
-        }
-    }
-    return m, nil // All columns already visible
-}
-
-// Adjust width of current column
-func (m AppModel) adjustColumnWidth(delta int) (tea.Model, tea.Cmd) {
-    _, _, currentColumn, _ := m.table.GetHorizontalScrollState()
-    
-    newWidth := m.columnWidths[currentColumn] + delta
-    if newWidth < 5 { newWidth = 5 }     // Minimum width
-    if newWidth > 100 { newWidth = 100 } // Maximum width
-    
-    m.columnWidths[currentColumn] = newWidth
-    newColumns := m.buildCurrentColumns()
-    return m, core.ColumnSetCmd(newColumns)
-}
-
-// Build current column configuration from visible columns
+// Rebuilds the slice of columns to be sent to the table.
 func (m AppModel) buildCurrentColumns() []core.TableColumn {
-    columns := make([]core.TableColumn, len(m.visibleColumns))
-    for i, colIndex := range m.visibleColumns {
-        col := m.availableColumns[colIndex]
-        col.Width = m.columnWidths[i] // Use current width
-        columns[i] = col
-    }
-    return columns
+	columns := make([]core.TableColumn, len(m.visibleColumns))
+	for i, colIndex := range m.visibleColumns {
+		col := m.availableColumns[colIndex]
+		col.Width = m.columnWidths[i] // Apply the current dynamic width
+		columns[i] = col
+	}
+	return columns
 }
+
+// Moves the currently active column one position to the left.
+func (m AppModel) moveColumnLeft() (tea.Model, tea.Cmd) {
+	_, _, currentColumn, _ := m.table.GetHorizontalScrollState()
+	if currentColumn > 0 {
+		// Swap the column's position in the visible list.
+		m.visibleColumns[currentColumn], m.visibleColumns[currentColumn-1] =
+			m.visibleColumns[currentColumn-1], m.visibleColumns[currentColumn]
+
+		// Rebuild the column set and send the update command.
+		newColumns := m.buildCurrentColumns()
+		return m, core.ColumnSetCmd(newColumns)
+	}
+	return m, nil
+}
+// ... implement addColumn, removeColumn, adjustColumnWidth etc.
 ```
 
-## Key Features Explained
+## Step 3: Add Keyboard Controls
 
-### Column Reordering
-- `Ctrl+←` `Ctrl+→` swap the current column with its neighbor
-- The focus follows the moved column automatically
-- Changes the visual order without affecting data
-
-### Dynamic Add/Remove
-- `+` finds the first hidden column and adds it to the table
-- `-` removes the current column (but keeps it in available list)
-- Prevents removing the last column
-
-### Width Adjustment  
-- `W` `w` increase/decrease current column width by 5 characters
-- Enforces minimum (5) and maximum (100) width limits
-- Changes apply immediately
-
-### Reset Functionality
-- `R` returns to the default column configuration
-- Restores original widths and column order
-- Useful escape hatch when layout gets messy
-
-## Core Commands Used
+In your app's `Update` method, map keys to your new column management functions.
 
 ```go
-// Set all columns at once (main command for column management)
-core.ColumnSetCmd(columns []TableColumn) tea.Cmd
-
-// Navigate between columns (inherited from horizontal scrolling)
-core.NextColumnCmd() tea.Cmd
-core.PrevColumnCmd() tea.Cmd
+case tea.KeyMsg:
+    switch msg.String() {
+    case "ctrl+left":
+        return m.moveColumnLeft()
+    case "ctrl+right":
+        return m.moveColumnRight()
+    case "+", "=":
+        return m.addColumn()
+    case "-", "_":
+        return m.removeColumn()
+    case "W":
+        return m.adjustColumnWidth(5) // Increase width
+    case "w":
+        return m.adjustColumnWidth(-5) // Decrease width
+    case "A":
+        return m.cycleColumnAlignment()
+    case "R":
+        return m.resetColumns()
+    }
 ```
 
-## Status Display
-Update the View to show column management state:
+## What You'll Experience
 
-```go
-// Show visible/total columns and current column info
-status := fmt.Sprintf("Cols: %d/%d | Current: %s (%d)", 
-    len(m.visibleColumns),
-    len(m.availableColumns), 
-    currentColumnName,
-    currentColumnWidth,
-)
-```
+-   **Column Reordering**: Use `Ctrl+←`/`Ctrl+→` to move the active column and watch the table layout update instantly.
+-   **Dynamic Columns**: Press `+` to add hidden columns like "Email" and "Phone," and `-` to remove them.
+-   **Live Width Adjustment**: Make columns wider or narrower with `W`/`w` to fit content perfectly.
+-   **Reset to Default**: If the layout becomes messy, press `R` to instantly revert to the initial column configuration.
 
-## Controls
+## Complete Example
 
-| Key | Action |
-|-----|--------|
-| `Ctrl+←` `Ctrl+→` | Move current column left/right |
-| `+` `=` | Add next available column |
-| `-` `_` | Remove current column |
-| `W` `w` | Increase/decrease column width |
-| `A` | Cycle column alignment |
-| `R` | Reset to default columns |
+See the full working code for this guide in the examples directory:
+[`docs/05-table-component/examples/column-management/`](examples/column-management/)
 
-## Try It Yourself
-
-1. **Reorder columns**: Use `Ctrl+←` `Ctrl+→` to move the ID column around
-2. **Add hidden columns**: Press `+` to add Email and Phone columns
-3. **Remove columns**: Use `-` to remove columns you don't need
-4. **Adjust widths**: Make the Description column narrower with `w`
-5. **Reset when confused**: Press `R` to go back to defaults
-
-## What's Next
-
-In the next section, we'll explore [Filtering and Sorting](11-filtering-sorting.md) to add data manipulation to our configurable table.
-
-## Running the Example
-
+To run it:
 ```bash
 cd docs/05-table-component/examples/column-management
 go run .
 ```
 
-This example shows how to build user-configurable tables that adapt to different workflows and screen sizes. 
+## What's Next?
+
+You have now mastered the layout and structure of the VTable `Table` component. The next step is to add powerful data operations by implementing filtering and sorting in your `DataSource`.
+
+**Next:** [Filtering and Sorting →](11-filtering-sorting.md) 

@@ -204,6 +204,7 @@ type App struct {
 	statusMessage string
 }
 
+// `05-table-component/examples/basic-table/main.go`
 func main() {
 	// Create data source and table
 	dataSource := NewEmployeeDataSource()

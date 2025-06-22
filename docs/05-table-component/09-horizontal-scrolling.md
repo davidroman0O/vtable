@@ -1,169 +1,105 @@
-# Horizontal Scrolling
+# The Table Component: Horizontal Scrolling
 
-## What We're Adding
+This guide covers how to manage tables with more columns than can fit on the screen by implementing **horizontal scrolling**. You will learn how to navigate between columns and scroll through wide cell content.
 
-Building on our cursor visualization example, we're adding horizontal scrolling capabilities to handle tables with many columns that don't fit on screen:
-- **Character-based scrolling**: Smooth scrolling one character at a time
-- **Word-based scrolling**: Jump by word boundaries for faster navigation
-- **Smart scrolling**: Automatically choose the best scrolling method
-- **Scope control**: Control which columns participate in scrolling
-- **Reset behavior**: Return to the beginning or specific positions
+## What You'll Build
 
-This is essential for tables with many columns or wide content that exceeds the terminal width.
+We will create a table with a wide "Description" column that requires horizontal scrolling to view its full content. You will implement controls for:
+-   **Column Navigation**: Moving the "active cell" focus between different columns.
+-   **Content Scrolling**: Scrolling the text *within* a wide cell.
+-   **Scroll Modes**: Switching between character, word, and smart scrolling.
 
-## Code Changes
+```text
+// A table where the 'Description' column is horizontally scrolled.
+┌────┬──────────────┬───────────────────────────...
+│ ID │ Employee Name│ Description
+├────┼──────────────┼───────────────────────────...
+│ ►  │ Alice Johnson│ lizing in various aspects ...
+└────┴──────────────┴───────────────────────────...
+```
 
-Starting from our cursor visualization example, we need to add horizontal scrolling configuration:
+## How It Works: Active Cell and Scroll Offsets
+
+Horizontal navigation in VTable is managed by two key concepts:
+
+1.  **The Active Column**: This is the column that currently has focus for horizontal scrolling. VTable highlights this column (using the active cell indication style) and directs all horizontal scroll commands to it.
+2.  **Scroll Offsets**: VTable maintains a separate horizontal scroll offset for each column. This allows you to scroll a wide "Description" column without affecting the other columns.
+
+You control these states by sending commands.
+
+## Core Horizontal Navigation Commands
+
+#### Column Navigation (Moving Focus)
+-   `core.NextColumnCmd()`: Moves the active column focus to the right.
+-   `core.PrevColumnCmd()`: Moves the active column focus to the left.
+
+#### Content Scrolling (Within a Column)
+-   `core.HorizontalScrollLeftCmd()`: Scrolls the content of the active column to the left.
+-   `core.HorizontalScrollRightCmd()`: Scrolls the content to the right.
+-   **Word/Smart Scrolling**: `core.HorizontalScrollWordLeftCmd()`, `core.HorizontalScrollSmartRightCmd()`, etc., provide more advanced scrolling behaviors.
+-   `core.HorizontalScrollResetCmd()`: Resets the scroll offset for the active column back to the beginning.
+
+## Step 1: Create a Table with Wide Content
+
+First, ensure your table has at least one column with content that is wider than its configured `Width`.
 
 ```go
-type AppModel struct {
-	table                   *table.Table
-	// Cursor visualization fields
-	fullRowHighlightEnabled bool
-	activeCellEnabled       bool
-	activeCellColorIndex    int
-	activeCellColors        []string
-	// Horizontal scrolling fields (now managed by table)
-	// These are just for display purposes
-	scrollModeLabels        []string
+columns := []core.TableColumn{
+    // ... other columns ...
+    {
+        Title: "Description",
+        Width: 35, // A fixed width for the column
+        // The content in the DataSource will be much longer than 35 chars.
+    },
 }
+```
 
-func main() {
-	// Create columns with fewer columns but keep description for horizontal scrolling demo
-	columns := []core.TableColumn{
-		{Title: "ID", Width: 8, Alignment: core.AlignCenter},
-		{Title: "Employee Name", Width: 25, Alignment: core.AlignLeft},
-		{Title: "Department", Width: 20, Alignment: core.AlignCenter},
-		{Title: "Status", Width: 15, Alignment: core.AlignCenter},
-		{Title: "Salary", Width: 12, Alignment: core.AlignRight},
-		{Title: "Description", Width: 50, Alignment: core.AlignLeft}, // Wide column to demonstrate horizontal scrolling
-	}
+## Step 2: Implement Keyboard Controls
 
-	activeCellColors := []string{"#3C3C3C", "#1E3A8A", "#166534", "#7C2D12", "#581C87"}
-	scrollModeLabels := []string{"character", "word", "smart"}
+In your app's `Update` method, map keys to the horizontal navigation and scrolling commands.
 
-	// Configure table
-	config := core.TableConfig{
-		Columns:     columns,
-		ShowHeader:  true,
-		ShowBorders: true,
-		// Cursor visualization configuration
-		FullRowHighlighting:         false, // Disable full row highlighting by default
-		ActiveCellIndicationEnabled: true,  // Enable active cell indication by default
-		ActiveCellBackgroundColor:   activeCellColors[0],
-		ViewportConfig: core.ViewportConfig{
-			Height:             15,
-			ChunkSize:          25,
-			TopThreshold:       3,
-			BottomThreshold:    3,
-			BoundingAreaBefore: 50,
-			BoundingAreaAfter:  50,
-		},
-		Theme:         theme,
-		SelectionMode: core.SelectionNone,
-	}
-
-	model := AppModel{
-		table:                   tbl,
-		fullRowHighlightEnabled: false, // Start with full row highlighting disabled
-		activeCellEnabled:       true,  // Start with active cell indication enabled
-		activeCellColorIndex:    0,
-		activeCellColors:        activeCellColors,
-		scrollModeLabels:        scrollModeLabels,
-	}
-}
-
+```go
 func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		switch msg.String() {
-		// Existing cursor visualization controls...
-		case "r":
-			m.fullRowHighlightEnabled = !m.fullRowHighlightEnabled
-			if m.fullRowHighlightEnabled && m.activeCellEnabled {
-				m.activeCellEnabled = false
-			}
-			return m, core.FullRowHighlightEnableCmd(m.fullRowHighlightEnabled)
-
-		// === HORIZONTAL SCROLLING CONTROLS ===
-		case "left", "<":
-			// Scroll horizontally left within the current column
-			m.statusMessage = "Scrolling left"
-			return m, core.HorizontalScrollLeftCmd()
-
-		case "right", ">":
-			// Scroll horizontally right within the current column
-			m.statusMessage = "Scrolling right"
-			return m, core.HorizontalScrollRightCmd()
-
-		case "shift+left", "H":
-			// Fast scroll left using page-based horizontal scrolling
-			m.statusMessage = "Fast scrolling left"
-			return m, core.HorizontalScrollPageLeftCmd()
-
-		case "shift+right", "L":
-			// Fast scroll right using page-based horizontal scrolling
-			m.statusMessage = "Fast scrolling right"
-			return m, core.HorizontalScrollPageRightCmd()
-
-		case "[":
-			// Word-based scrolling left
-			m.statusMessage = "Word scrolling left"
-			return m, core.HorizontalScrollWordLeftCmd()
-
-		case "]":
-			// Word-based scrolling right
-			m.statusMessage = "Word scrolling right"
-			return m, core.HorizontalScrollWordRightCmd()
-
-		case "{":
-			// Smart scrolling left
-			m.statusMessage = "Smart scrolling left"
-			return m, core.HorizontalScrollSmartLeftCmd()
-
-		case "}":
-			// Smart scrolling right
-			m.statusMessage = "Smart scrolling right"
-			return m, core.HorizontalScrollSmartRightCmd()
-
+		// --- COLUMN NAVIGATION ---
 		case ".":
-			// Navigate to next column
-			m.statusMessage = "Next column"
 			return m, core.NextColumnCmd()
-
 		case ",":
-			// Navigate to previous column
-			m.statusMessage = "Previous column"
 			return m, core.PrevColumnCmd()
 
-		case "backspace", "delete":
-			// Reset horizontal scrolling
-			m.statusMessage = "Resetting horizontal scroll"
-			return m, core.HorizontalScrollResetCmd()
+		// --- CONTENT SCROLLING ---
+		case "left", "<":
+			return m, core.HorizontalScrollLeftCmd()
+		case "right", ">":
+			return m, core.HorizontalScrollRightCmd()
+		case "H", "shift+left": // Fast scroll
+			return m, core.HorizontalScrollPageLeftCmd()
+		case "L", "shift+right":
+			return m, core.HorizontalScrollPageRightCmd()
 
-		case "s":
-			// Toggle scroll mode (character/word/smart)
-			m.statusMessage = "Toggling scroll mode"
+		// --- SCROLL MODE & RESET ---
+		case "s": // Toggle scroll mode (character, word, smart)
 			return m, core.HorizontalScrollModeToggleCmd()
-
-		case "S":
-			// Toggle scroll scope (current row/all rows)
-			m.statusMessage = "Toggling scroll scope"
-			return m, core.HorizontalScrollScopeToggleCmd()
+		case "backspace", "delete":
+			return m, core.HorizontalScrollResetCmd()
 		}
 	}
-
-	// Delegate to table for all other messages
-	var cmd tea.Cmd
-	_, cmd = m.table.Update(msg)
-	return m, cmd
+	// ...
 }
+```
 
+## Step 3: Display Scrolling State (Optional)
+
+To provide feedback to the user, you can get the current scrolling state from the table and display it in your `View`.
+
+```go
 func (m AppModel) View() string {
-	// Get horizontal scrolling state from table
+    // Get the full horizontal scroll state from the table.
 	scrollMode, scrollAllRows, currentColumn, offsets := m.table.GetHorizontalScrollState()
-	
-	// Determine if any horizontal scrolling is active
+
+    // Check if any scrolling is active.
 	hasActiveScrolling := false
 	for _, offset := range offsets {
 		if offset > 0 {
@@ -171,169 +107,41 @@ func (m AppModel) View() string {
 			break
 		}
 	}
-	
 	scrollStatus := "OFF"
 	if hasActiveScrolling {
-		scrollStatus = "ON"
-	}
-	
-	scopeStatus := "current"
-	if scrollAllRows {
-		scopeStatus = "all"
+		scrollStatus = fmt.Sprintf("ON (Offset: %d)", offsets[currentColumn])
 	}
 
-	status := fmt.Sprintf("Employee %d/%d | HScroll: %s (%s) | Col: %d | Scope: %s",
-		state.CursorIndex+1,
-		m.table.GetTotalItems(),
-		scrollStatus,
-		scrollMode,
-		currentColumn,
-		scopeStatus,
+    // Display the status.
+    status := fmt.Sprintf("HScroll: %s (%s) | Active Column: %d",
+        scrollStatus,
+        scrollMode,
+        currentColumn,
 	)
-
-	return status + "\n" + controls + "\n" + m.statusMessage + "\n\n" + m.table.View()
+    // ...
 }
-
-## Core Commands
-
-The library provides two types of horizontal navigation commands:
-
-### Horizontal Scrolling Commands (Content within Columns)
-```go
-// Basic horizontal scrolling within columns
-core.HorizontalScrollLeftCmd() tea.Cmd
-core.HorizontalScrollRightCmd() tea.Cmd
-
-// Page-based horizontal scrolling
-core.HorizontalScrollPageLeftCmd() tea.Cmd
-core.HorizontalScrollPageRightCmd() tea.Cmd
-
-// Word-boundary scrolling
-core.HorizontalScrollWordLeftCmd() tea.Cmd
-core.HorizontalScrollWordRightCmd() tea.Cmd
-
-// Smart-boundary scrolling
-core.HorizontalScrollSmartLeftCmd() tea.Cmd
-core.HorizontalScrollSmartRightCmd() tea.Cmd
-
-// Mode and scope controls
-core.HorizontalScrollModeToggleCmd() tea.Cmd        // character/word/smart
-core.HorizontalScrollScopeToggleCmd() tea.Cmd       // current row/all rows
-core.HorizontalScrollResetCmd() tea.Cmd             // reset all scroll offsets
 ```
 
-### Column Navigation Commands (Moving Between Columns)
-```go
-// Column navigation (moves focus between columns)
-core.CursorLeftCmd() tea.Cmd   // Previous column
-core.CursorRightCmd() tea.Cmd  // Next column
-core.NextColumnCmd() tea.Cmd   // Next column (alternative)
-core.PrevColumnCmd() tea.Cmd   // Previous column (alternative)
+## What You'll Experience
 
-// Page-based column navigation
-core.PageLeftCmd() tea.Cmd     // Page left through columns
-core.PageRightCmd() tea.Cmd    // Page right through columns
-```
+-   **Column Navigation**: Pressing `.` and `,` will move the "active cell" highlight between columns.
+-   **Content Scrolling**: When the "Description" column is active, pressing `left` and `right` will scroll the text within that column's cells, while other columns remain static.
+-   **Scroll Modes**: Pressing `s` will cycle between `character`, `word`, and `smart` scrolling, changing how far the content moves with each key press.
+-   **Reset**: Pressing `backspace` will snap the content of the active column back to the beginning.
 
-### Vertical Navigation (Inherited)
-```go
-core.CursorUpCmd() tea.Cmd
-core.CursorDownCmd() tea.Cmd
-core.PageUpCmd() tea.Cmd
-core.PageDownCmd() tea.Cmd
+## Complete Example
 
-// Jump navigation
-core.JumpToStartCmd() tea.Cmd
-core.JumpToEndCmd() tea.Cmd
-```
+See the full working code for this guide in the examples directory:
+[`docs/05-table-component/examples/horizontal-scrolling/`](examples/horizontal-scrolling/)
 
-## Key Features
-
-### Scroll Modes
-
-**Character-based scrolling (`s` to cycle)**
-- Scrolls one character at a time
-- Provides smooth, precise control
-- Best for fine-tuned positioning
-
-**Word-based scrolling**
-- Jumps by word boundaries
-- Faster navigation through content
-- Good for text-heavy columns
-
-**Smart scrolling**
-- Automatically chooses character or word based on content
-- Adapts to column content type
-- Balances speed and precision
-
-### Navigation Controls
-
-**Horizontal Scrolling (within columns)**
-- `←` `→` `<` `>`: Character-by-character scrolling within focused column
-- `Shift+←` `Shift+→` `H` `L`: Page-based horizontal scrolling
-- `[` `]`: Word-boundary scrolling
-- `{` `}`: Smart-boundary scrolling
-- `Backspace` `Delete`: Reset all horizontal scroll offsets
-
-**Column Navigation (between columns)**
-- `.`: Move focus to next column
-- `,`: Move focus to previous column
-
-**Configuration**
-- `s`: Toggle scroll mode (character → word → smart)
-- `S`: Toggle scroll scope (current row ↔ all rows)
-
-## Controls
-
-| Key | Action |
-|-----|--------|
-| `←` `→` `<` `>` | Scroll horizontally within focused column |
-| `Shift+←` `Shift+→` `H` `L` | Fast horizontal scrolling (page-based) |
-| `[` `]` | Word-boundary horizontal scrolling |
-| `{` `}` | Smart-boundary horizontal scrolling |
-| `.` `,` | Navigate between columns (focus) |
-| `Backspace` `Delete` | Reset horizontal scroll offsets |
-| `Home` `End` | Jump to start/end of data |
-| `s` | Toggle scroll mode (character/word/smart) |
-| `S` | Toggle scroll scope (current row/all rows) |
-
-### Inherited Controls
-| Key | Action |
-|-----|--------|
-| `r` | Toggle full row highlighting |
-| `c` | Toggle active cell indication |
-| `C` | Cycle active cell colors |
-| `m` | Toggle mixed cursor mode |
-| `↑` `↓` `j` `k` | Navigate rows |
-| `h` `l` | Page up/down |
-| `g` `G` | Jump to start/end of data |
-| `q` | Quit |
-
-## Try It Yourself
-
-1. **Test horizontal scrolling**: Use `←` `→` to scroll within the wide Description column
-2. **Try different scroll modes**: Press `s` to cycle through character, word, and smart scrolling
-3. **Test word boundaries**: Use `[` `]` to jump by word boundaries
-4. **Navigate columns**: Press `.` `,` to move focus between columns
-5. **Toggle scope**: Press `S` to switch between current-row and all-rows scrolling
-6. **Reset scrolling**: Press `Backspace` to reset all scroll offsets
-
-## Progressive Enhancement
-
-This example builds on:
-- [Cursor Visualization](08-cursor-visualization.md) - Row highlighting and active cell indication
-- [Table Styling](06-table-styling.md) - Themes, borders, and visual customization
-- [Column Formatting](05-column-formatting.md) - Custom cell formatters and styling
-
-## What's Next
-
-In the next section, we'll explore [Column Management](10-column-management.md) to dynamically control column ordering and configuration.
-
-## Running the Example
-
+To run it:
 ```bash
 cd docs/05-table-component/examples/horizontal-scrolling
 go run .
 ```
 
-The example demonstrates how horizontal scrolling makes it possible to work with tables that have more columns than can fit on screen, with different scrolling behaviors for different use cases. 
+## What's Next?
+
+You now have a fully navigable table that can handle both vertical and horizontal overflow. The next step is to give the user even more control by allowing them to dynamically manage the columns themselves—reordering, adding, and removing them at runtime.
+
+**Next:** [Column Management →](10-column-management.md) 

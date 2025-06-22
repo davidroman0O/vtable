@@ -249,6 +249,7 @@ func (app *App) View() string {
 	)
 }
 
+// `03-list-component/examples/formatted-items/main.go`
 func main() {
 	dataSource := NewPersonDataSource()
 

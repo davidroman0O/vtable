@@ -325,6 +325,7 @@ func (app *App) View() string {
 	)
 }
 
+// `03-list-component/examples/checkbox-list/main.go`
 func main() {
 	dataSource := NewPersonDataSource()
 

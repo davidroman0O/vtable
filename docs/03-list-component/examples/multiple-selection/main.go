@@ -208,6 +208,7 @@ func (app *App) View() string {
 	)
 }
 
+// `03-list-component/examples/multiple-selection/main.go`
 func main() {
 	dataSource := NewSimpleDataSource()
 

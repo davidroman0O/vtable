@@ -1,97 +1,79 @@
-# Component Rendering: Changing How Your List Looks
+# The List Component: Component Rendering
 
-Let's learn how VTable builds each list item and how you can rearrange the pieces to create different layouts.
+VTable renders each list item using a flexible **component pipeline**. This system allows you to control the layout and appearance of your list by arranging and configuring individual visual components.
 
-## What We're Adding
+## What You'll Build
 
-Taking our styled list and learning:
-- **How components work**: Understanding the building blocks of each list item
-- **Changing order**: Moving pieces around to create new layouts
-- **Adding spacing**: Putting space before and after content
+You will learn how to manipulate the rendering pipeline to create different list layouts, such as moving the item number to the end or creating an indented, spaced-out view.
 
-## Understanding Components
+![VTable Component Rendering Demo](examples/component-rendering/component-rendering.gif)
 
-VTable builds each list item using **components** - individual pieces that get combined together:
+**Default Layout:**
+`►  1. Alice Johnson...`
 
+**Custom Layouts:**
 ```
-►  1. Alice Johnson (28) - UX Designer
-^  ^  ^
-|  |  └─ Content (your formatted data)
-|  └──── Enumerator (numbers, bullets, checkboxes)
-└─────── Cursor (shows current position)
+// Numbers at the end
+► Alice Johnson...  1.
+
+// Spaced-out layout
+  ►  1. Alice Johnson...
+
+// Content-only (minimal)
+Alice Johnson...
 ```
 
-Every list item is: `[Cursor] + [Enumerator] + [Content]`
+## How It Works: The Component Pipeline
 
-## Basic Setup
+Every list item is constructed by combining the output of several components in a specific order. The default order is:
+`[Cursor] [Enumerator] [Content]`
 
-Start with our familiar styled list:
+-   `ListComponentCursor`: Renders the cursor indicator (`►`) or spacing.
+-   `ListComponentEnumerator`: Renders the item prefix (e.g., `1.`, `•`, `[x]`).
+-   `ListComponentContent`: Renders your actual formatted data.
+
+VTable also provides optional spacing components:
+-   `ListComponentPreSpacing`: Adds a configurable space before all other components.
+-   `ListComponentPostSpacing`: Adds a configurable space after all other components.
+
+By changing the `ComponentOrder` in the `ListRenderConfig`, you can create completely new layouts.
+
+## Step 1: Changing Component Order
+
+Let's move the enumerator to the end of the line.
 
 ```go
-func main() {
-	dataSource := NewPersonDataSource()
-
-	listConfig := config.DefaultListConfig()
-	listConfig.ViewportConfig.Height = 8
-	listConfig.MaxWidth = 500
-	listConfig.SelectionMode = core.SelectionMultiple
-	
-	// Set formatter in config
-	listConfig.RenderConfig.ContentConfig.Formatter = styledPersonFormatter
-
-	// Create list with numbered style
-	vtableList := list.NewList(listConfig, dataSource)
-	vtableList.SetNumberedStyle()
-}
-```
-
-This gives us the default order: `[Cursor][Enumerator][Content]`
-
-## Changing Component Order
-
-You can rearrange the components. Let's put numbers at the end:
-
-```go
-// Get the render configuration
+// 1. Get the list's current render configuration.
 renderConfig := vtableList.GetRenderConfig()
 
-// Change the order - put enumerator after content
+// 2. Change the ComponentOrder slice.
 renderConfig.ComponentOrder = []core.ListComponentType{
 	core.ListComponentCursor,
-	core.ListComponentContent,
+	core.ListComponentContent,     // Content now comes before Enumerator
 	core.ListComponentEnumerator,
 }
 
-// Apply the changes
+// 3. Apply the updated configuration.
 vtableList.SetRenderConfig(renderConfig)
 ```
+This simple change rearranges the rendered output without altering the underlying components or data.
 
-This changes your list from:
-```
-►  1. Alice Johnson (28) - UX Designer
-```
+## Step 2: Adding Spacing Components
 
-To:
-```
-► Alice Johnson (28) - UX Designer  1.
-```
-
-The components are the same, just in a different order: `[Cursor][Content][Enumerator]`
-
-## Adding Spacing Components
-
-VTable has two special spacing components you can enable:
+To add horizontal spacing, you need to enable the spacing components and include them in the `ComponentOrder`.
 
 ```go
+// 1. Get the render configuration.
 renderConfig := vtableList.GetRenderConfig()
 
-// Enable spacing before and after
+// 2. Enable and configure the spacing components.
 renderConfig.PreSpacingConfig.Enabled = true
 renderConfig.PreSpacingConfig.Spacing = "  "  // 2 spaces before
+
 renderConfig.PostSpacingConfig.Enabled = true
 renderConfig.PostSpacingConfig.Spacing = " "   // 1 space after
 
-// Include spacing in the component order
+// 3. Add them to the component order.
 renderConfig.ComponentOrder = []core.ListComponentType{
 	core.ListComponentPreSpacing,
 	core.ListComponentCursor,
@@ -100,101 +82,52 @@ renderConfig.ComponentOrder = []core.ListComponentType{
 	core.ListComponentPostSpacing,
 }
 
+// 4. Apply the updated configuration.
 vtableList.SetRenderConfig(renderConfig)
 ```
 
-Now your list looks like:
-```
-  ►  1. Alice Johnson (28) - UX Designer 
-```
+## Step 3: Creating Practical Layouts
 
-The order is: `[PreSpacing][Cursor][Enumerator][Content][PostSpacing]`
+By combining component order and configuration, you can create many standard layouts.
 
-## Practical Layouts
-
-### Checklist Style
+#### Minimal Content-Only Layout
 ```go
-renderConfig := vtableList.GetRenderConfig()
-renderConfig.PreSpacingConfig.Enabled = true
-renderConfig.PreSpacingConfig.Spacing = " "
-renderConfig.PostSpacingConfig.Enabled = true
-renderConfig.PostSpacingConfig.Spacing = " "
-renderConfig.ComponentOrder = []core.ListComponentType{
-	core.ListComponentPreSpacing,
-	core.ListComponentEnumerator,
-	core.ListComponentContent,
-	core.ListComponentPostSpacing,
-}
-vtableList.SetChecklistStyle()
-```
-
-Result: ` ☐ Alice Johnson (28) - UX Designer `
-
-### Content Only
-```go
-renderConfig := vtableList.GetRenderConfig()
 renderConfig.ComponentOrder = []core.ListComponentType{
 	core.ListComponentContent,
 }
+// You might also want to disable other components for clarity:
+renderConfig.CursorConfig.Enabled = false
+renderConfig.EnumeratorConfig.Enabled = false
 vtableList.SetRenderConfig(renderConfig)
 ```
 
-Result: `Alice Johnson (28) - UX Designer`
-
-### Custom Symbols
+#### Custom Cursor Symbol
 ```go
-renderConfig := vtableList.GetRenderConfig()
-renderConfig.CursorConfig.CursorIndicator = "🔥"
-renderConfig.CursorConfig.NormalSpacing = "  "
-renderConfig.ComponentOrder = []core.ListComponentType{
-	core.ListComponentEnumerator,
-	core.ListComponentCursor,
-	core.ListComponentContent,
-}
+renderConfig.CursorConfig.CursorIndicator = "🔥 "
 vtableList.SetRenderConfig(renderConfig)
 ```
 
-Result: `1.🔥Alice Johnson (28) - UX Designer`
+## What You'll Experience
 
-## All Available Components
-
-```go
-core.ListComponentCursor      // ► or spaces
-core.ListComponentEnumerator  // 1. or • or ☐
-core.ListComponentContent     // Your formatted data
-core.ListComponentPreSpacing  // Spaces before everything
-core.ListComponentPostSpacing // Spaces after everything
-```
+-   **Total Layout Control**: You can place any component in any order.
+-   **Reusable Components**: The same `Enumerator` or `Content` component works in any layout.
+-   **Dynamic Updates**: Change the layout at runtime in response to user actions or application state.
 
 ## Complete Example
 
-See the component rendering example: [`examples/component-rendering/`](examples/component-rendering/)
+See the full working code, which includes an interactive demo for cycling through different layouts and adjusting component widths.
+[`docs/03-list-component/examples/component-rendering/`](examples/component-rendering/)
 
-Run it:
+To run it:
 ```bash
 cd docs/03-list-component/examples/component-rendering
 go run main.go
 ```
+-   Press `c` to cycle through different component layouts.
+-   Press `w` to select a component and `+`/`-` to adjust its width.
 
-Press 'c' to cycle through different component layouts and see how they work!
+## What's Next?
 
-## Try It Yourself
-
-1. **Change order**: Move cursor, enumerator, and content around
-2. **Add spacing**: Put spaces before and after content
-3. **Remove components**: Create minimal layouts with just content
-4. **Mix and match**: Create your own custom arrangements
-
-## Key Concepts
-
-**Components**: Each list item is built from individual pieces you can rearrange.
-
-**Component Order**: You control which pieces appear and in what sequence.
-
-**Spacing**: Special spacing components let you add space before and after.
-
-## What's Next
-
-Now you understand how VTable builds list items! You can create any layout by rearranging the component pieces.
+You have now mastered the visual presentation of the list component. The final step is to learn how to add server-side style filtering and sorting capabilities.
 
 **Next:** [Filtering and Sorting →](10-filtering-sorting.md) 
